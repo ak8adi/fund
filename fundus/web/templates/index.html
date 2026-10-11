@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="grid-2">
+  <div>
+    <h2>Suchaufträge</h2>
+    {% if not searches %}
+      <p class="muted">Noch keine Suche. Beim ersten Lauf wird nur der aktuelle Bestand eingelesen – gemeldet wird erst, was danach neu dazukommt.</p>
+    {% endif %}
+    <ul class="searches">
+      {% for s in searches %}
+      <li class="{{ '' if s.active else 'paused' }}">
+        <a href="/search/{{ s.id }}">
+          <span class="q">{{ s.query }}</span>
+          {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% endif %}
+          <span class="muted small">
+            {{ s.total }} Treffer
+            {% if s.max_price %} · bis {{ s.max_price | int }}{% endif %}
+            {% if s.platforms %} · {{ s.platforms | join(', ') }}{% endif %}
+            {% if not s.active %} · pausiert{% endif %}
+          </span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    <details {% if not searches %}open{% endif %} class="card">
+      <summary>Neue Suche</summary>
+      {% include "_search_form.html" %}
+    </details>
+  </div>
+  <div>
+    <h2>Neu gefunden</h2>
+    {% if not hits %}<p class="muted">Nichts Neues, das du noch nicht angeschaut hast.</p>{% endif %}
+    <div class="hits">
+      {% for h in hits %}{% include "_hit.html" %}{% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,51 @@
+# Kopieren nach config.yaml und anpassen.
+# Jeder Wert kann auch per Umgebungsvariable gesetzt werden (z.B. FUNDUS_NTFY_TOPIC).
+
+# Wo die Datenbank liegt (relativ zum Arbeitsverzeichnis oder absolut)
+data_dir: ./data
+
+web:
+  host: 127.0.0.1      # im Docker: 0.0.0.0
+  port: 8100
+  # Adresse, unter der du die Oberfläche vom Handy aus erreichst (für Klick auf Sammelmeldungen)
+  public_url: ""     # z.B. http://fabios-mac.local:8100
+
+# Wann automatisch geprüft wird (lokale Zeit). 1–2 Mal pro Tag reicht.
+schedule:
+  times: ["07:40", "18:20"]
+  jitter_minutes: 25     # Zufallsversatz, damit es nicht immer exakt gleich abfragt
+  timezone: Europe/Zurich
+
+# Pause zwischen zwei Anfragen (Sekunden, zufällig im Bereich)
+request_delay: [4, 11]
+
+ntfy:
+  server: https://ntfy.sh
+  topic: ""              # z.B. fundus-fabio-8f3k2 – lang und zufällig wählen, Topics sind öffentlich
+  token: ""              # nur nötig bei eigenem/geschütztem ntfy-Server
+  max_per_search: 5      # mehr Treffer pro Suche → eine Sammelmeldung
+
+# eBay Browse API (kostenlos): https://developer.ebay.com → Application Keys (Production)
+ebay:
+  app_id: ""
+  cert_id: ""
+  # Welche eBay-Länder abgefragt werden; in der Weboberfläche einzeln abschaltbar
+  marketplaces: [EBAY_CH, EBAY_DE, EBAY_FR, EBAY_IT, EBAY_AT]
+  used_only: true          # nur Zustand «gebraucht»
+  home_country_only: true  # nur Artikel, die im jeweiligen Land stehen (filtert Dropshipping aus Fernost)
+
+# Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
+fx_to_chf: {CHF: 1.0, EUR: 0.94, GBP: 1.08}
+
+# Scraping-Plattformen: Such-URL ist anpassbar, falls eine Plattform ihre URLs ändert.
+# {query} wird URL-codiert eingesetzt.
+platforms:
+  ricardo:
+    url: "https://www.ricardo.ch/de/s/{query}/?sort=newest"
+    fetcher: http        # http | browser (browser braucht: pip install 'fundus[browser]' && playwright install chromium)
+  tutti:
+    url: "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest"
+    fetcher: http
+  anibis:
+    url: "https://www.anibis.ch/de/q/alle-kategorien/{query}?sorting=newest"
+    fetcher: http

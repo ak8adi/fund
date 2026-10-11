@@ -1,0 +1,8 @@
+services:
+  fundus:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./data:/data          # config.yaml und fundus.db hier ablegen

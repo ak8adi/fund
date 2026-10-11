@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Plattformen – fundus{% endblock %}
+{% block content %}
+<section class="grid-2">
+  <div>
+    <h2>Plattformen</h2>
+    <p class="muted small">Ausgeschaltete Quellen werden bei keiner Suche abgefragt. Pro Suche lässt sich die Auswahl zusätzlich einschränken.</p>
+    <ul class="sources">
+      {% for s in sources %}{% include "_source.html" %}{% endfor %}
+    </ul>
+    <p class="muted small">Facebook Marketplace folgt später (braucht Login, eigener Adapter).</p>
+  </div>
+  <div>
+    <h2>Benachrichtigung</h2>
+    <div class="card">
+      {% if cfg.ntfy.topic %}
+        <p>ntfy-Topic: <code>{{ cfg.ntfy.topic }}</code> auf {{ cfg.ntfy.server }}</p>
+        <form method="post" action="/ntfy/test" class="inline"><button class="btn small">Testmeldung senden</button></form>
+        {% if test == 'ok' %}<span class="ok small">gesendet</span>{% elif test == 'fail' %}<span class="warn small">fehlgeschlagen – Log prüfen</span>{% endif %}
+      {% else %}
+        <p class="warn">Kein Topic gesetzt.</p>
+      {% endif %}
+      <p class="muted small">In der ntfy-App dasselbe Topic abonnieren. Bis {{ cfg.ntfy.max_per_search }} Treffer pro Suche einzeln, darüber eine Sammelmeldung.</p>
+    </div>
+
+    <h2>Zeitplan</h2>
+    <div class="card">
+      <p>{{ cfg.schedule.times | join(' und ') }} Uhr, ±{{ cfg.schedule.jitter_minutes }} min Zufallsversatz</p>
+      <p class="muted small">Nächste Läufe: {% for t in next_runs %}{{ t | clock }}{% if not loop.last %}, {% endif %}{% else %}keine{% endfor %}</p>
+      <p class="muted small">Pro Suche und Quelle genau eine Anfrage (erste Seite, neueste zuerst), {{ cfg.request_delay[0] }}–{{ cfg.request_delay[1] }} s Pause dazwischen.</p>
+    </div>
+
+    <h2>Letzte Läufe</h2>
+    <table class="runs">
+      {% for r in runs %}
+      <tr><td>{{ r.started_at | ago }}</td><td>{{ r.trigger }}</td><td>{{ r.new_hits if r.new_hits is not none else '…' }} neu</td>
+          <td>{% if r.errors %}<span class="warn">{{ r.errors }} Fehler</span>{% endif %}</td></tr>
+      {% else %}<tr><td class="muted">noch keine</td></tr>{% endfor %}
+    </table>
+  </div>
+</section>
+{% endblock %}

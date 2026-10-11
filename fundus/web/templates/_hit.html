@@ -1,0 +1,28 @@
+<article class="hit trust-{{ h.trust_level }}{% if h.is_new %} new{% endif %}">
+  <a class="thumb" href="{{ h.url }}" target="_blank" rel="noopener">
+    {% if h.image %}<img src="{{ h.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span>kein Foto</span>{% endif %}
+  </a>
+  <div class="body">
+    <a class="title" href="{{ h.url }}" target="_blank" rel="noopener">{{ h.title }}</a>
+    <div class="meta">
+      <strong>{{ price(h.price, h.currency) }}</strong>
+      {% if h.first_price and h.price and h.price < h.first_price %}<span class="drop">statt {{ price(h.first_price, h.currency) }}</span>{% endif %}
+      · {{ source_label(h.source, h.platform) }}
+      {% if h.location %} · {{ h.location }}{% endif %}
+      {% if h.country and h.platform == 'ebay' %} ({{ h.country }}){% endif %}
+    </div>
+    <div class="trust">
+      <span class="dot"></span>
+      <span>{{ trust_labels[h.trust_level] if h.trust_level in trust_labels else 'Unbekannt' }}</span>
+      {% if h.seller and h.seller.name %}<span class="muted">· {{ h.seller.name }}</span>{% endif %}
+      {% if h.trust_reasons %}<span class="muted reasons">· {{ h.trust_reasons | join(', ') }}</span>{% endif %}
+    </div>
+    <div class="foot muted small">
+      {% if h.search_query is defined and h.search_query %}<a href="/search/{{ h.search_id }}">{{ h.search_query }}</a> · {% endif %}
+      gefunden {{ h.hit_seen | ago }}
+      {% if h.is_new %}<span class="pill new">neu</span>{% endif %}
+      <button class="link" hx-post="/search/{{ h.search_id }}/hide" hx-vals='{{ {"key": h.key} | tojson }}'
+              hx-target="closest article" hx-swap="outerHTML">ausblenden</button>
+    </div>
+  </div>
+</article>

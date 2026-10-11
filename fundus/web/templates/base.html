@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}fundus{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a href="/" class="brand">fundus</a>
+    <nav>
+      <a href="/">Suchen</a>
+      <a href="/settings">Plattformen</a>
+    </nav>
+    <div id="status" hx-get="/status" hx-trigger="every 4s" hx-swap="innerHTML">
+      {% include "_status.html" %}
+    </div>
+  </header>
+  {% if not ntfy_ok %}
+  <p class="banner">Benachrichtigungen sind aus: <code>ntfy.topic</code> in config.yaml setzen.</p>
+  {% endif %}
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

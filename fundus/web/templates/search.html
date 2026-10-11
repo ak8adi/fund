@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ search.query }} – fundus{% endblock %}
+{% block content %}
+<div class="search-head">
+  <h2>{{ search.query }} {% if not search.active %}<span class="pill">pausiert</span>{% endif %}</h2>
+  <div class="actions">
+    <form method="post" action="/search/{{ search.id }}/run" class="inline"><button class="btn small">Jetzt prüfen</button></form>
+    <form method="post" action="/search/{{ search.id }}/toggle" class="inline">
+      <button class="btn small ghost">{{ 'Pausieren' if search.active else 'Fortsetzen' }}</button>
+    </form>
+    <form method="post" action="/search/{{ search.id }}/delete" class="inline" onsubmit="return confirm('Suche löschen?')">
+      <button class="btn small ghost danger">Löschen</button>
+    </form>
+  </div>
+</div>
+<p class="muted small">
+  {% if not search.baseline_done %}Bestand wird gerade eingelesen …{% else %}zuletzt geprüft {{ search.last_run_at | ago }}{% endif %}
+  · {{ hits | length }} Treffer
+</p>
+
+<details class="card">
+  <summary>Suche bearbeiten</summary>
+  {% include "_search_form.html" %}
+</details>
+
+<div class="hits wide">
+  {% for h in hits %}{% include "_hit.html" %}{% endfor %}
+</div>
+{% if not hits and search.baseline_done %}<p class="muted">Keine Treffer. Plattform-Status unter «Plattformen» prüfen.</p>{% endif %}
+{% endblock %}
