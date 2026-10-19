@@ -37,6 +37,8 @@ def notify_hits(cfg: dict, search: dict, hits: list[dict], platform_labels: dict
     """Schickt bis zu max_per_search Einzelmeldungen, sonst eine Sammelmeldung. Gibt gemeldete Keys zurück."""
     if not hits or not cfg["ntfy"].get("topic"):
         return []
+    if not cfg["ntfy"].get("on_new", True) or not search.get("notify_new", 1):
+        return []
     limit = int(cfg["ntfy"].get("max_per_search", 5))
     public = (cfg["web"].get("public_url") or "").rstrip("/")
     sent: list[str] = []
@@ -74,3 +76,16 @@ def notify_hits(cfg: dict, search: dict, hits: list[dict], platform_labels: dict
 
 def send_test(cfg: dict) -> bool:
     return _publish(cfg, {"title": "fundus", "message": "Test – Benachrichtigungen funktionieren.", "tags": ["tada"]})
+
+
+def send_weekly(cfg: dict, rows: list[dict]) -> bool:
+    """Wochenübersicht: eine Zeile pro Suche."""
+    if not rows:
+        return False
+    lines = [f"• {r['query']}: {r['week']} neu, {r['total']} gesamt" for r in rows]
+    total = sum(r["week"] for r in rows)
+    payload = {"title": f"Wochenübersicht: {total} neue Treffer", "message": "\n".join(lines), "tags": ["calendar"]}
+    public = (cfg["web"].get("public_url") or "").rstrip("/")
+    if public:
+        payload["click"] = public
+    return _publish(cfg, payload)

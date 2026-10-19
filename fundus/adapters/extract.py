@@ -18,6 +18,8 @@ from ..models import Listing, Seller
 
 SCRIPT_RE = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.S | re.I)
 STATE_RE = re.compile(r"window\.__[A-Z0-9_]+__\s*=\s*(\{.*?\})\s*;?\s*$", re.S | re.M)
+FLIGHT_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*\])\)\s*;?\s*$", re.S)
+FLIGHT_ROW_RE = re.compile(r"^[0-9a-f]+:(?=[\[{])")
 
 ID_KEYS = ("listingID", "listingId", "articleId", "itemId", "adId", "id")
 TITLE_KEYS = ("title", "subject", "name")
@@ -32,9 +34,19 @@ SELLER_KEYS = ("seller", "sellerInfo", "user", "owner", "vendor", "publisher")
 
 def json_blobs(page: str) -> Iterator[Any]:
     """Alle JSON-Strukturen aus <script>-Tags und window.__X__-Zuweisungen."""
+    flight: list[str] = []
     for attrs, body in SCRIPT_RE.findall(page):
         body = body.strip()
         if not body:
+            continue
+        m = FLIGHT_PUSH_RE.match(body)
+        if m:  # Next.js App Router: Daten stecken in self.__next_f.push([1, "…"])
+            try:
+                chunk = json.loads(m.group(1))
+            except ValueError:
+                continue
+            if len(chunk) > 1 and chunk[0] == 1 and isinstance(chunk[1], str):
+                flight.append(chunk[1])
             continue
         if "json" in attrs.lower() or body[:1] in "{[":
             try:
@@ -45,6 +57,14 @@ def json_blobs(page: str) -> Iterator[Any]:
         for m in STATE_RE.finditer(body):
             try:
                 yield json.loads(m.group(1))
+            except ValueError:
+                pass
+    # Flight-Zeilen sind «id:JSON»; einzelne Chunks brechen mitten in einer Zeile um, daher erst zusammensetzen.
+    for line in "".join(flight).split("\n"):
+        m = FLIGHT_ROW_RE.match(line)
+        if m:
+            try:
+                yield json.loads(line[m.end():])
             except ValueError:
                 pass
 

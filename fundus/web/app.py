@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,9 +16,9 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db, runner
 from ..adapters import all_adapters
-from ..config import get_config
-from ..notify import format_price, send_test
-from ..scheduler import next_runs, start_scheduler
+from ..config import get_config, save_settings
+from ..notify import format_price, send_test, send_weekly
+from ..scheduler import apply_schedule, next_runs, start_scheduler
 from ..trust import LEVELS
 
 log = logging.getLogger(__name__)
@@ -209,13 +210,17 @@ def status(request: Request):
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings(request: Request, test: str | None = None):
+def settings(request: Request, test: str | None = None, saved: str | None = None):
     cfg = get_config()
     return templates.TemplateResponse(request, "settings.html", _ctx(
         request,
         sources=runner.available_sources(cfg),
         cfg=cfg,
+        searches=db.list_searches(),
+        weekdays=[("mon", "Montag"), ("tue", "Dienstag"), ("wed", "Mittwoch"), ("thu", "Donnerstag"),
+                  ("fri", "Freitag"), ("sat", "Samstag"), ("sun", "Sonntag")],
         test=test,
+        saved=saved,
         runs=db.last_runs(8),
     ))
 
@@ -232,4 +237,56 @@ def toggle_platform(request: Request, name: str):
 @app.post("/ntfy/test")
 def ntfy_test():
     ok = send_test(get_config())
+    return RedirectResponse(f"/settings?test={'ok' if ok else 'fail'}", status_code=303)
+
+
+@app.post("/settings/ntfy")
+def save_ntfy(server: str = Form("https://ntfy.sh"), topic: str = Form(""), token: str = Form("")):
+    save_settings("ntfy", {"server": server.strip() or "https://ntfy.sh", "topic": topic.strip(), "token": token.strip()})
+    return RedirectResponse("/settings?saved=ntfy", status_code=303)
+
+
+@app.post("/settings/ebay")
+def save_ebay(app_id: str = Form(""), cert_id: str = Form("")):
+    save_settings("ebay", {"app_id": app_id.strip(), "cert_id": cert_id.strip()})
+    return RedirectResponse("/settings?saved=ebay", status_code=303)
+
+
+@app.post("/settings/schedule")
+def save_schedule(times: str = Form(""), jitter_minutes: str = Form("0")):
+    parts = [t for t in re.split(r"[,;\s]+", times.strip()) if t]
+    valid = []
+    for t in parts:
+        m = re.fullmatch(r"(\d{1,2})[:.](\d{2})", t)
+        if not m or int(m[1]) > 23 or int(m[2]) > 59:
+            return RedirectResponse("/settings?saved=schedule-error", status_code=303)
+        valid.append(f"{int(m[1]):02d}:{m[2]}")
+    jitter = int(jitter_minutes) if jitter_minutes.strip().isdigit() else 0
+    valid = sorted(set(valid))
+    save_settings("schedule", {"times": valid, "jitter_minutes": min(jitter, 120)})
+    apply_schedule(state["scheduler"], get_config())
+    return RedirectResponse("/settings?saved=schedule", status_code=303)
+
+
+@app.post("/settings/notify")
+async def save_notify(request: Request):
+    form = await request.form()
+    m = re.fullmatch(r"(\d{1,2})[:.](\d{2})", str(form.get("weekly_time", "")).strip())
+    if not m or int(m[1]) > 23 or int(m[2]) > 59:
+        return RedirectResponse("/settings?saved=notify-error", status_code=303)
+    day = str(form.get("weekly_day", "mon"))
+    save_settings("ntfy", {
+        "on_new": "on_new" in form, "weekly": "weekly" in form,
+        "weekly_day": day if day in {"mon", "tue", "wed", "thu", "fri", "sat", "sun"} else "mon",
+        "weekly_time": f"{int(m[1]):02d}:{m[2]}",
+    })
+    for s in db.list_searches():
+        db.set_search_notify(s["id"], f"new_{s['id']}" in form, f"weekly_{s['id']}" in form)
+    apply_schedule(state["scheduler"], get_config())
+    return RedirectResponse("/settings?saved=notify", status_code=303)
+
+
+@app.post("/ntfy/weekly")
+def weekly_now():
+    ok = send_weekly(get_config(), db.weekly_summary())
     return RedirectResponse(f"/settings?test={'ok' if ok else 'fail'}", status_code=303)

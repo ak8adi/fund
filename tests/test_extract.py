@@ -75,3 +75,17 @@ def test_ld_json_itemlist():
     assert listings[0].external_id == "55512345"
     assert listings[0].price == 900.0
     assert listings[0].image == "https://img/x.jpg"
+
+
+def test_ricardo_next_app_router_flight_data():
+    # Next.js App Router: Daten in self.__next_f.push([1, "id:JSON\n"]); eine Zeile über zwei Chunks verteilt
+    row = "5:" + json.dumps({"state": {"articles": [{
+        "id": "1332672514", "title": "Eames Fiberglass Chair", "buyNowPrice": 450,
+        "creationDate": "2026-10-17T10:20:00Z", "image": "https://img.ricardostatic.ch/x.jpg"}]}})
+    half = len(row) // 2
+    chunks = [row[:half], row[half:] + "\n"]
+    page = "".join(f"<script>self.__next_f.push({json.dumps([1, c])})</script>" for c in chunks)
+    items = RicardoAdapter(get_config()).parse(page)
+    assert len(items) == 1
+    assert items[0].url == "https://www.ricardo.ch/de/a/1332672514/"
+    assert items[0].price == 450

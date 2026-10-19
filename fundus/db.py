@@ -6,7 +6,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS searches (
     active        INTEGER NOT NULL DEFAULT 1,
     baseline_done INTEGER NOT NULL DEFAULT 0,   -- erster Lauf meldet nichts, merkt sich nur den Bestand
     created_at    TEXT NOT NULL,
-    last_run_at   TEXT
+    last_run_at   TEXT,
+    notify_new    INTEGER NOT NULL DEFAULT 1,   -- Meldung bei neuem Angebot
+    notify_weekly INTEGER NOT NULL DEFAULT 1    -- in der Wochenübersicht aufführen
 );
 CREATE TABLE IF NOT EXISTS listings (
     key           TEXT PRIMARY KEY,
@@ -97,6 +99,10 @@ def init_db() -> None:
     with connect() as c:
         c.execute("PRAGMA journal_mode = WAL")
         c.executescript(SCHEMA)
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(searches)")}
+        for col in ("notify_new", "notify_weekly"):  # Migration bestehender Datenbanken
+            if col not in cols:
+                c.execute(f"ALTER TABLE searches ADD COLUMN {col} INTEGER NOT NULL DEFAULT 1")
 
 
 # ---------- Suchen ----------
@@ -151,6 +157,24 @@ def save_search(data: dict, search_id: int | None = None) -> int:
 def set_search_active(search_id: int, active: bool) -> None:
     with connect() as c:
         c.execute("UPDATE searches SET active = ? WHERE id = ?", (int(active), search_id))
+
+
+def set_search_notify(search_id: int, notify_new: bool, notify_weekly: bool) -> None:
+    with connect() as c:
+        c.execute("UPDATE searches SET notify_new = ?, notify_weekly = ? WHERE id = ?",
+                  (int(notify_new), int(notify_weekly), search_id))
+
+
+def weekly_summary(days: int = 7) -> list[dict]:
+    """Aktive Suchen mit Wochenübersicht: Treffer der letzten Tage und Gesamtzahl."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    sql = """SELECT s.id, s.query,
+                    (SELECT COUNT(*) FROM hits h WHERE h.search_id = s.id AND h.hidden = 0 AND h.first_seen >= ?) AS week,
+                    (SELECT COUNT(*) FROM hits h WHERE h.search_id = s.id AND h.hidden = 0) AS total
+             FROM searches s WHERE s.active = 1 AND s.notify_weekly = 1 AND s.baseline_done = 1
+             ORDER BY s.query"""
+    with connect() as c:
+        return [dict(r) for r in c.execute(sql, (cutoff,))]
 
 
 def delete_search(search_id: int) -> None:

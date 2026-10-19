@@ -15,7 +15,11 @@ DEFAULTS: dict[str, Any] = {
     "web": {"host": "127.0.0.1", "port": 8100, "public_url": ""},
     "schedule": {"times": ["07:40", "18:20"], "jitter_minutes": 25, "timezone": "Europe/Zurich"},
     "request_delay": [4, 11],
-    "ntfy": {"server": "https://ntfy.sh", "topic": "", "token": "", "max_per_search": 5},
+    "ntfy": {
+        "server": "https://ntfy.sh", "topic": "", "token": "", "max_per_search": 5,
+        "on_new": True,                                  # Meldung bei jedem neuen Angebot
+        "weekly": True, "weekly_day": "mon", "weekly_time": "08:00",  # Wochenübersicht
+    },
     "ebay": {
         "app_id": "",
         "cert_id": "",
@@ -72,3 +76,16 @@ def get_config() -> dict[str, Any]:
     cfg = _apply_env(_merge(DEFAULTS, user))
     Path(cfg["data_dir"]).mkdir(parents=True, exist_ok=True)
     return cfg
+
+
+def save_settings(section: str, values: dict[str, Any]) -> None:
+    """Werte in config.yaml schreiben und in der laufenden Konfiguration übernehmen (ohne Neustart).
+    Hinweis: Kommentare in config.yaml gehen dabei verloren."""
+    cfg = get_config()
+    path = Path(os.environ.get("FUNDUS_CONFIG", "config.yaml"))
+    user: dict = {}
+    if path.exists():
+        user = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    user.setdefault(section, {}).update(values)
+    path.write_text(yaml.safe_dump(user, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    cfg[section].update(values)

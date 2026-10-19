@@ -8,9 +8,13 @@
     <form method="post" action="/search/{{ search.id }}/toggle" class="inline">
       <button class="btn small ghost">{{ 'Pausieren' if search.active else 'Fortsetzen' }}</button>
     </form>
-    <form method="post" action="/search/{{ search.id }}/delete" class="inline" onsubmit="return confirm('Suche löschen?')">
-      <button class="btn small ghost danger">Löschen</button>
-    </form>
+    <details class="inline-confirm">
+      <summary class="btn small ghost danger">Löschen</summary>
+      <form method="post" action="/search/{{ search.id }}/delete" class="inline">
+        <span class="small">Suche samt Treffern löschen?</span>
+        <button class="btn small danger">Ja, löschen</button>
+      </form>
+    </details>
   </div>
 </div>
 <p class="muted small">
@@ -26,5 +30,5 @@
 <div class="hits wide">
   {% for h in hits %}{% include "_hit.html" %}{% endfor %}
 </div>
-{% if not hits and search.baseline_done %}<p class="muted">Keine Treffer. Plattform-Status unter «Plattformen» prüfen.</p>{% endif %}
+{% if not hits and search.baseline_done %}<p class="muted">Keine Treffer. Plattform-Status unter «Einstellungen» prüfen.</p>{% endif %}
 {% endblock %}

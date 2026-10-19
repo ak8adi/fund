@@ -55,6 +55,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 0 24px 60px; }
 .btn.small { padding: 6px 12px; font-size: 13px; }
 .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
 .btn.danger { color: var(--warn); }
+.btn.danger:not(.ghost) { background: var(--warn); color: #fff; }
 button.link { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; margin-left: 6px; }
 
 .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--line); color: var(--ink); font-weight: 600; }
@@ -121,3 +122,17 @@ details[open].card summary { margin-bottom: 12px; }
 
 .runs { width: 100%; border-collapse: collapse; font-size: 14px; }
 .runs td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
+
+/* Einstellungen-Formulare & Inline-Bestätigung */
+form.stack { display: grid; gap: .6rem; margin-bottom: .6rem; }
+form.stack label { display: grid; gap: .2rem; font-size: .85rem; }
+form.stack input { padding: .4rem .5rem; font: inherit; }
+details.inline-confirm { display: inline-block; }
+details.inline-confirm summary { list-style: none; cursor: pointer; display: inline-block; }
+details.inline-confirm summary::-webkit-details-marker { display: none; }
+details.inline-confirm[open] > summary { display: none; }
+form.stack label.check { display: flex; gap: .5rem; align-items: baseline; }
+form.stack .row { display: flex; gap: 1rem; }
+form.stack select { padding: .4rem .5rem; font: inherit; }
+table.runs th.left { text-align: left; }
+table.runs td.c, table.runs th { text-align: center; }

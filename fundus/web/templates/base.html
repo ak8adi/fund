@@ -12,14 +12,14 @@
     <a href="/" class="brand">fundus</a>
     <nav>
       <a href="/">Suchen</a>
-      <a href="/settings">Plattformen</a>
+      <a href="/settings">Einstellungen</a>
     </nav>
     <div id="status" hx-get="/status" hx-trigger="every 4s" hx-swap="innerHTML">
       {% include "_status.html" %}
     </div>
   </header>
   {% if not ntfy_ok %}
-  <p class="banner">Benachrichtigungen sind aus: <code>ntfy.topic</code> in config.yaml setzen.</p>
+  <p class="banner">Benachrichtigungen sind aus: ntfy-Topic unter <a href="/settings">Einstellungen</a> setzen.</p>
   {% endif %}
   <main>
     {% block content %}{% endblock %}

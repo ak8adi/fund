@@ -47,7 +47,7 @@ class EbayAdapter(Adapter):
         e = self.cfg["ebay"]
         if e.get("app_id") and e.get("cert_id"):
             return True, ""
-        return False, "eBay-Schlüssel fehlen (ebay.app_id / ebay.cert_id in config.yaml)"
+        return False, "Bitte unter Einstellungen eBay-Schlüssel eingeben"
 
     def _get_token(self) -> str:
         with _token_lock:

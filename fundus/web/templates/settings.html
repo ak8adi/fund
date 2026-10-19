@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Plattformen – fundus{% endblock %}
+{% block title %}Einstellungen – fundus{% endblock %}
 {% block content %}
 <section class="grid-2">
   <div>
@@ -13,19 +13,71 @@
   <div>
     <h2>Benachrichtigung</h2>
     <div class="card">
+      <form method="post" action="/settings/ntfy" class="stack">
+        <label>Topic <input name="topic" value="{{ cfg.ntfy.topic }}" placeholder="z.B. fundus-fabio-8f3k2" autocomplete="off"></label>
+        <label>Server <input name="server" value="{{ cfg.ntfy.server }}"></label>
+        <label>Token (nur bei geschütztem Server) <input name="token" value="{{ cfg.ntfy.token }}" autocomplete="off"></label>
+        <div><button class="btn small">Speichern</button>
+        {% if saved == 'ntfy' %}<span class="ok small">gespeichert</span>{% endif %}</div>
+      </form>
       {% if cfg.ntfy.topic %}
-        <p>ntfy-Topic: <code>{{ cfg.ntfy.topic }}</code> auf {{ cfg.ntfy.server }}</p>
-        <form method="post" action="/ntfy/test" class="inline"><button class="btn small">Testmeldung senden</button></form>
+        <form method="post" action="/ntfy/test" class="inline"><button class="btn small ghost">Testmeldung senden</button></form>
         {% if test == 'ok' %}<span class="ok small">gesendet</span>{% elif test == 'fail' %}<span class="warn small">fehlgeschlagen – Log prüfen</span>{% endif %}
-      {% else %}
-        <p class="warn">Kein Topic gesetzt.</p>
       {% endif %}
       <p class="muted small">In der ntfy-App dasselbe Topic abonnieren. Bis {{ cfg.ntfy.max_per_search }} Treffer pro Suche einzeln, darüber eine Sammelmeldung.</p>
     </div>
 
+    <h2>Wann benachrichtigen</h2>
+    <div class="card">
+      <form method="post" action="/settings/notify" class="stack">
+        <label class="check"><input type="checkbox" name="on_new" {{ 'checked' if cfg.ntfy.on_new }}> <b>Neues Angebot gefunden</b> – Meldung nach jedem Scan</label>
+        <label class="check"><input type="checkbox" name="weekly" {{ 'checked' if cfg.ntfy.weekly }}> <b>Wochenübersicht</b> – eine Liste der Suchen mit Anzahl neuer Treffer</label>
+        <div class="row">
+          <label>Wochentag <select name="weekly_day">
+            {% for k, v in weekdays %}<option value="{{ k }}" {{ 'selected' if cfg.ntfy.weekly_day == k }}>{{ v }}</option>{% endfor %}
+          </select></label>
+          <label>Uhrzeit <input name="weekly_time" value="{{ cfg.ntfy.weekly_time }}" size="5"></label>
+        </div>
+        {% if searches %}
+        <table class="runs">
+          <tr><th class="left">Suche</th><th>Neues Angebot</th><th>Wochenübersicht</th></tr>
+          {% for s in searches %}
+          <tr>
+            <td>{{ s.query }}{% if not s.active %} <span class="muted small">(pausiert)</span>{% endif %}</td>
+            <td class="c"><input type="checkbox" name="new_{{ s.id }}" {{ 'checked' if s.notify_new }} title="aktiv / passiv"></td>
+            <td class="c"><input type="checkbox" name="weekly_{{ s.id }}" {{ 'checked' if s.notify_weekly }} title="aktiv / passiv"></td>
+          </tr>
+          {% endfor %}
+        </table>
+        <p class="muted small">Haken = aktiv, kein Haken = passiv (Treffer erscheinen weiterhin hier in der App).</p>
+        {% endif %}
+        <div><button class="btn small">Speichern</button>
+        {% if saved == 'notify' %}<span class="ok small">gespeichert</span>{% elif saved == 'notify-error' %}<span class="warn small">Ungültige Uhrzeit – Format HH:MM</span>{% endif %}</div>
+      </form>
+      {% if cfg.ntfy.topic %}
+      <form method="post" action="/ntfy/weekly" class="inline"><button class="btn small ghost">Wochenübersicht jetzt senden</button></form>
+      {% endif %}
+    </div>
+
+    <h2>eBay-Schlüssel</h2>
+    <div class="card">
+      <form method="post" action="/settings/ebay" class="stack">
+        <label>App ID <input name="app_id" value="{{ cfg.ebay.app_id }}" autocomplete="off"></label>
+        <label>Cert ID <input name="cert_id" value="{{ cfg.ebay.cert_id }}" autocomplete="off"></label>
+        <div><button class="btn small">Speichern</button>
+        {% if saved == 'ebay' %}<span class="ok small">gespeichert</span>{% endif %}</div>
+      </form>
+      <p class="muted small">Kostenlos auf developer.ebay.com → Application Keys → Production. Ohne Schlüssel bleibt eBay aus.</p>
+    </div>
+
     <h2>Zeitplan</h2>
     <div class="card">
-      <p>{{ cfg.schedule.times | join(' und ') }} Uhr, ±{{ cfg.schedule.jitter_minutes }} min Zufallsversatz</p>
+      <form method="post" action="/settings/schedule" class="stack">
+        <label>Uhrzeiten (kommagetrennt, 24 h) <input name="times" value="{{ cfg.schedule.times | join(', ') }}" placeholder="07:40, 18:20"></label>
+        <label>Zufallsversatz ± Minuten <input name="jitter_minutes" type="number" min="0" max="120" value="{{ cfg.schedule.jitter_minutes }}"></label>
+        <div><button class="btn small">Speichern</button>
+        {% if saved == 'schedule' %}<span class="ok small">gespeichert</span>{% elif saved == 'schedule-error' %}<span class="warn small">Ungültige Uhrzeit – Format HH:MM</span>{% endif %}</div>
+      </form>
       <p class="muted small">Nächste Läufe: {% for t in next_runs %}{{ t | clock }}{% if not loop.last %}, {% endif %}{% else %}keine{% endfor %}</p>
       <p class="muted small">Pro Suche und Quelle genau eine Anfrage (erste Seite, neueste zuerst), {{ cfg.request_delay[0] }}–{{ cfg.request_delay[1] }} s Pause dazwischen.</p>
     </div>
