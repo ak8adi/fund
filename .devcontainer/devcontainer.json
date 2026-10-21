@@ -1,0 +1,13 @@
+{
+  "name": "fundus",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "forwardPorts": [8100],
+  "portsAttributes": {
+    "8100": {
+      "label": "fundus web",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "postCreateCommand": "pip install -e . && [ -f config.yaml ] || cp config.example.yaml config.yaml",
+  "postStartCommand": "nohup fundus serve > /tmp/fundus.log 2>&1 &"
+}
