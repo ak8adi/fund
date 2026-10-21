@@ -33,6 +33,7 @@ DEFAULTS: dict[str, Any] = {
         "ricardo": {"url": "https://www.ricardo.ch/de/s/{query}/?sort=newest", "fetcher": "http"},
         "tutti": {"url": "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
         "anibis": {"url": "https://www.anibis.ch/de/q/alle-kategorien/{query}?sorting=newest", "fetcher": "http"},
+        "kleinanzeigen": {"url": "https://www.kleinanzeigen.de/s-{query}/k0", "fetcher": "http"},
     },
 }
 

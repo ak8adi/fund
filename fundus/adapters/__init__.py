@@ -5,8 +5,9 @@ from __future__ import annotations
 from .base import Adapter, AdapterError, BlockedError
 from .ebay import EbayAdapter
 from .scraped import AnibisAdapter, RicardoAdapter, TuttiAdapter
+from .kleinanzeigen import KleinanzeigenAdapter
 
-ADAPTER_CLASSES: list[type[Adapter]] = [RicardoAdapter, TuttiAdapter, AnibisAdapter, EbayAdapter]
+ADAPTER_CLASSES: list[type[Adapter]] = [RicardoAdapter, TuttiAdapter, AnibisAdapter, EbayAdapter, KleinanzeigenAdapter]
 
 
 def all_adapters(cfg: dict) -> list[Adapter]:

@@ -49,3 +49,6 @@ platforms:
   anibis:
     url: "https://www.anibis.ch/de/q/alle-kategorien/{query}?sorting=newest"
     fetcher: http
+  kleinanzeigen:
+    url: "https://www.kleinanzeigen.de/s-{query}/k0"
+    fetcher: http
