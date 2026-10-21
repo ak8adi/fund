@@ -9,5 +9,5 @@
     }
   },
   "postCreateCommand": "pip install -e . && [ -f config.yaml ] || cp config.example.yaml config.yaml",
-  "postStartCommand": "nohup fundus serve > /tmp/fundus.log 2>&1 &"
+  "postStartCommand": "pip install -e . && [ -f config.yaml ] || cp config.example.yaml config.yaml && (pkill -f 'fundus serve' || true) && nohup fundus serve > /tmp/fundus.log 2>&1 &"
 }
