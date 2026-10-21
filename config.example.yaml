@@ -52,3 +52,9 @@ platforms:
   kleinanzeigen:
     url: "https://www.kleinanzeigen.de/s-{query}/k0"
     fetcher: http
+  willhaben:
+    url: "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword={query}"
+    fetcher: http
+  markt:
+    url: "https://www.markt.de/suche/?keywords={query}"
+    fetcher: http

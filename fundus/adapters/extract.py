@@ -22,7 +22,7 @@ FLIGHT_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*\])\)\s*;?\s*$", re.S)
 FLIGHT_ROW_RE = re.compile(r"^[0-9a-f]+:(?=[\[{])")
 
 ID_KEYS = ("listingID", "listingId", "articleId", "itemId", "adId", "id")
-TITLE_KEYS = ("title", "subject", "name")
+TITLE_KEYS = ("title", "subject", "name", "heading", "description")
 PRICE_KEYS = ("price", "formattedPrice", "buyNowPrice", "currentPrice", "currentBidPrice", "bidPrice",
               "startPrice", "priceInfo", "offers", "amount")
 URL_KEYS = ("url", "href", "link", "seoUrl", "canonicalUrl", "permalink")
@@ -280,6 +280,34 @@ def extract_description_from_page(page: str, platform: str) -> str | None:
             text = re.sub(r'<[^>]+>', ' ', text)
             return html_lib.unescape(text).strip()
 
+    if platform == "willhaben":
+        m = re.search(
+            r'(?:id="attribute-description-text-[^"]*"|data-testid="ad-description"[^>]*|class="[^"]*description[^"]*")[^>]*>(.*?)</(?:div|section|p)>',
+            page,
+            re.DOTALL | re.I,
+        )
+        if m:
+            text = m.group(1)
+            text = re.sub(r'<br\s*/?>', '\n', text)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            clean = html_lib.unescape(text).strip()
+            if len(clean) > 10:
+                return clean
+
+    if platform == "markt":
+        m = re.search(
+            r'(?:class="[^"]*description[^"]*"|id="description")[^>]*>(.*?)</(?:div|section|p)>',
+            page,
+            re.DOTALL | re.I,
+        )
+        if m:
+            text = m.group(1)
+            text = re.sub(r'<br\s*/?>', '\n', text)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            clean = html_lib.unescape(text).strip()
+            if len(clean) > 10:
+                return clean
+
     best_desc = None
     for blob in json_blobs(page):
         for d in walk(blob):
@@ -325,7 +353,7 @@ def _to_listing(d: dict, platform: str, base_url: str, url_builder) -> Listing |
         price=price,
         currency=str(currency),
         image=_image(_first(d, IMAGE_KEYS)),
-        location=_location(_first(d, LOCATION_KEYS)),
+        location=_location(d if any(k in d for k in ("postcode", "postalCode", "zipCode", "zip")) else _first(d, LOCATION_KEYS)),
         posted_at=parse_date(_first(d, DATE_KEYS)),
         seller=parse_seller(d),
     )

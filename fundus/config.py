@@ -37,6 +37,8 @@ DEFAULTS: dict[str, Any] = {
         "tutti": {"url": "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
         "anibis": {"url": "https://www.anibis.ch/de/q/alle-kategorien/{query}?sorting=newest", "fetcher": "http"},
         "kleinanzeigen": {"url": "https://www.kleinanzeigen.de/s-{query}/k0", "fetcher": "http"},
+        "willhaben": {"url": "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword={query}", "fetcher": "http"},
+        "markt": {"url": "https://www.markt.de/suche/?keywords={query}", "fetcher": "http"},
     },
 }
 

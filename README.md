@@ -1,7 +1,7 @@
 # fundus
 
 Private Gebrauchtwaren-Suche über mehrere Plattformen: Suchbegriff einmal eingeben, fundus prüft 1–2 Mal pro Tag
-**Ricardo, Tutti, Anibis, Kleinanzeigen und eBay (CH, DE, FR, IT, AT …)** und meldet neue Inserate per **ntfy** aufs Handy –
+**Ricardo, Tutti, Anibis, Kleinanzeigen, Willhaben, Markt.de und eBay (CH, DE, FR, IT, AT …)** und meldet neue Inserate per **ntfy** aufs Handy –
 mit einer kurzen Ampel zur Vertrauenswürdigkeit des Anbieters.
 
 - Weboberfläche (FastAPI + HTMX), ein Nutzer, kein Login
@@ -46,6 +46,8 @@ Ohne Autostart, zum Ausprobieren: `pip install -e . && fundus serve`
 | Tutti | Suchseite, eingebettetes JSON | wenig |
 | Anibis | Suchseite, eingebettetes JSON | wenig |
 | Kleinanzeigen | Suchseite, HTML-Parsing | wenig |
+| Willhaben | Suchseite, JSON / HTML | wenig |
+| Markt.de | Suchseite, HTML-Parsing | wenig |
 
 Die Scraping-Adapter lesen nicht HTML-Elemente, sondern das JSON, das die Seiten für sich selbst
 mitliefern (`__NEXT_DATA__`, `ld+json`). Das übersteht Layout-Änderungen besser. Die Such-URLs stehen in
