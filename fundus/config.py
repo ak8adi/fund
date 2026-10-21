@@ -27,6 +27,9 @@ DEFAULTS: dict[str, Any] = {
         "used_only": True,
         "home_country_only": True,
     },
+    "ai": {
+        "gemini_api_key": "",
+    },
     # Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
     "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08},
     "platforms": {

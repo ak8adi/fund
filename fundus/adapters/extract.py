@@ -271,6 +271,32 @@ def _richness(l: Listing) -> int:
     return sum(x is not None for x in (l.price, l.image, l.location, l.posted_at, l.seller.name))
 
 
+def extract_description_from_page(page: str, platform: str) -> str | None:
+    if platform == "kleinanzeigen":
+        m = re.search(r'<p[^>]*id="viewad-description-text"[^>]*>(.*?)</p>', page, re.DOTALL)
+        if m:
+            text = m.group(1)
+            text = re.sub(r'<br\s*/?>', '\n', text)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            return html_lib.unescape(text).strip()
+
+    best_desc = None
+    for blob in json_blobs(page):
+        for d in walk(blob):
+            if isinstance(d, dict):
+                for k in ("description", "descriptionText", "body"):
+                    if k in d and isinstance(d[k], str):
+                        val = d[k].strip()
+                        if len(val) > 20:
+                            if not best_desc or len(val) > len(best_desc):
+                                best_desc = val
+    if best_desc:
+        best_desc = re.sub(r'<br\s*/?>', '\n', best_desc)
+        best_desc = re.sub(r'<[^>]+>', ' ', best_desc)
+        return html_lib.unescape(best_desc).strip()
+    return None
+
+
 def _to_listing(d: dict, platform: str, base_url: str, url_builder) -> Listing | None:
     raw_id = _first(d, ID_KEYS) or _id_from_url(d)
     title = str(_first(d, TITLE_KEYS)).strip()

@@ -111,6 +111,7 @@ def _ctx(request: Request, **kw) -> dict:
         "next_runs": next_runs(state["scheduler"]),
         "ntfy_ok": bool(cfg["ntfy"].get("topic")),
         "adapters": [(a.name, a.label) for a in all_adapters(cfg)],
+        "cfg": cfg,
         **kw,
     }
 
@@ -190,6 +191,13 @@ def run_one(sid: int):
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
+@app.post("/search/{sid}/ai")
+def run_ai(sid: int):
+    from ..ai import evaluate_listings
+    evaluate_listings(sid)
+    return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
 @app.post("/search/{sid}/hide", response_class=HTMLResponse)
 def hide(sid: int, key: str = Form(...)):
     db.hide_hit(sid, key)
@@ -250,6 +258,12 @@ def save_ntfy(server: str = Form("https://ntfy.sh"), topic: str = Form(""), toke
 def save_ebay(app_id: str = Form(""), cert_id: str = Form("")):
     save_settings("ebay", {"app_id": app_id.strip(), "cert_id": cert_id.strip()})
     return RedirectResponse("/settings?saved=ebay", status_code=303)
+
+
+@app.post("/settings/ai")
+def save_ai(gemini_api_key: str = Form("")):
+    save_settings("ai", {"gemini_api_key": gemini_api_key.strip()})
+    return RedirectResponse("/settings?saved=ai", status_code=303)
 
 
 @app.post("/settings/schedule")

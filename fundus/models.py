@@ -30,6 +30,7 @@ class Listing:
     posted_at: datetime | None = None
     source: str | None = None             # Unterquelle, z.B. "EBAY_DE"
     seller: Seller = field(default_factory=Seller)
+    description_full: str | None = None
 
     @property
     def key(self) -> str:
