@@ -4,7 +4,11 @@
 <div class="search-head">
   <h2>{{ search.query }} {% if not search.active %}<span class="pill">pausiert</span>{% endif %}</h2>
   <div class="actions">
+    <button class="btn small" onclick="copyForGemini(this)">Für Gemini kopieren</button>
     <form method="post" action="/search/{{ search.id }}/run" class="inline"><button class="btn small">Jetzt prüfen</button></form>
+    {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
+      <form method="post" action="/search/{{ search.id }}/ai" class="inline"><button class="btn small">KI-Auswertung jetzt starten</button></form>
+    {% endif %}
     <form method="post" action="/search/{{ search.id }}/toggle" class="inline">
       <button class="btn small ghost">{{ 'Pausieren' if search.active else 'Fortsetzen' }}</button>
     </form>
@@ -27,8 +31,73 @@
   {% include "_search_form.html" %}
 </details>
 
-<div class="hits wide">
-  {% for h in hits %}{% include "_hit.html" %}{% endfor %}
+{% set relevant_hits = [] %}
+{% set top_hits = [] %}
+{% set irrelevant_hits = [] %}
+{% for h in hits %}
+  {% if h.ai_relevant is none or h.ai_relevant %}
+    {% set _ = relevant_hits.append(h) %}
+    {% if h.ai_tier in ['S', 'A'] %}
+      {% set _ = top_hits.append(h) %}
+    {% endif %}
+  {% else %}
+    {% set _ = irrelevant_hits.append(h) %}
+  {% endif %}
+{% endfor %}
+
+{% if top_hits %}
+  <div class="card gemini-top-hits" style="margin-top: 1rem; border-left: 4px solid #6b4c9a;">
+    <h3 style="margin-top: 0;">Gemini Tier-List (Top 30 % Fokus)</h3>
+    <div class="hits wide">
+      {% for h in top_hits %}{% include "_hit.html" %}{% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="hits wide" id="normal-hits" style="margin-top: 1rem;">
+  {% for h in relevant_hits %}
+    {% if h not in top_hits %}
+      {% include "_hit.html" %}
+    {% endif %}
+  {% endfor %}
 </div>
+
+{% if irrelevant_hits %}
+  <details class="card" style="margin-top: 1rem;">
+    <summary>Ausgefiltert ({{ irrelevant_hits | length }} unpassende Treffer)</summary>
+    <div class="hits wide" style="margin-top: 1rem;">
+      {% for h in irrelevant_hits %}{% include "_hit.html" %}{% endfor %}
+    </div>
+  </details>
+{% endif %}
+
 {% if not hits and search.baseline_done %}<p class="muted">Keine Treffer. Plattform-Status unter «Einstellungen» prüfen.</p>{% endif %}
+
+<script>
+function copyForGemini(btn) {
+  const hits = {{ relevant_hits | tojson }};
+  const query = {{ search.query | tojson }};
+
+  let prompt = `Analysiere diese Inserate für meine Suche nach '${query}' und erstelle eine Tier-List mit Fokus auf die besten 30 %:\n\n`;
+
+  for (const h of hits) {
+    prompt += `Titel: ${h.title}\n`;
+    prompt += `Preis: ${h.price || ''} ${h.currency || ''}\n`;
+    prompt += `Plattform: ${h.platform}\n`;
+    prompt += `Ort: ${h.location || ''}\n`;
+    prompt += `Datum: ${h.posted_at || ''}\n`;
+    prompt += `Link: ${h.url}\n`;
+    if (h.description_full) {
+      prompt += `Beschreibung: ${h.description_full}\n`;
+    }
+    prompt += `\n---\n\n`;
+  }
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    const orig = btn.innerText;
+    btn.innerText = "Kopiert!";
+    setTimeout(() => { btn.innerText = orig; }, 2000);
+  });
+}
+</script>
 {% endblock %}

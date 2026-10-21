@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS listings (
     seller        TEXT,                         -- JSON
     trust_level   TEXT,
     trust_reasons TEXT,                         -- JSON-Liste
+    description_full TEXT,
+    ai_relevant   INTEGER,                      -- 1=True, 0=False
+    ai_tier       TEXT,                         -- S, A, B, C
+    ai_reason     TEXT,
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL
 );
@@ -103,6 +107,16 @@ def init_db() -> None:
         for col in ("notify_new", "notify_weekly"):  # Migration bestehender Datenbanken
             if col not in cols:
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} INTEGER NOT NULL DEFAULT 1")
+
+        l_cols = {r["name"] for r in c.execute("PRAGMA table_info(listings)")}
+        if "description_full" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN description_full TEXT")
+        if "ai_relevant" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN ai_relevant INTEGER")
+        if "ai_tier" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN ai_tier TEXT")
+        if "ai_reason" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN ai_reason TEXT")
 
 
 # ---------- Suchen ----------
@@ -198,18 +212,31 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
         c.execute(
             """INSERT INTO listings (key, platform, external_id, title, url, price, first_price, currency, image,
                                      location, country, posted_at, source, seller, trust_level, trust_reasons,
-                                     first_seen, last_seen)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                     description_full, first_seen, last_seen)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(key) DO UPDATE SET
                    title=excluded.title, url=excluded.url, price=excluded.price, currency=excluded.currency,
                    image=COALESCE(excluded.image, listings.image), location=COALESCE(excluded.location, listings.location),
                    seller=excluded.seller, trust_level=excluded.trust_level, trust_reasons=excluded.trust_reasons,
+                   description_full=COALESCE(excluded.description_full, listings.description_full),
                    last_seen=excluded.last_seen""",
             (
                 l.key, l.platform, l.external_id, l.title, l.url, l.price, l.price, l.currency, l.image,
                 l.location, l.country, l.posted_at.isoformat() if l.posted_at else None, l.source,
-                json.dumps(seller), trust_level, json.dumps(trust_reasons, ensure_ascii=False), ts, ts,
+                json.dumps(seller), trust_level, json.dumps(trust_reasons, ensure_ascii=False),
+                l.description_full, ts, ts,
             ),
+        )
+
+def update_listing_description(key: str, description: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE listings SET description_full = ? WHERE key = ?", (description, key))
+
+def update_listing_ai(key: str, relevant: bool, tier: str | None, reason: str | None) -> None:
+    with connect() as c:
+        c.execute(
+            "UPDATE listings SET ai_relevant = ?, ai_tier = ?, ai_reason = ? WHERE key = ?",
+            (int(relevant), tier, reason, key)
         )
 
 

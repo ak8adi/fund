@@ -70,6 +70,16 @@
       <p class="muted small">Kostenlos auf developer.ebay.com → Application Keys → Production. Ohne Schlüssel bleibt eBay aus.</p>
     </div>
 
+    <h2>KI-Auswertung (Gemini)</h2>
+    <div class="card">
+      <form method="post" action="/settings/ai" class="stack">
+        <label>Gemini API Key <input name="gemini_api_key" type="password" value="{{ cfg.ai.gemini_api_key }}" autocomplete="off"></label>
+        <div><button class="btn small">Speichern</button>
+        {% if saved == 'ai' %}<span class="ok small">gespeichert</span>{% endif %}</div>
+      </form>
+      <p class="muted small">Kostenlos im <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>. Damit werden Inserate gefiltert und nach Relevanz (S/A/B/C) bewertet.</p>
+    </div>
+
     <h2>Zeitplan</h2>
     <div class="card">
       <form method="post" action="/settings/schedule" class="stack">

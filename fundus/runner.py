@@ -9,6 +9,8 @@ import time
 
 from . import db
 from .adapters import AdapterError, BlockedError, all_adapters, adapter_for_source
+from .adapters.base import fetch_html
+from .adapters.extract import extract_description_from_page
 from .config import get_config
 from .models import Listing
 from .notify import notify_hits
@@ -133,6 +135,38 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         total_new += len(new_hits)
         if new_hits:
             db.mark_notified(search["id"], notify_hits(cfg, search, new_hits, labels))
+
+        # Detailbeschreibungen im Hintergrund für max 15 Inserate laden
+        desc_count = 0
+        for hit in new_hits:
+            if desc_count >= 15:
+                break
+            if hit["platform"] == "ebay":
+                continue # eBay hat oft keine oder nur umständliche iFrames für Descriptions, Fokus auf CH/DE Plattformen
+
+            url = hit["url"]
+            key = hit["key"]
+            try:
+                time.sleep(random.uniform(2, 4))
+
+                adapter = adapter_for_source(adapters, hit["platform"])
+                fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
+                page = fetch_html(url, fetcher)
+                desc = extract_description_from_page(page, hit["platform"])
+
+                if desc:
+                    db.update_listing_description(key, desc)
+                desc_count += 1
+            except Exception as exc:
+                log.warning("Konnte Beschreibung für %s nicht laden: %s", url, exc)
+
+        # Automatische KI-Auswertung der neuen Treffer durchführen, falls Gemini API Key hinterlegt ist
+        if new_hits and cfg.get("ai", {}).get("gemini_api_key"):
+            try:
+                from .ai import evaluate_listings
+                evaluate_listings(search["id"])
+            except Exception as exc:
+                log.warning("Automatische KI-Auswertung fehlgeschlagen: %s", exc)
 
     for src in sources:
         if any(not s["platforms"] or src["adapter"] in s["platforms"] for s in searches):
