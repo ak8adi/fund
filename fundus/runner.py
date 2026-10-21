@@ -160,6 +160,30 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             except Exception as exc:
                 log.warning("Konnte Beschreibung für %s nicht laden: %s", url, exc)
 
+        if desc_count < 15:
+            existing_hits = db.hits_for_search(search["id"])
+            new_keys = {h["key"] for h in new_hits}
+            for hit in existing_hits:
+                if desc_count >= 15:
+                    break
+                if hit["key"] in new_keys or hit.get("description_full"):
+                    continue
+                if hit["platform"] == "ebay":
+                    continue
+
+                try:
+                    time.sleep(random.uniform(2, 4))
+                    adapter = adapter_for_source(adapters, hit["platform"])
+                    fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
+                    page = fetch_html(hit["url"], fetcher)
+                    desc = extract_description_from_page(page, hit["platform"])
+
+                    if desc:
+                        db.update_listing_description(hit["key"], desc)
+                    desc_count += 1
+                except Exception as exc:
+                    log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
+
         # Automatische KI-Auswertung der neuen Treffer durchführen, falls Gemini API Key hinterlegt ist
         if new_hits and cfg.get("ai", {}).get("gemini_api_key"):
             try:

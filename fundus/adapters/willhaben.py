@@ -15,33 +15,83 @@ class WillhabenAdapter(ScrapedAdapter):
 
     def build_url(self, d: dict, ext_id: str) -> str | None:
         url = d.get("seoUrl") or d.get("url") or d.get("href") or d.get("link") or d.get("canonicalUrl")
+
+        # Check attributes/attribute for SEO_URL
+        attrs = d.get("attributes", {}).get("attribute", [])
+        if isinstance(attrs, list):
+            for attr in attrs:
+                if isinstance(attr, dict) and attr.get("name") == "SEO_URL":
+                    vals = attr.get("values")
+                    if isinstance(vals, list) and vals:
+                        url = vals[0]
+                    elif "value" in attr:
+                        url = attr["value"]
+
         if isinstance(url, str):
             if url.startswith("http"):
                 return url
-            if url.startswith("/"):
-                return f"{self.base_url}{url}"
-        if ext_id and ext_id.isdigit():
-            return f"{self.base_url}/iad/kaufen-und-verkaufen/d/item-{ext_id}/"
+            if not url.startswith("/"):
+                url = "/" + url
+            return f"{self.base_url}{url}"
         return None
 
     def parse(self, page: str, source: str = "willhaben") -> list[Listing]:
-        # Collect IDs of paid/promoted ads from JSON blobs to ignore them
-        promoted_ids: set[str] = set()
+        # Specific logic for Willhaben to find exact search results
+        advert_summaries = []
         for blob in json_blobs(page):
-            for d in walk(blob):
+            def find_advert_summary(obj):
+                if isinstance(obj, dict):
+                    if "advertSummaryList" in obj and isinstance(obj["advertSummaryList"], dict) and "advertSummary" in obj["advertSummaryList"]:
+                        return obj["advertSummaryList"]["advertSummary"]
+                    for k, v in obj.items():
+                        res = find_advert_summary(v)
+                        if res is not None:
+                            return res
+                elif isinstance(obj, list):
+                    for item in obj:
+                        res = find_advert_summary(item)
+                        if res is not None:
+                            return res
+                return None
+
+            found = find_advert_summary(blob)
+            if found:
+                advert_summaries.extend(found)
+                break
+
+        promoted_ids: set[str] = set()
+        if advert_summaries:
+            for d in advert_summaries:
                 if isinstance(d, dict):
                     if d.get("upsell") or d.get("isPromoted") or d.get("isTopAd") or d.get("advertStatus") in ("PROMOTED", "TOPAD"):
-                        aid = d.get("id") or d.get("id") or d.get("advertId")
+                        aid = d.get("id") or d.get("advertId")
                         if aid:
                             promoted_ids.add(str(aid))
 
-        raw_listings = extract_listings(
-            page,
-            self.name,
-            self.base_url,
-            url_builder=self.build_url,
-            url_pattern=r"/iad/kaufen-und-verkaufen/d/",
-        )
+            from fundus.adapters.extract import _to_listing
+            raw_listings = []
+            for d in advert_summaries:
+                if isinstance(d, dict):
+                    l = _to_listing(d, self.name, self.base_url, self.build_url)
+                    if l and re.search(r"/iad/kaufen-und-verkaufen/d/", l.url):
+                        raw_listings.append(l)
+        else:
+            # Fallback for old behaviour
+            for blob in json_blobs(page):
+                for d in walk(blob):
+                    if isinstance(d, dict):
+                        if d.get("upsell") or d.get("isPromoted") or d.get("isTopAd") or d.get("advertStatus") in ("PROMOTED", "TOPAD"):
+                            aid = d.get("id") or d.get("advertId")
+                            if aid:
+                                promoted_ids.add(str(aid))
+
+            raw_listings = extract_listings(
+                page,
+                self.name,
+                self.base_url,
+                url_builder=self.build_url,
+                url_pattern=r"/iad/kaufen-und-verkaufen/d/",
+            )
 
         listings = []
         seen_ids = set()
