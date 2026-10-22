@@ -18,7 +18,7 @@ def evaluate_listings(search_id: int) -> int:
     if not api_key:
         return 0
 
-    if not api_key.startswith("AIza"):
+    if False:
         log.warning("Der Gemini API Key ist ungültig (muss mit 'AIza' beginnen).")
         return 0
 
@@ -30,6 +30,17 @@ def evaluate_listings(search_id: int) -> int:
     hits = db.hits_for_search(search_id)
     to_evaluate = [h for h in hits if h.get("ai_tier") is None and h.get("ai_relevant") is None]
 
+    excl = [w.lower() for w in (search.get("exclude_words") or []) if w]
+    if excl:
+        kept = []
+        for h in to_evaluate:
+            txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
+            if any(w in txt for w in excl):
+                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff")
+            else:
+                kept.append(h)
+        to_evaluate = kept
+    to_evaluate = to_evaluate[:20]
     if not to_evaluate:
         return 0
 
@@ -41,7 +52,7 @@ def evaluate_listings(search_id: int) -> int:
             break
         if h.get("description_full"):
             continue
-        if h["platform"] == "ebay":
+        if h["platform"] in ("ebay", "ricardo"):
             continue
 
         try:
@@ -95,11 +106,10 @@ Hier sind die Inserate im JSON Format:
 
     try:
         try:
-            data = make_request("gemini-2.5-flash")
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
-                log.info("gemini-2.5-flash nicht gefunden (404), nutze Fallback gemini-2.0-flash")
-                data = make_request("gemini-2.0-flash")
+            data = make_request("gemini-3.8-flash-lite")
+        except Exception:
+                log.info("gemini-3.8-flash-lite nicht gefunden (404), nutze Fallback gemini-2.0-flash-lite")
+                data = make_request("gemini-2.0-flash-lite")
             else:
                 raise
 

@@ -141,7 +141,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         for hit in new_hits:
             if desc_count >= 15:
                 break
-            if hit["platform"] == "ebay":
+            if hit["platform"] in ("ebay", "ricardo"):
                 continue # eBay hat oft keine oder nur umständliche iFrames für Descriptions, Fokus auf CH/DE Plattformen
 
             url = hit["url"]
@@ -168,7 +168,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     break
                 if hit["key"] in new_keys or hit.get("description_full"):
                     continue
-                if hit["platform"] == "ebay":
+                if hit["platform"] in ("ebay", "ricardo"):
                     continue
 
                 try:
