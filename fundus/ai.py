@@ -1,9 +1,14 @@
 import json
 import logging
 import httpx
+import time
+import random
 
 from . import db
 from .config import get_config
+from .adapters import all_adapters, adapter_for_source
+from .adapters.base import fetch_html
+from .adapters.extract import extract_description_from_page
 
 log = logging.getLogger(__name__)
 
@@ -11,6 +16,10 @@ def evaluate_listings(search_id: int) -> int:
     cfg = get_config()
     api_key = cfg.get("ai", {}).get("gemini_api_key")
     if not api_key:
+        return 0
+
+    if not api_key.startswith("AIza"):
+        log.warning("Der Gemini API Key ist ungültig (muss mit 'AIza' beginnen).")
         return 0
 
     search = db.get_search(search_id)
@@ -23,6 +32,31 @@ def evaluate_listings(search_id: int) -> int:
 
     if not to_evaluate:
         return 0
+
+    # Detailbeschreibungen nachladen
+    desc_count = 0
+    adapters = all_adapters(cfg)
+    for h in to_evaluate:
+        if desc_count >= 15:
+            break
+        if h.get("description_full"):
+            continue
+        if h["platform"] == "ebay":
+            continue
+
+        try:
+            time.sleep(random.uniform(2, 4))
+            adapter = adapter_for_source(adapters, h["platform"])
+            fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
+            page = fetch_html(h["url"], fetcher)
+            desc = extract_description_from_page(page, h["platform"])
+
+            if desc:
+                db.update_listing_description(h["key"], desc)
+                h["description_full"] = desc
+            desc_count += 1
+        except Exception as exc:
+            log.warning("Konnte Beschreibung für %s nicht laden: %s", h["url"], exc)
 
     prompt = f"""Analysiere diese Inserate für meine Suche nach '{search["query"]}' und erstelle eine Tier-List mit Fokus auf die besten 30 %.
 a) Relevanz-Check: Prüfe, ob das Inserat wirklich das gesuchte Produkt ist oder ein Fehltreffer durch mehrdeutige Begriffe oder bloßes Zubehör/Ersatzteil. Markiere Fehltreffer mit ai_relevant = false und kurzem Grund (ai_reason).
@@ -48,17 +82,26 @@ Hier sind die Inserate im JSON Format:
 - ai_tier: (string) "S", "A", "B", oder "C" (null if irrelevant)
 - ai_reason: (string) Begründung"""
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_instruction}]},
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2}
-    }
-
-    try:
+    def make_request(model):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2}
+        }
         resp = httpx.post(url, json=payload, timeout=45)
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
+
+    try:
+        try:
+            data = make_request("gemini-2.5-flash")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                log.info("gemini-2.5-flash nicht gefunden (404), nutze Fallback gemini-2.0-flash")
+                data = make_request("gemini-2.0-flash")
+            else:
+                raise
 
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
         if text.startswith("```json"):
