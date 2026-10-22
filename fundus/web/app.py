@@ -15,7 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db, runner
-from ..adapters import all_adapters
+from ..adapters import all_adapters, adapter_for_source
+from ..adapters.base import fetch_html
+from ..adapters.extract import extract_description_from_page
 from ..config import get_config, save_settings
 from ..notify import format_price, send_test, send_weekly
 from ..scheduler import apply_schedule, next_runs, start_scheduler
@@ -118,6 +120,28 @@ def _ctx(request: Request, **kw) -> dict:
 
 # ---------- Seiten ----------
 
+@app.get("/api/listing/{key}/description")
+def get_listing_description(key: str):
+    listing = db.get_listing(key)
+    if not listing:
+        return HTMLResponse("Nicht gefunden", status_code=404)
+    if listing.get("description_full"):
+        return HTMLResponse(listing["description_full"])
+    if listing["platform"] in ("ebay", "ricardo"):
+        return HTMLResponse("Für diese Plattform nicht unterstützt.")
+    try:
+        adapter = adapter_for_source(all_adapters(get_config()), listing["platform"])
+        if adapter:
+            fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
+            page = fetch_html(listing["url"], fetcher)
+            desc = extract_description_from_page(page, listing["platform"])
+            if desc:
+                db.update_listing_description(key, desc)
+                return HTMLResponse(desc)
+    except Exception as e:
+        log.error("Fehler beim Laden der Beschreibung: %s", e)
+    return HTMLResponse("Konnte Beschreibung nicht laden.")
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html", _ctx(
@@ -150,6 +174,7 @@ def show_search(request: Request, sid: int):
     if not search:
         return RedirectResponse("/", status_code=303)
     hits = db.hits_for_search(sid)
+    hits.sort(key=lambda x: (x.get("ai_score") is None, -(x.get("ai_score") or 0)))
     resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
@@ -194,14 +219,17 @@ def run_one(sid: int):
 @app.post("/search/{sid}/ai")
 def run_ai(sid: int):
     from ..ai import evaluate_listings
-    evaluate_listings(sid)
+    try:
+        evaluate_listings(sid)
+    except Exception as e:
+        log.error("AI Error: %s", e)
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
 @app.post("/search/{sid}/hide", response_class=HTMLResponse)
 def hide(sid: int, key: str = Form(...)):
     db.hide_hit(sid, key)
-    return HTMLResponse("")
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @app.post("/run")
