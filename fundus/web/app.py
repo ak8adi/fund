@@ -161,10 +161,12 @@ def create_search(
     min_price: str = Form(""),
     max_price: str = Form(""),
     platforms: list[str] = Form([]),
+    allow_sets: str | None = Form(None),
 ):
     sid = db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
+        "allow_sets": allow_sets == "on",
     })
     runner.run_in_background("neue Suche", [sid])  # Bestand sofort einlesen (ohne Meldungen)
     return RedirectResponse(f"/search/{sid}", status_code=303)
@@ -190,11 +192,32 @@ def update_search(
     min_price: str = Form(""),
     max_price: str = Form(""),
     platforms: list[str] = Form([]),
+    allow_sets: str | None = Form(None),
 ):
+    old_search = db.get_search(sid)
     db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
+        "allow_sets": allow_sets == "on",
     }, sid)
+
+    search = db.get_search(sid)
+    if search:
+        hits = db.hits_for_search(sid, include_hidden=False)
+        for h in hits:
+            if h.get("ai_relevant") is False:
+                continue
+            txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
+            if any(w in txt for w in search["exclude_words"]):
+                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
+            elif not search["allow_sets"] and h.get("ai_reason") and "set" in h.get("ai_reason").lower() and "ai_relevant" in h and h["ai_relevant"]:
+                if h.get("ai_tier"):
+                   if "set" in h.get("ai_reason", "").lower() or "bundle" in h.get("ai_reason", "").lower():
+                       db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Sets/Bundles nicht mehr erlaubt", score=None)
+
+        if old_search and platforms and (not old_search["platforms"] or set(platforms) - set(old_search["platforms"])):
+            runner.run_in_background("neue Plattformen", [sid])
+
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
@@ -231,6 +254,14 @@ def run_ai(sid: int):
 @app.post("/search/{sid}/hide", response_class=HTMLResponse)
 def hide(sid: int, key: str = Form(...)):
     db.hide_hit(sid, key)
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@app.post("/search/{sid}/restore", response_class=HTMLResponse)
+def restore_hit(sid: int, key: str = Form(...)):
+    h = db.get_listing(key)
+    score = 50 if h and not h.get("ai_score") else (h.get("ai_score") if h else None)
+    db.update_listing_ai(key, relevant=True, tier=h.get("ai_tier") if h else None, reason="Manuell eingeblendet", score=score)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

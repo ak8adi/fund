@@ -24,14 +24,21 @@
       {% endif %}
     </div>
     {% if h.ai_reason %}
-      <div class="ai-reason muted small" style="margin-top: 4px; font-style: italic;">🤖 {{ h.ai_reason }}</div>
+      <div class="ai-reason" style="margin-top: 8px; font-style: italic; background: #f3f4f6; color: #111827; padding: 8px 12px; font-size: 0.9em; border-radius: 1rem; border-top-left-radius: 0.125rem; display: inline-block;">
+        <strong>🤖 KI-Fazit:</strong> {{ h.ai_reason }}
+      </div>
     {% endif %}
     <div class="foot muted small">
       {% if h.search_query is defined and h.search_query %}<a href="/search/{{ h.search_id }}">{{ h.search_query }}</a> · {% endif %}
-      gefunden {{ h.hit_seen | ago }}
+      {% if h.posted_at %}veröffentlicht {{ h.posted_at | ago }}{% else %}gefunden {{ h.hit_seen | ago }}{% endif %}
       {% if h.is_new %}<span class="pill new">neu</span>{% endif %}
-      <button class="link" hx-post="/search/{{ h.search_id }}/hide" hx-vals='{{ {"key": h.key} | tojson }}'
-              hx-target="closest article" hx-swap="outerHTML">ausblenden</button>
+      {% if h.ai_relevant is none or h.ai_relevant %}
+        <button class="link" hx-post="/search/{{ h.search_id }}/hide" hx-vals='{{ {"key": h.key} | tojson }}'
+                hx-target="closest article" hx-swap="outerHTML">ausblenden</button>
+      {% else %}
+        <button class="link" hx-post="/search/{{ h.search_id }}/restore" hx-vals='{{ {"key": h.key} | tojson }}'
+                hx-target="closest article" hx-swap="outerHTML">einblenden</button>
+      {% endif %}
     </div>
     <details class="desc-details" style="margin-top: 8px;">
       <summary style="cursor: pointer; color: #0066cc;" {% if not h.description_full %}hx-get="/api/listing/{{ h.key }}/description" hx-target="next div" hx-swap="innerHTML" hx-trigger="click once"{% endif %}>Beschreibung anzeigen</summary>

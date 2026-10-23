@@ -44,11 +44,11 @@ def evaluate_listings(search_id: int) -> int:
     desc_count = 0
     adapters = all_adapters(cfg)
     for h in to_evaluate:
-        if desc_count >= 8:
+        if desc_count >= 20: # Allow fetching for the entire batch since it's a background loop now
             break
         if h.get("description_full"):
             continue
-        if h["platform"] in ("ebay", "ricardo"):
+        if h["platform"] not in ("tutti", "kleinanzeigen", "willhaben"):
             continue
 
         try:
@@ -67,7 +67,13 @@ def evaluate_listings(search_id: int) -> int:
 
     prompt = f"""Analysiere diese Inserate für meine Suche nach '{search["query"]}' und erstelle eine Tier-List mit Fokus auf die besten 30 %.
 a) Relevanz-Check: Prüfe, ob das Inserat wirklich das gesuchte Produkt ist oder ein Fehltreffer durch mehrdeutige Begriffe oder bloßes Zubehör/Ersatzteil. Markiere Fehltreffer mit ai_relevant = false und kurzem Grund (ai_reason).
-b) Tier-List: Bewerte alle relevanten Inserate in Tiers ("S" / "A" für die besten 30 % mit detaillierter Begründung zu Preis-Leistung und Zustand in ai_reason, sowie "B" und "C" für den Rest mit knapper Einschätzung).
+"""
+    if not search.get("allow_sets", True):
+        prompt += """Achtung: Dies ist eine Suche NUR nach dem Einzelprodukt. Reine Sets (z.B. Kite + Bar + Board) müssen mit ai_relevant = false markiert werden, es sei denn, im Text steht explizit, dass das gesuchte Produkt AUCH EINZELN verkauft wird (inkl. Einzelpreis).
+Wenn das gesuchte Produkt als Einzelkauf in einem Set-Inserat verfügbar ist, gilt das Inserat als relevant! Extrahiere in diesem Fall den Einzelpreis als 'extracted_single_price' (als Zahl) und erwähne ihn im 'ai_reason'.
+"""
+
+    prompt += """b) Tier-List: Bewerte alle relevanten Inserate in Tiers ("S" / "A" für die besten 30 % mit detaillierter Begründung zu Preis-Leistung und Zustand in ai_reason, sowie "B" und "C" für den Rest mit knapper Einschätzung).
 
 Hier sind die Inserate im JSON Format:
 """
@@ -88,7 +94,8 @@ Hier sind die Inserate im JSON Format:
 - ai_relevant: (boolean)
 - ai_tier: (string) "S", "A", "B", oder "C" (null if irrelevant)
 - ai_score: (integer) 0 bis 100
-- ai_reason: (string) Begründung"""
+- ai_reason: (string) Begründung
+- extracted_single_price: (number, optional) falls es ein Set ist, bei dem das gesuchte Produkt auch einzeln verkauft wird, und ein Preis angegeben ist"""
 
     def make_request(model):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -128,8 +135,27 @@ Hier sind die Inserate im JSON Format:
                 reason=r.get("ai_reason"),
                 score=r.get("ai_score")
             )
+            single_price = r.get("extracted_single_price")
+            if single_price is not None:
+                try:
+                    db.update_listing_price(key, float(single_price))
+                except (ValueError, TypeError):
+                    pass
             count += 1
         return count
     except Exception as exc:
         log.error("Gemini API Error: %s", exc)
         return 0
+
+def start_background_evaluation(search_id: int):
+    import threading
+    def _eval_loop():
+        log.info("Starte Hintergrund-Auswertung für Suche %s", search_id)
+        while True:
+            processed = evaluate_listings(search_id)
+            if processed == 0:
+                log.info("Hintergrund-Auswertung für Suche %s beendet", search_id)
+                break
+            time.sleep(7) # 5-10 seconds pause
+
+    threading.Thread(target=_eval_loop, daemon=True).start()
