@@ -103,10 +103,10 @@ Hier sind die Inserate im JSON Format:
 
     try:
         try:
-            data = make_request("gemini-3.8-flash")
+            data = make_request("gemini-3.5-flash-lite")
         except Exception:
-            log.info("gemini-3.8-flash fehlgeschlagen, nutze Fallback gemini-2.0-flash-lite")
-            data = make_request("gemini-2.0-flash-lite")
+            log.info("gemini-3.5-flash-lite fehlgeschlagen, nutze Fallback gemini-3.7-flash")
+            data = make_request("gemini-3.7-flash")
 
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
         if text.startswith("```json"):
