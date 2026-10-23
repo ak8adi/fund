@@ -107,6 +107,7 @@ def _num(value: str | None) -> float | None:
 
 def _ctx(request: Request, **kw) -> dict:
     cfg = get_config()
+    evaluated, total = db.get_ai_progress()
     return {
         "request": request,
         "running": runner.is_running(),
@@ -114,6 +115,7 @@ def _ctx(request: Request, **kw) -> dict:
         "ntfy_ok": bool(cfg["ntfy"].get("topic")),
         "adapters": [(a.name, a.label) for a in all_adapters(cfg)],
         "cfg": cfg,
+        "ai_progress": {"evaluated": evaluated, "total": total},
         **kw,
     }
 

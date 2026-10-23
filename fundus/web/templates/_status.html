@@ -4,7 +4,12 @@
   <form hx-post="/run" hx-target="#status" hx-swap="innerHTML" method="post" action="/run" class="inline">
     <button class="btn small">Alle jetzt prüfen</button>
   </form>
-  <span class="muted small">
+  <span class="muted small" style="margin-left: 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 8px;">
+    {% if ai_progress and ai_progress.total > 0 %}
+      Geprüfte Angebote: {{ ai_progress.evaluated }} / {{ ai_progress.total }} ({{ (ai_progress.evaluated / ai_progress.total * 100) | round | int }}%)
+      <progress value="{{ ai_progress.evaluated }}" max="{{ ai_progress.total }}" style="width: 80px; height: 12px;"></progress>
+      ·
+    {% endif %}
     {% if runs %}zuletzt {{ runs[0].started_at | ago }}{% if runs[0].new_hits %} · {{ runs[0].new_hits }} neu{% endif %}{% endif %}
     {% if next_runs %} · nächster {{ next_runs[0] | clock }}{% endif %}
   </span>
