@@ -35,7 +35,9 @@
 {% set top_hits = [] %}
 {% set irrelevant_hits = [] %}
 {% for h in hits %}
-  {% if h.ai_relevant is none or h.ai_relevant %}
+  {% if h._inactive_platform %}
+    {% set _ = irrelevant_hits.append(h) %}
+  {% elif h.ai_relevant is none or h.ai_relevant %}
     {% set _ = relevant_hits.append(h) %}
     {% if h.ai_tier in ['S', 'A'] %}
       {% set _ = top_hits.append(h) %}

@@ -108,9 +108,13 @@ def _num(value: str | None) -> float | None:
 def _ctx(request: Request, **kw) -> dict:
     cfg = get_config()
     evaluated, total = db.get_ai_progress()
+
+    from .. import ai
+
     return {
         "request": request,
         "running": runner.is_running(),
+        "ai_running": ai.AI_RUNNING,
         "next_runs": next_runs(state["scheduler"]),
         "ntfy_ok": bool(cfg["ntfy"].get("topic")),
         "adapters": [(a.name, a.label) for a in all_adapters(cfg)],
@@ -121,6 +125,51 @@ def _ctx(request: Request, **kw) -> dict:
 
 
 # ---------- Seiten ----------
+
+@app.post("/api/listing/{key}/edit_description")
+def edit_listing_description(request: Request, key: str, description: str = Form("")):
+    listing = db.get_listing(key)
+    if not listing:
+        return HTMLResponse("Nicht gefunden", status_code=404)
+
+    db.update_listing_description(key, description)
+    # Reset AI score to force re-evaluation
+    db.update_listing_ai(key, relevant=None, tier=None, reason=None, score=None)
+
+    # Run evaluation if listing belongs to a search and AI is configured
+    try:
+        # Find which search this listing belongs to by checking hits
+        with db.connect() as c:
+            hit = c.execute("SELECT search_id FROM hits WHERE listing_key = ?", (key,)).fetchone()
+            if hit:
+                sid = hit["search_id"]
+                # Start evaluation in background instead of inline to not block response
+                from ..ai import start_background_evaluation
+                start_background_evaluation(sid)
+    except Exception as e:
+        log.error("Fehler beim Starten der KI-Neubewertung: %s", e)
+
+    # Re-fetch listing with new data
+    h = db.get_listing(key)
+    if not h:
+        return HTMLResponse("", status_code=404)
+
+    # Fetch hit info to inject into `h` like in `hits_for_search`
+    with db.connect() as c:
+        hit = c.execute("SELECT search_id, first_seen, is_new FROM hits WHERE listing_key = ?", (key,)).fetchone()
+        if hit:
+            h["search_id"] = hit["search_id"]
+            h["hit_seen"] = hit["first_seen"]
+            h["is_new"] = hit["is_new"]
+
+            search = db.get_search(hit["search_id"])
+            if search:
+                h["search_query"] = search["query"]
+                if search.get("platforms") and h["platform"] not in search["platforms"]:
+                    h["_inactive_platform"] = True
+
+    return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))
+
 
 @app.get("/api/listing/{key}/description")
 def get_listing_description(key: str):
@@ -178,6 +227,11 @@ def show_search(request: Request, sid: int):
     if not search:
         return RedirectResponse("/", status_code=303)
     hits = db.hits_for_search(sid)
+
+    for h in hits:
+        if search.get("platforms") and h["platform"] not in search["platforms"]:
+            h["_inactive_platform"] = True
+
     hits.sort(key=lambda x: (x.get("ai_score") is None, -(x.get("ai_score") or 0)))
     resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
@@ -204,19 +258,35 @@ def update_search(
     search = db.get_search(sid)
     if search:
         hits = db.hits_for_search(sid, include_hidden=False)
+
+        allow_sets_changed = old_search and (old_search["allow_sets"] != search["allow_sets"])
+
         for h in hits:
-            if h.get("ai_relevant") is False:
-                continue
-            txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
-            if any(w in txt for w in search["exclude_words"]):
-                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
-            elif not search["allow_sets"] and h.get("ai_reason") and "set" in h.get("ai_reason").lower() and "ai_relevant" in h and h["ai_relevant"]:
-                if h.get("ai_tier"):
-                   if "set" in h.get("ai_reason", "").lower() or "bundle" in h.get("ai_reason", "").lower():
-                       db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Sets/Bundles nicht mehr erlaubt", score=None)
+            # Re-evaluate due to allow_sets changing from False to True
+            if allow_sets_changed and search["allow_sets"] and h.get("ai_relevant") is False and h.get("ai_reason"):
+                reason = h["ai_reason"].lower()
+                if "set" in reason or "bundle" in reason:
+                    db.update_listing_ai(key=h["key"], relevant=None, tier=None, reason=None, score=None)
+                    continue
+
+            # Standard exclude words check
+            if h.get("ai_relevant") is not False:
+                txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
+                if any(w in txt for w in search["exclude_words"]):
+                    db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
+                # Sets not allowed anymore
+                elif not search["allow_sets"] and h.get("ai_relevant") is not False:
+                    # Check if ai_reason mentions set/bundle, or if title does
+                    reason = (h.get("ai_reason") or "").lower()
+                    if "set" in reason or "bundle" in reason or "komplett" in txt or "set" in txt or "bundle" in txt or "+" in txt:
+                        db.update_listing_ai(key=h["key"], relevant=None, tier=None, reason=None, score=None)
 
         if old_search and platforms and (not old_search["platforms"] or set(platforms) - set(old_search["platforms"])):
             runner.run_in_background("neue Plattformen", [sid])
+
+        if allow_sets_changed:
+            from ..ai import start_background_evaluation
+            start_background_evaluation(sid)
 
     return RedirectResponse(f"/search/{sid}", status_code=303)
 

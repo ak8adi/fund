@@ -163,6 +163,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         if desc_count < 15:
             existing_hits = db.hits_for_search(search["id"])
             new_keys = {h["key"] for h in new_hits}
+
+            excl = [w.lower() for w in (search.get("exclude_words") or []) if w]
+
             for hit in existing_hits:
                 if desc_count >= 15:
                     break
@@ -170,6 +173,12 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     continue
                 if hit["platform"] in ("ebay", "ricardo"):
                     continue
+
+                # Titel-Vorabcheck für existierende Inserate
+                if excl and hit.get("title"):
+                    if any(w in hit["title"].lower() for w in excl):
+                        db.update_listing_ai(key=hit["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff im Titel (Pre-Check)", score=None)
+                        continue
 
                 try:
                     time.sleep(random.uniform(2, 4))

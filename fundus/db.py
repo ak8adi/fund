@@ -215,6 +215,22 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
         seller["member_since"] = l.seller.member_since.isoformat()
     ts = now()
     with connect() as c:
+        # Check for price drop before upserting
+        existing = c.execute("SELECT price, first_price, trust_reasons FROM listings WHERE key = ?", (l.key,)).fetchone()
+        if existing and l.price and existing["price"] and l.price < existing["price"]:
+            existing_reasons = json.loads(existing["trust_reasons"]) if existing["trust_reasons"] else []
+            drop_msg = f"Preis-Drop: von {existing['price']} auf {l.price} {l.currency}"
+            if drop_msg not in existing_reasons:
+                existing_reasons.append(drop_msg)
+
+            # Combine new trust reasons with existing ones (avoiding duplicates)
+            for r in existing_reasons:
+                if r not in trust_reasons:
+                    trust_reasons.append(r)
+
+            # Reset AI score to trigger re-evaluation due to price drop
+            c.execute("UPDATE listings SET ai_score = NULL, ai_tier = NULL, ai_reason = NULL WHERE key = ?", (l.key,))
+
         c.execute(
             """INSERT INTO listings (key, platform, external_id, title, url, price, first_price, currency, image,
                                      location, country, posted_at, source, seller, trust_level, trust_reasons,
