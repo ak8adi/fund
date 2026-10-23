@@ -138,11 +138,17 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
 
         # Detailbeschreibungen im Hintergrund für max 15 Inserate laden
         desc_count = 0
+        ricardo_desc_count = 0
         for hit in new_hits:
             if desc_count >= 15:
                 break
-            if hit["platform"] in ("ebay", "ricardo"):
+            if hit["platform"] == "ebay":
                 continue # eBay hat oft keine oder nur umständliche iFrames für Descriptions, Fokus auf CH/DE Plattformen
+
+            if hit["platform"] == "ricardo":
+                if ricardo_desc_count >= 3:
+                    continue
+                ricardo_desc_count += 1
 
             url = hit["url"]
             key = hit["key"]
@@ -171,8 +177,13 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     break
                 if hit["key"] in new_keys or hit.get("description_full"):
                     continue
-                if hit["platform"] in ("ebay", "ricardo"):
+                if hit["platform"] == "ebay":
                     continue
+
+                if hit["platform"] == "ricardo":
+                    if ricardo_desc_count >= 3:
+                        continue
+                    ricardo_desc_count += 1
 
                 # Titel-Vorabcheck für existierende Inserate
                 if excl and hit.get("title"):

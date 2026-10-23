@@ -237,6 +237,29 @@ def show_search(request: Request, sid: int):
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
 
+@app.get("/search/{sid}/results", response_class=HTMLResponse)
+
+def search_results(request: Request, sid: int):
+
+    search = db.get_search(sid)
+
+    if not search:
+
+        return ""
+
+    hits = db.hits_for_search(sid)
+
+    for h in hits:
+
+        if search.get("platforms") and h["platform"] not in search["platforms"]:
+
+            h["_inactive_platform"] = True
+
+    hits.sort(key=lambda x: (x.get("ai_score") is None, -(x.get("ai_score") or 0)))
+
+    return templates.TemplateResponse(request, "_search_results.html", _ctx(request, search=search, hits=hits))
+
+
 
 @app.post("/search/{sid}")
 def update_search(

@@ -6,6 +6,11 @@ import random
 from abc import ABC, abstractmethod
 
 import httpx
+try:
+    from curl_cffi import requests as curl_requests
+    CURL_AVAILABLE = True
+except ImportError:
+    CURL_AVAILABLE = False
 
 from ..models import Listing
 
@@ -61,12 +66,27 @@ def http_client() -> httpx.Client:
     )
 
 
-def fetch_html(url: str, fetcher: str = "http") -> str:
+def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> str:
     """Eine einzige Seitenabfrage. fetcher='browser' nutzt Playwright (optional installiert)."""
     if fetcher == "browser":
         return _fetch_with_browser(url)
-    with http_client() as client:
-        resp = client.get(url)
+
+    if CURL_AVAILABLE:
+        try:
+            resp = curl_requests.get(
+                url,
+                impersonate="chrome",
+                timeout=25,
+                headers=headers
+            )
+        except Exception as e:
+            raise AdapterError(f"HTTP Fehler für {url}: {e}")
+    else:
+        with http_client() as client:
+            if headers:
+                client.headers.update(headers)
+            resp = client.get(url)
+
     if resp.status_code in (403, 429, 503):
         raise BlockedError(f"HTTP {resp.status_code} – Plattform blockt vermutlich automatisierte Anfragen")
     if resp.status_code >= 400:
