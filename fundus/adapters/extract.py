@@ -294,6 +294,15 @@ def extract_description_from_page(page: str, platform: str) -> str | None:
             if len(clean) > 10:
                 return clean
 
+    if platform == "ricardo":
+        for blob in json_blobs(page):
+            if isinstance(blob, dict):
+                for d in walk(blob):
+                    if isinstance(d, dict) and "description" in d and isinstance(d["description"], str) and len(d["description"]) > 20:
+                        desc = re.sub(r'<br\s*/?>', '\n', d["description"])
+                        desc = re.sub(r'<[^>]+>', ' ', desc)
+                        return html_lib.unescape(desc).strip()
+
     if platform == "markt":
         m = re.search(
             r'(?:class="[^"]*description[^"]*"|id="description")[^>]*>(.*?)</(?:div|section|p)>',

@@ -31,14 +31,20 @@ DEFAULTS: dict[str, Any] = {
         "gemini_api_key": "",
     },
     # Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
-    "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08},
+    "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08, "SEK": 0.082},
     "platforms": {
         "ricardo": {"url": "https://www.ricardo.ch/de/s/{query}/?sort=newest", "fetcher": "http"},
         "tutti": {"url": "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
         "anibis": {"url": "https://www.anibis.ch/de/q/alle-kategorien/{query}?sorting=newest", "fetcher": "http"},
         "kleinanzeigen": {"url": "https://www.kleinanzeigen.de/s-{query}/k0", "fetcher": "http"},
         "willhaben": {"url": "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword={query}", "fetcher": "http"},
-        "markt": {"url": "https://www.markt.de/suche/?keywords={query}", "fetcher": "http"},
+"markt": {"url": "https://www.markt.de/suche/?keywords={query}", "fetcher": "http"},
+        "leboncoin": {"url": "https://www.leboncoin.fr/recherche?text={query}", "fetcher": "http"},
+        "blocket": {"url": "https://www.blocket.se/annonser/hela_sverige?q={query}", "fetcher": "http"},
+        "tradera": {"url": "https://www.tradera.com/search?q={query}", "fetcher": "http"},
+        "wallapop": {"url": "https://es.wallapop.com/app/search?keywords={query}", "fetcher": "http"},
+        "subito": {"url": "https://www.subito.it/annunci-italia/vendita/usato/?q={query}", "fetcher": "http"},
+        "facebook": {"url": "https://www.facebook.com/marketplace/search/?query={query}", "fetcher": "http"},
     },
 }
 

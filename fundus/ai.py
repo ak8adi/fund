@@ -57,14 +57,20 @@ def evaluate_listings(search_id: int) -> int:
 
     # Detailbeschreibungen nachladen
     desc_count = 0
+    ricardo_desc_count = 0
     adapters = all_adapters(cfg)
     for h in to_evaluate:
         if desc_count >= 20: # Allow fetching for the entire batch since it's a background loop now
             break
         if h.get("description_full"):
             continue
-        if h["platform"] not in ("tutti", "kleinanzeigen", "willhaben"):
+        if h["platform"] not in ("tutti", "kleinanzeigen", "willhaben", "ricardo"):
             continue
+
+        if h["platform"] == "ricardo":
+            if ricardo_desc_count >= 3:
+                continue
+            ricardo_desc_count += 1
 
         try:
             time.sleep(random.uniform(1, 2))
@@ -185,6 +191,9 @@ def start_background_evaluation(search_id: int):
             while True:
                 processed = evaluate_listings(search_id)
                 if processed == 0:
+                    with _eval_lock:
+                        if len(_active_evaluations) <= 1:
+                            AI_RUNNING = False
                     log.info("Hintergrund-Auswertung für Suche %s beendet", search_id)
                     break
                 time.sleep(7) # 5-10 seconds pause

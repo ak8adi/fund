@@ -1,0 +1,64 @@
+{% set relevant_hits = [] %}
+{% set top_hits = [] %}
+{% set irrelevant_hits = [] %}
+{% for h in hits %}
+  {% if h._inactive_platform %}
+    {% set _ = irrelevant_hits.append(h) %}
+  {% elif h.ai_relevant is none or h.ai_relevant %}
+    {% set _ = relevant_hits.append(h) %}
+    {% if h.ai_tier in ['S', 'A'] %}
+      {% set _ = top_hits.append(h) %}
+    {% endif %}
+  {% else %}
+    {% set _ = irrelevant_hits.append(h) %}
+  {% endif %}
+{% endfor %}
+
+{% set is_active = running or ai_running %}
+{% if is_active and not running and ai_progress and ai_progress.total > 0 and ai_progress.evaluated >= ai_progress.total %}
+  {% set is_active = false %}
+{% endif %}
+
+<div id="search-results-container"
+  {% if is_active %}
+    hx-get="/search/{{ search.id }}/results"
+    hx-trigger="every 3s"
+    hx-swap="outerHTML"
+  {% endif %}
+>
+  {% if top_hits %}
+    <div class="card gemini-top-hits" style="margin-top: 1rem; border-left: 4px solid #6b4c9a;">
+      <h3 style="margin-top: 0;">Gemini Tier-List (Top 30 % Fokus)</h3>
+      <div class="hits wide">
+        {% for h in top_hits %}{% include "_hit.html" %}{% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="hits wide" id="normal-hits" style="margin-top: 1rem;">
+    {% for h in relevant_hits %}
+      {% if h not in top_hits %}
+        {% include "_hit.html" %}
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if irrelevant_hits %}
+    <details class="card" style="margin-top: 1rem;">
+      <summary>Ausgefiltert ({{ irrelevant_hits | length }} unpassende Treffer)</summary>
+      <div class="hits wide" style="margin-top: 1rem;">
+        {% for h in irrelevant_hits %}{% include "_hit.html" %}{% endfor %}
+      </div>
+    </details>
+  {% endif %}
+
+  {% if not hits and search.baseline_done %}<p class="muted">Keine Treffer. Plattform-Status unter «Einstellungen» prüfen.</p>{% endif %}
+
+  <script>
+    {% set to_serialize = [] %}
+    {% for h in relevant_hits %}
+      {% set _ = to_serialize.append({"title": h.title, "price": h.price, "currency": h.currency, "platform": h.platform, "location": h.location, "posted_at": h.posted_at | string if h.posted_at else None, "url": h.url, "description_full": h.description_full}) %}
+    {% endfor %}
+    window.currentRelevantHits = {{ to_serialize | tojson }};
+  </script>
+</div>

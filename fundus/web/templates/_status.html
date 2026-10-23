@@ -1,4 +1,9 @@
-{% if running or ai_running %}
+{% set is_active = running or ai_running %}
+{% if is_active and not running and ai_progress and ai_progress.total > 0 and ai_progress.evaluated >= ai_progress.total %}
+  {% set is_active = false %}
+{% endif %}
+
+{% if is_active %}
   <div style="display: flex; align-items: center; gap: 8px;">
     <div class="ping-indicator">
       <div class="ping"></div>
@@ -21,7 +26,7 @@
     <progress value="{{ ai_progress.evaluated }}" max="{{ ai_progress.total }}" style="width: 80px; height: 12px;"></progress>
     ·
   {% endif %}
-  {% if not running and not ai_running %}
+  {% if not is_active %}
     {% if runs %}zuletzt {{ runs[0].started_at | ago }}{% if runs[0].new_hits %} · {{ runs[0].new_hits }} neu{% endif %}{% endif %}
     {% if next_runs %} · nächster {{ next_runs[0] | clock }}{% endif %}
   {% endif %}
