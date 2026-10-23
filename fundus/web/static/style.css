@@ -123,6 +123,40 @@ details[open].card summary { margin-bottom: 12px; }
 .runs { width: 100%; border-collapse: collapse; font-size: 14px; }
 .runs td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
 
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.ping-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+}
+
+.ping-indicator .ping {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: var(--ok);
+  border-radius: 50%;
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+  opacity: 0.75;
+}
+
+.ping-indicator .dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  background-color: var(--ok);
+  border-radius: 50%;
+}
+
 /* Einstellungen-Formulare & Inline-Bestätigung */
 form.stack { display: grid; gap: .6rem; margin-bottom: .6rem; }
 form.stack label { display: grid; gap: .2rem; font-size: .85rem; }

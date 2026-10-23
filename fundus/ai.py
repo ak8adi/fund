@@ -40,6 +40,21 @@ def evaluate_listings(search_id: int) -> int:
     if not to_evaluate:
         return 0
 
+    # Median-Preis berechnen
+    fx = cfg.get("fx_to_chf", {})
+    all_hits = hits
+
+    import statistics
+    valid_prices = []
+    for h in all_hits:
+        if h.get("price") and h["price"] > 0:
+            from .trust import price_in_chf
+            chf = price_in_chf(h["price"], h["currency"], fx)
+            if chf:
+                valid_prices.append(chf)
+
+    median_price = statistics.median(valid_prices) if valid_prices else None
+
     # Detailbeschreibungen nachladen
     desc_count = 0
     adapters = all_adapters(cfg)
@@ -66,7 +81,11 @@ def evaluate_listings(search_id: int) -> int:
             log.warning("Konnte Beschreibung für %s nicht laden: %s", h["url"], exc)
 
     prompt = f"""Analysiere diese Inserate für meine Suche nach '{search["query"]}' und erstelle eine Tier-List mit Fokus auf die besten 30 %.
-a) Relevanz-Check: Prüfe, ob das Inserat wirklich das gesuchte Produkt ist oder ein Fehltreffer durch mehrdeutige Begriffe oder bloßes Zubehör/Ersatzteil. Markiere Fehltreffer mit ai_relevant = false und kurzem Grund (ai_reason).
+"""
+    if median_price:
+        prompt += f"Aktueller Markt-Median der gefundenen Inserate: {median_price:.0f} CHF/EUR.\n"
+
+    prompt += """a) Relevanz-Check: Prüfe, ob das Inserat wirklich das gesuchte Produkt ist oder ein Fehltreffer durch mehrdeutige Begriffe oder bloßes Zubehör/Ersatzteil. Markiere Fehltreffer mit ai_relevant = false und kurzem Grund (ai_reason).
 """
     if not search.get("allow_sets", True):
         prompt += """Achtung: Dies ist eine Suche NUR nach dem Einzelprodukt. Reine Sets (z.B. Kite + Bar + Board) müssen mit ai_relevant = false markiert werden, es sei denn, im Text steht explizit, dass das gesuchte Produkt AUCH EINZELN verkauft wird (inkl. Einzelpreis).
@@ -147,15 +166,32 @@ Hier sind die Inserate im JSON Format:
         log.error("Gemini API Error: %s", exc)
         return 0
 
+import threading
+AI_RUNNING = False
+_active_evaluations = set()
+_eval_lock = threading.Lock()
+
 def start_background_evaluation(search_id: int):
-    import threading
+    with _eval_lock:
+        if search_id in _active_evaluations:
+            return
+        _active_evaluations.add(search_id)
+
     def _eval_loop():
+        global AI_RUNNING
+        AI_RUNNING = True
         log.info("Starte Hintergrund-Auswertung für Suche %s", search_id)
-        while True:
-            processed = evaluate_listings(search_id)
-            if processed == 0:
-                log.info("Hintergrund-Auswertung für Suche %s beendet", search_id)
-                break
-            time.sleep(7) # 5-10 seconds pause
+        try:
+            while True:
+                processed = evaluate_listings(search_id)
+                if processed == 0:
+                    log.info("Hintergrund-Auswertung für Suche %s beendet", search_id)
+                    break
+                time.sleep(7) # 5-10 seconds pause
+        finally:
+            with _eval_lock:
+                _active_evaluations.discard(search_id)
+                if not _active_evaluations:
+                    AI_RUNNING = False
 
     threading.Thread(target=_eval_loop, daemon=True).start()
