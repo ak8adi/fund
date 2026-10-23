@@ -19,5 +19,9 @@
         {% if s and s.platforms and name in s.platforms %}checked{% endif %}> {{ label }}</label>
     {% endfor %}
   </fieldset>
+  <div class="row">
+    <label class="check"><input type="checkbox" name="allow_sets"
+      {% if not s or s.allow_sets %}checked{% endif %}> Sets/Bundles erlauben</label>
+  </div>
   <button class="btn">{{ 'Speichern' if s else 'Suche anlegen' }}</button>
 </form>

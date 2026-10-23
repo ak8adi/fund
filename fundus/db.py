@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS searches (
     created_at    TEXT NOT NULL,
     last_run_at   TEXT,
     notify_new    INTEGER NOT NULL DEFAULT 1,   -- Meldung bei neuem Angebot
-    notify_weekly INTEGER NOT NULL DEFAULT 1    -- in der Wochenübersicht aufführen
+    notify_weekly INTEGER NOT NULL DEFAULT 1,   -- in der Wochenübersicht aufführen
+    allow_sets    INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS listings (
     key           TEXT PRIMARY KEY,
@@ -105,7 +106,7 @@ def init_db() -> None:
         c.execute("PRAGMA journal_mode = WAL")
         c.executescript(SCHEMA)
         cols = {r["name"] for r in c.execute("PRAGMA table_info(searches)")}
-        for col in ("notify_new", "notify_weekly"):  # Migration bestehender Datenbanken
+        for col in ("notify_new", "notify_weekly", "allow_sets"):  # Migration bestehender Datenbanken
             if col not in cols:
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} INTEGER NOT NULL DEFAULT 1")
 
@@ -146,6 +147,7 @@ def _search_row(r: sqlite3.Row) -> dict:
     d = dict(r)
     d["platforms"] = json.loads(d["platforms"]) if d.get("platforms") else None
     d["exclude_words"] = [w.strip().lower() for w in d["exclude"].split(",") if w.strip()]
+    d["allow_sets"] = bool(d.get("allow_sets", 1))
     return d
 
 
@@ -156,16 +158,17 @@ def save_search(data: dict, search_id: int | None = None) -> int:
         data.get("min_price"),
         data.get("max_price"),
         json.dumps(data["platforms"]) if data.get("platforms") else None,
+        int(data.get("allow_sets", True)),
     )
     with connect() as c:
         if search_id is None:
             cur = c.execute(
-                "INSERT INTO searches (query, exclude, min_price, max_price, platforms, created_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO searches (query, exclude, min_price, max_price, platforms, allow_sets, created_at) VALUES (?,?,?,?,?,?,?)",
                 (*values, now()),
             )
             return int(cur.lastrowid)
         c.execute(
-            "UPDATE searches SET query=?, exclude=?, min_price=?, max_price=?, platforms=? WHERE id=?",
+            "UPDATE searches SET query=?, exclude=?, min_price=?, max_price=?, platforms=?, allow_sets=? WHERE id=?",
             (*values, search_id),
         )
         return search_id
@@ -241,6 +244,10 @@ def update_listing_ai(key: str, relevant: bool, tier: str | None, reason: str | 
             "UPDATE listings SET ai_relevant = ?, ai_tier = ?, ai_reason = ?, ai_score = ? WHERE key = ?",
             (int(relevant), tier, reason, score, key)
         )
+
+def update_listing_price(key: str, price: float) -> None:
+    with connect() as c:
+        c.execute("UPDATE listings SET price = ? WHERE key = ?", (price, key))
 
 
 def get_ai_progress() -> tuple[int, int]:

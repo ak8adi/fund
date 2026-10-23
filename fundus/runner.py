@@ -185,10 +185,10 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
 
         # Automatische KI-Auswertung der neuen Treffer durchführen, falls Gemini API Key hinterlegt ist
-        if new_hits and cfg.get("ai", {}).get("gemini_api_key"):
+        if cfg.get("ai", {}).get("gemini_api_key"):
             try:
-                from .ai import evaluate_listings
-                evaluate_listings(search["id"])
+                from .ai import start_background_evaluation
+                start_background_evaluation(search["id"])
             except Exception as exc:
                 log.warning("Automatische KI-Auswertung fehlgeschlagen: %s", exc)
 

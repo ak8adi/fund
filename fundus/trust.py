@@ -119,6 +119,4 @@ def assess(l: Listing, median_chf: float | None, fx: dict) -> TrustResult:
         level = "ok"
     else:
         level = "neutral"
-        if not has_data:
-            reasons.append("Plattform liefert in der Liste keine Verkäuferdaten")
     return TrustResult(level, reasons)
