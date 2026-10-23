@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS listings (
     trust_level   TEXT,
     trust_reasons TEXT,                         -- JSON-Liste
     description_full TEXT,
+    ai_score      INTEGER,
     ai_relevant   INTEGER,                      -- 1=True, 0=False
     ai_tier       TEXT,                         -- S, A, B, C
     ai_reason     TEXT,
@@ -111,6 +112,8 @@ def init_db() -> None:
         l_cols = {r["name"] for r in c.execute("PRAGMA table_info(listings)")}
         if "description_full" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN description_full TEXT")
+        if "ai_score" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN ai_score INTEGER")
         if "ai_relevant" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN ai_relevant INTEGER")
         if "ai_tier" not in l_cols:
@@ -232,11 +235,11 @@ def update_listing_description(key: str, description: str) -> None:
     with connect() as c:
         c.execute("UPDATE listings SET description_full = ? WHERE key = ?", (description, key))
 
-def update_listing_ai(key: str, relevant: bool, tier: str | None, reason: str | None) -> None:
+def update_listing_ai(key: str, relevant: bool, tier: str | None, reason: str | None, score: int | None = None) -> None:
     with connect() as c:
         c.execute(
-            "UPDATE listings SET ai_relevant = ?, ai_tier = ?, ai_reason = ? WHERE key = ?",
-            (int(relevant), tier, reason, key)
+            "UPDATE listings SET ai_relevant = ?, ai_tier = ?, ai_reason = ?, ai_score = ? WHERE key = ?",
+            (int(relevant), tier, reason, score, key)
         )
 
 
@@ -284,6 +287,11 @@ def _listing_row(r: sqlite3.Row) -> dict:
     d["trust_reasons"] = json.loads(d["trust_reasons"]) if d.get("trust_reasons") else []
     return d
 
+def get_listing(key: str) -> dict | None:
+    with connect() as c:
+        r = c.execute("SELECT * FROM listings WHERE key = ?", (key,)).fetchone()
+        return _listing_row(r) if r else None
+
 
 def mark_seen(search_id: int) -> None:
     with connect() as c:
@@ -292,8 +300,9 @@ def mark_seen(search_id: int) -> None:
 
 def hide_hit(search_id: int, listing_key: str) -> None:
     with connect() as c:
-        c.execute("UPDATE hits SET hidden = 1, is_new = 0 WHERE search_id = ? AND listing_key = ?",
+        c.execute("UPDATE hits SET is_new = 0 WHERE search_id = ? AND listing_key = ?",
                   (search_id, listing_key))
+    update_listing_ai(listing_key, relevant=False, tier=None, reason="Manuell ausgeblendet", score=None)
 
 
 # ---------- Plattform-Schalter ----------

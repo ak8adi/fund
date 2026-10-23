@@ -18,10 +18,6 @@ def evaluate_listings(search_id: int) -> int:
     if not api_key:
         return 0
 
-    if False:
-        log.warning("Der Gemini API Key ist ungültig (muss mit 'AIza' beginnen).")
-        return 0
-
     search = db.get_search(search_id)
     if not search:
         return 0
@@ -36,7 +32,7 @@ def evaluate_listings(search_id: int) -> int:
         for h in to_evaluate:
             txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
             if any(w in txt for w in excl):
-                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff")
+                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
             else:
                 kept.append(h)
         to_evaluate = kept
@@ -48,7 +44,7 @@ def evaluate_listings(search_id: int) -> int:
     desc_count = 0
     adapters = all_adapters(cfg)
     for h in to_evaluate:
-        if desc_count >= 15:
+        if desc_count >= 8:
             break
         if h.get("description_full"):
             continue
@@ -56,7 +52,7 @@ def evaluate_listings(search_id: int) -> int:
             continue
 
         try:
-            time.sleep(random.uniform(2, 4))
+            time.sleep(random.uniform(1, 2))
             adapter = adapter_for_source(adapters, h["platform"])
             fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
             page = fetch_html(h["url"], fetcher)
@@ -91,6 +87,7 @@ Hier sind die Inserate im JSON Format:
 - key: (string) der Inserat key
 - ai_relevant: (boolean)
 - ai_tier: (string) "S", "A", "B", oder "C" (null if irrelevant)
+- ai_score: (integer) 0 bis 100
 - ai_reason: (string) Begründung"""
 
     def make_request(model):
@@ -106,12 +103,10 @@ Hier sind die Inserate im JSON Format:
 
     try:
         try:
-            data = make_request("gemini-3.8-flash-lite")
+            data = make_request("gemini-3.8-flash")
         except Exception:
-                log.info("gemini-3.8-flash-lite nicht gefunden (404), nutze Fallback gemini-2.0-flash-lite")
-                data = make_request("gemini-2.0-flash-lite")
-            else:
-                raise
+            log.info("gemini-3.8-flash fehlgeschlagen, nutze Fallback gemini-2.0-flash-lite")
+            data = make_request("gemini-2.0-flash-lite")
 
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
         if text.startswith("```json"):
@@ -130,7 +125,8 @@ Hier sind die Inserate im JSON Format:
                 key=key,
                 relevant=bool(r.get("ai_relevant", True)),
                 tier=r.get("ai_tier"),
-                reason=r.get("ai_reason")
+                reason=r.get("ai_reason"),
+                score=r.get("ai_score")
             )
             count += 1
         return count
