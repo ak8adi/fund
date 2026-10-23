@@ -243,6 +243,17 @@ def update_listing_ai(key: str, relevant: bool, tier: str | None, reason: str | 
         )
 
 
+def get_ai_progress() -> tuple[int, int]:
+    """Returns (evaluated_count, total_count) for AI evaluated listings."""
+    with connect() as c:
+        row = c.execute(
+            "SELECT COUNT(key) as total, SUM(CASE WHEN ai_relevant IS NOT NULL OR ai_score IS NOT NULL THEN 1 ELSE 0 END) as evaluated FROM listings"
+        ).fetchone()
+        total = row["total"] or 0
+        evaluated = row["evaluated"] or 0
+        return int(evaluated), int(total)
+
+
 def add_hit(search_id: int, listing_key: str, is_new: bool) -> bool:
     """Gibt True zurück, wenn der Treffer für diese Suche bisher unbekannt war."""
     with connect() as c:

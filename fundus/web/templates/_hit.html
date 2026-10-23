@@ -17,10 +17,10 @@
       {% if h.seller and h.seller.name %}<span class="muted">· {{ h.seller.name }}</span>{% endif %}
       {% if h.trust_reasons %}<span class="muted reasons">· {{ h.trust_reasons | join(', ') }}</span>{% endif %}
       {% if h.ai_tier %}
-        <span class="badge ai-tier-{{ h.ai_tier | lower }}" style="margin-left: 8px; padding: 2px 6px; border-radius: 4px; background: #eee; font-weight: bold; font-size: 0.85em;">{{ h.ai_tier }}-Tier</span>
+        <span class="badge ai-tier-{{ h.ai_tier | lower }}" style="margin-left: 8px; padding: 2px 6px; border-radius: 4px; background: #eee; color: #111827; font-weight: bold; font-size: 0.85em;">{{ h.ai_tier }}-Tier</span>
       {% endif %}
       {% if h.ai_score is not none %}
-        <span class="badge ai-score" style="margin-left: 4px; padding: 2px 6px; border-radius: 4px; background: #ddd; font-weight: bold; font-size: 0.85em;">{{ h.ai_score }}/100 Pkt.</span>
+        <span class="badge ai-score" style="margin-left: 4px; padding: 2px 6px; border-radius: 4px; background: #ddd; color: #111827; font-weight: bold; font-size: 0.85em;">{{ h.ai_score }}/100 Pkt.</span>
       {% endif %}
     </div>
     {% if h.ai_reason %}
@@ -35,7 +35,7 @@
     </div>
     <details class="desc-details" style="margin-top: 8px;">
       <summary style="cursor: pointer; color: #0066cc;" {% if not h.description_full %}hx-get="/api/listing/{{ h.key }}/description" hx-target="next div" hx-swap="innerHTML" hx-trigger="click once"{% endif %}>Beschreibung anzeigen</summary>
-      <div class="desc-content" style="margin-top: 4px; font-size: 0.9em; white-space: pre-wrap; background: #f9f9f9; padding: 8px; border-radius: 4px;">{% if h.description_full %}{{ h.description_full }}{% else %}Lade...{% endif %}</div>
+      <div class="desc-content" style="margin-top: 4px; font-size: 0.9em; white-space: pre-wrap; background: #f9f9f9; color: #111827; padding: 8px; border-radius: 4px;">{% if h.description_full %}{{ h.description_full }}{% else %}Lade...{% endif %}</div>
     </details>
   </div>
 </article>
