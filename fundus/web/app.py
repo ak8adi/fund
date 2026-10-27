@@ -480,3 +480,58 @@ def api_update_chat(request: Request, key: str, search_id: int = Form(...), sell
         return HTMLResponse("")
     h["search_id"] = search_id
     return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))
+
+
+import time as _fx_time
+from markupsafe import Markup as _Markup
+
+_FX_CACHE = {"ts": 0, "rates": {"CHF": 1.0, "EUR": 0.94, "USD": 0.88, "GBP": 1.12, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22, "CZK": 0.037}}
+
+def _get_fx_rates() -> dict:
+    now = _fx_time.time()
+    if now - _FX_CACHE["ts"] > 3600:
+        try:
+            import httpx
+            r = httpx.get("https://open.er-api.com/v6/latest/CHF", timeout=3.5)
+            if r.status_code == 200:
+                raw = r.json().get("rates", {})
+                for k, v in raw.items():
+                    if v and v > 0:
+                        _FX_CACHE["rates"][k.upper()] = 1.0 / float(v)
+                _FX_CACHE["ts"] = now
+        except Exception:
+            _FX_CACHE["ts"] = now - 3000
+    return _FX_CACHE["rates"]
+
+def _round_chf_generous(val: float) -> int:
+    if val >= 100:
+        return int(round(val / 5.0) * 5)
+    elif val >= 20:
+        return int(round(val))
+    return max(1, int(round(val)))
+
+def price_chf_html(amount, currency: str | None = "CHF"):
+    if amount is None:
+        return "VB / k.A."
+    try:
+        val = float(amount)
+    except Exception:
+        return str(amount)
+    cur = (currency or "CHF").upper().strip()
+    if cur in ("€", "EUR"): cur = "EUR"
+    elif cur in ("KR", "KR.", "SEK"): cur = "SEK"
+    elif cur in ("$", "USD"): cur = "USD"
+    elif cur in ("£", "GBP"): cur = "GBP"
+    elif cur in ("CHF", "FR", "FR.", "SFR"): cur = "CHF"
+
+    if cur == "CHF":
+        chf_r = _round_chf_generous(val)
+        return _Markup(f"{chf_r} CHF")
+
+    rates = _get_fx_rates()
+    rate = rates.get(cur, 0.94)
+    chf_r = _round_chf_generous(val * rate)
+    orig_r = int(round(val))
+    return _Markup(f'~{chf_r} CHF <span class="orig-price">({orig_r} {cur})</span>')
+
+templates.env.globals['price'] = price_chf_html

@@ -236,3 +236,12 @@ table.runs td.c, table.runs th { text-align: center; }
 .badge-tier.tier-b { background: #38bdf8 !important; color: #0c4a6e !important; }
 .badge-tier.tier-c { background: #4b5563 !important; color: #e5e7eb !important; }
 .badge-score { background: #111827 !important; color: #f9fafb !important; border: 1px solid #4b5563 !important; }
+
+/* Originalwährung klein neben CHF-Preis */
+.orig-price {
+  font-size: 0.78rem !important;
+  font-weight: 500 !important;
+  color: #9ca3af !important;
+  margin-left: 5px !important;
+  vertical-align: middle !important;
+}
