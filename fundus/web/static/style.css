@@ -170,3 +170,69 @@ form.stack .row { display: flex; gap: 1rem; }
 form.stack select { padding: .4rem .5rem; font: inherit; }
 table.runs th.left { text-align: left; }
 table.runs td.c, table.runs th { text-align: center; }
+
+/* Bild-Override */
+.hit { grid-template-columns: 140px 1fr !important; }
+.hit .thumb, .hit .thumb img { width: 140px !important; height: 140px !important; object-fit: cover !important; }
+/* High-Density Pro Layout */
+.hits { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)) !important; gap: 10px !important; }
+.hit { grid-template-columns: 128px 1fr !important; padding: 10px !important; gap: 12px !important; align-items: start !important; }
+.hit .thumb, .hit .thumb img { width: 128px !important; height: 128px !important; object-fit: cover !important; border-radius: 8px !important; }
+.hit-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.price-row { display: flex; align-items: center; gap: 8px; }
+.big-price { font-size: 1.35rem; font-weight: 800; color: #111827; letter-spacing: -0.02em; }
+.cond-badge { font-size: 0.78rem; font-weight: 800; padding: 2px 7px; border-radius: 5px; letter-spacing: 0.03em; }
+.badges-right { display: flex; gap: 4px; }
+.badge-tier, .badge-score { font-size: 0.78rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: #e5e7eb; color: #111827; }
+.hit .title { font-size: 0.98rem; font-weight: 600; line-height: 1.25; margin: 1px 0; -webkit-line-clamp: 1 !important; }
+.meta-compact { font-size: 0.78rem; color: #4b5563; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.btn-toggle { margin-left: auto; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 1px 7px; font-size: 0.75rem; cursor: pointer; color: #111827; font-weight: 600; }
+.btn-toggle.restore { background: #dcfce7; border-color: #86efac; color: #166534; }
+.ai-bubble { margin-top: 4px; background: #f3f4f6; color: #111827; padding: 5px 9px; font-size: 0.82rem; border-radius: 10px; border-top-left-radius: 2px; line-height: 1.3; }
+.desc-details { margin-top: 2px; font-size: 0.8rem; }
+.desc-details > summary { cursor: pointer; color: #0066cc; font-weight: 500; }
+.desc-content { margin-top: 4px; font-size: 0.82rem; white-space: pre-wrap; background: #f9fafb; color: #111827; padding: 6px; border-radius: 4px; max-height: 140px; overflow-y: auto; }
+
+/* Bild & Preis-Update */
+.hit { grid-template-columns: 175px 1fr !important; }
+.hit .thumb, .hit .thumb img { width: 175px !important; height: 175px !important; object-fit: cover !important; }
+.big-price { color: #ffffff !important; font-size: 1.55rem !important; }
+
+/* KI-Fazit dunkel & dezenter */
+.ai-bubble, .ai-reason {
+  background: #1f2937 !important;
+  color: #f3f4f6 !important;
+  border: 1px solid #374151 !important;
+  font-size: 0.76rem !important;
+  padding: 4px 8px !important;
+  margin-top: 3px !important;
+  border-radius: 6px !important;
+  border-top-left-radius: 2px !important;
+  line-height: 1.25 !important;
+  font-style: normal !important;
+  opacity: 0.92;
+}
+.ai-bubble strong, .ai-reason strong {
+  color: #9ca3af !important;
+  font-weight: 600 !important;
+}
+
+/* Angebots-Karten (Banner) vom Hintergrund abheben & Tier-Badges einfärben */
+.hit {
+  background: #242b38 !important;
+  border: 1px solid #374151 !important;
+  border-left-width: 4px !important;
+  border-radius: 10px !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45) !important;
+  transition: transform 0.12s ease, border-color 0.12s ease !important;
+}
+.hit:hover {
+  background: #2a3241 !important;
+  border-color: #4b5563 !important;
+  transform: translateY(-1px);
+}
+.badge-tier.tier-s { background: linear-gradient(135deg, #f59e0b, #d97706) !important; color: #ffffff !important; border: none !important; }
+.badge-tier.tier-a { background: #10b981 !important; color: #064e3b !important; }
+.badge-tier.tier-b { background: #38bdf8 !important; color: #0c4a6e !important; }
+.badge-tier.tier-c { background: #4b5563 !important; color: #e5e7eb !important; }
+.badge-score { background: #111827 !important; color: #f9fafb !important; border: 1px solid #4b5563 !important; }
