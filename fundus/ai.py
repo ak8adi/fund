@@ -11,6 +11,17 @@ from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
 
 log = logging.getLogger(__name__)
+_AI_FX = {"CHF": 1.0, "EUR": 0.94, "USD": 0.88, "GBP": 1.12, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22}
+_NO_SHIP = ("kein versand", "nur abholung", "nur selbstabholung", "no shipping", "collection only", "pickup only", "pas d'envoi", "solo ritiro", "non spedisco", "ingen frakt")
+def _ai_chf(amount, cur):
+    if amount is None: return "VB"
+    try: v = float(amount)
+    except Exception: return str(amount)
+    c = (cur or "CHF").upper().strip()
+    r = _AI_FX.get(c, 0.94)
+    chf = int(round((v * r) / 5.0) * 5) if (v * r) >= 100 else int(round(v * r))
+    return f"{chf} CHF" if c == "CHF" else f"ca. {chf} CHF ({int(round(v))} {c})"
+
 
 def evaluate_listings(search_id: int) -> int:
     cfg = get_config()
@@ -86,6 +97,15 @@ def evaluate_listings(search_id: int) -> int:
         except Exception as exc:
             log.warning("Konnte Beschreibung für %s nicht laden: %s", h["url"], exc)
 
+    if search.get("require_shipping"):
+        kept_s = []
+        for h in to_evaluate:
+            if any(t in f"{h.get('title','')} {h.get('description_full','')}".lower() for t in _NO_SHIP):
+                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Kein Versand (nur Abholung)")
+            else:
+                kept_s.append(h)
+        to_evaluate = kept_s
+        if not to_evaluate: return 0
     prompt = f"""Analysiere diese Inserate für meine Suche nach '{search["query"]}' und erstelle eine Tier-List mit Fokus auf die besten 30 %.
 """
     if median_price:
@@ -100,7 +120,7 @@ Wenn das gesuchte Produkt als Einzelkauf in einem Set-Inserat verfügbar ist, gi
 
     prompt += """b) Tier-List: Bewerte alle relevanten Inserate in Tiers ("S" / "A" für die besten 30 % mit detaillierter Begründung zu Preis-Leistung und Zustand in ai_reason, sowie "B" und "C" für den Rest mit knapper Einschätzung).
 
-Hier sind die Inserate im JSON Format:
+{'WICHTIG: Schliesse Angebote aus (ai_relevant=false), die ausdrücklich KEINEN Versand (nur Abholung) anbieten!\n' if search.get('require_shipping') else ''}Hier sind die Inserate im JSON Format:
 """
     items = []
     for h in to_evaluate:
@@ -109,7 +129,7 @@ Hier sind die Inserate im JSON Format:
         items.append({
             "key": h["key"],
             "title": h["title"],
-            "price": f"{h['price']} {h['currency']}" if h.get("price") else "Kein Preis",
+            "price": _ai_chf(h.get("price"), h.get("currency")),
             "description": desc,
             "seller_chat": (h.get("seller_chat") or "")[:1000]
         })

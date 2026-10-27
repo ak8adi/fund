@@ -103,6 +103,8 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 
 def _ensure_chat_cols(conn):
+    try: conn.execute('ALTER TABLE searches ADD COLUMN require_shipping INTEGER DEFAULT 0')
+    except Exception: pass
     for col in ('seller_chat TEXT', 'draft_question TEXT'):
         try:
             conn.execute(f'ALTER TABLE listings ADD COLUMN {col}')

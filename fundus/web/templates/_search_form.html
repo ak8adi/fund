@@ -22,6 +22,7 @@
   <div class="row">
     <label class="check"><input type="checkbox" name="allow_sets"
       {% if not s or s.allow_sets %}checked{% endif %}> Sets/Bundles erlauben</label>
+  <label class="check"><input type="checkbox" name="require_shipping" value="1" {% if search and search.require_shipping %}checked{% endif %}> <span>Versand möglich ("Kein Versand / Nur Abholung" ausschliessen)</span></label>
   </div>
   <button class="btn">{{ 'Speichern' if s else 'Suche anlegen' }}</button>
 </form>
