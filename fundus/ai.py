@@ -110,7 +110,8 @@ Hier sind die Inserate im JSON Format:
             "key": h["key"],
             "title": h["title"],
             "price": f"{h['price']} {h['currency']}" if h.get("price") else "Kein Preis",
-            "description": desc
+            "description": desc,
+            "seller_chat": (h.get("seller_chat") or "")[:1000]
         })
     prompt += json.dumps(items, ensure_ascii=False)
 
@@ -204,3 +205,102 @@ def start_background_evaluation(search_id: int):
                     AI_RUNNING = False
 
     threading.Thread(target=_eval_loop, daemon=True).start()
+
+
+def _call_gemini_text(prompt: str, system_instruction: str = "") -> str:
+    cfg = get_config()
+    api_key = cfg.get("ai", {}).get("gemini_api_key")
+    if not api_key:
+        return ""
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3}
+    }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+    for model in ("gemini-3.5-flash-lite", "gemini-3.7-flash"):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        try:
+            for _ in range(2):
+                resp = httpx.post(url, json=payload, timeout=45)
+                if resp.status_code != 503:
+                    break
+                time.sleep(2)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception as exc:
+            log.warning("Gemini Call (%s) fehlgeschlagen: %s", model, exc)
+    return ""
+
+def generate_seller_question(key: str, search_id: int) -> str:
+    hits = db.hits_for_search(search_id)
+    h = next((x for x in hits if x["key"] == key), None)
+    if not h:
+        return ""
+    search = db.get_search(search_id) or {}
+    prompt = f"""Gesuchtes Produkt: {search.get('query', '')}
+Inserat-Titel: {h.get('title', '')}
+Preis: {h.get('price')} {h.get('currency')}
+Beschreibung: {(h.get('description_full') or '')[:1000]}
+Bisheriges KI-Fazit: {h.get('ai_reason') or ''}
+Bisheriger Chat: {h.get('seller_chat') or ''}
+
+Formuliere eine kurze, höfliche, direkte Nachricht an den Verkäufer (2-4 Sätze, ohne Platzhalter in eckigen Klammern), die die wichtigsten offenen Punkte klärt (z.B. Zustand/Mängel, Einzelkauf falls Set, Alter/Rechnung oder ein realistisches Preisangebot)."""
+    draft = _call_gemini_text(prompt, "Du bist ein erfahrener Gebrauchtwaren-Käufer. Antworte nur mit dem direkten Nachrichtentext.")
+    if draft:
+        db.update_listing_draft(key, draft)
+    return draft
+
+def reevaluate_single_listing(key: str, search_id: int) -> bool:
+    hits = db.hits_for_search(search_id)
+    h = next((x for x in hits if x["key"] == key), None)
+    if not h:
+        return False
+    search = db.get_search(search_id) or {}
+    prompt = f"""Bewerte dieses Inserat für die Suche '{search.get('query', '')}' NEU unter besonderer Berücksichtigung der neuen Verkäufer-Antwort im Chat!
+Titel: {h.get('title')}
+Aktueller Preis: {h.get('price')} {h.get('currency')}
+Beschreibung: {(h.get('description_full') or '')[:1000]}
+WICHTIG - Verkäufer-Chat / Antwort: {h.get('seller_chat') or ''}
+
+Gib ausschließlich ein JSON-Objekt zurück mit den Feldern:
+{{"ai_relevant": true/false, "ai_tier": "S"/"A"/"B"/"C", "ai_score": 0-100, "ai_reason": "Aktualisiertes Fazit inkl. Chat-Infos", "extracted_single_price": null oder Zahl falls neuer Preis im Chat genannt}}"""
+    raw = _call_gemini_text(prompt, "Antworte AUSSCHLIESSLICH mit gültigem JSON-Objekt ohne Markdown-Block.")
+    if not raw:
+        return False
+    try:
+        txt = raw.strip()
+        if txt.startswith("```json"): txt = txt[7:]
+        if txt.startswith("```"): txt = txt[3:]
+        if txt.endswith("```"): txt = txt[:-3]
+        r = json.loads(txt.strip())
+        if isinstance(r, list) and r:
+            r = r[0]
+        try:
+            db.update_listing_ai(
+                key=key,
+                relevant=bool(r.get("ai_relevant", True)),
+                tier=r.get("ai_tier"),
+                reason=r.get("ai_reason"),
+                score=r.get("ai_score")
+            )
+        except TypeError:
+            db.update_listing_ai(
+                key=key,
+                relevant=bool(r.get("ai_relevant", True)),
+                tier=r.get("ai_tier"),
+                reason=r.get("ai_reason")
+            )
+        new_p = r.get("extracted_single_price")
+        if new_p is not None:
+            try:
+                with db.connect() as conn:
+                    conn.execute("UPDATE listings SET price = ? WHERE key = ?", (float(new_p), key))
+                    conn.commit()
+            except Exception:
+                pass
+        return True
+    except Exception as exc:
+        log.warning("Fehler bei Einzel-Neubewertung: %s", exc)
+        return False

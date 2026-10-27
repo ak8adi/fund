@@ -458,3 +458,25 @@ async def save_notify(request: Request):
 def weekly_now():
     ok = send_weekly(get_config(), db.weekly_summary())
     return RedirectResponse(f"/settings?test={'ok' if ok else 'fail'}", status_code=303)
+
+
+@app.post("/api/listing/{key:path}/generate_question", response_class=HTMLResponse)
+def api_generate_question(request: Request, key: str, search_id: int = Form(...)):
+    ai.generate_seller_question(key, search_id)
+    hits = _enriched_hits_for_search(search_id) if "_enriched_hits_for_search" in globals() else db.hits_for_search(search_id)
+    h = next((x for x in hits if x["key"] == key), None)
+    if not h:
+        return HTMLResponse("")
+    h["search_id"] = search_id
+    return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))
+
+@app.post("/api/listing/{key:path}/update_chat", response_class=HTMLResponse)
+def api_update_chat(request: Request, key: str, search_id: int = Form(...), seller_chat: str = Form("")):
+    db.update_listing_chat(key, seller_chat)
+    ai.reevaluate_single_listing(key, search_id)
+    hits = _enriched_hits_for_search(search_id) if "_enriched_hits_for_search" in globals() else db.hits_for_search(search_id)
+    h = next((x for x in hits if x["key"] == key), None)
+    if not h:
+        return HTMLResponse("")
+    h["search_id"] = search_id
+    return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))

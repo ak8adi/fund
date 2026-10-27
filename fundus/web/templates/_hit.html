@@ -48,5 +48,28 @@
         </form>
       </details>
     </details>
+    <details class="chat-details" {% if h.draft_question or h.seller_chat %}open{% endif %} style="margin-top: 3px; font-size: 0.8rem;">
+      <summary style="cursor: pointer; color: #38bdf8; font-weight: 600;">💬 Nachrichten & KI-Frage{% if h.seller_chat %} (Antwort gespeichert){% endif %}</summary>
+      <div style="margin-top: 5px; background: #1a202c; border: 1px solid #374151; padding: 7px; border-radius: 6px; display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn small" style="padding: 2px 8px; font-size: 0.75rem;"
+                  hx-post="/api/listing/{{ h.key }}/generate_question"
+                  hx-vals='{{ {"search_id": h.search_id} | tojson }}'
+                  hx-target="closest article" hx-swap="outerHTML show:none">🤖 KI-Frage generieren</button>
+          {% if h.draft_question %}
+            <button type="button" class="btn small" style="padding: 2px 8px; font-size: 0.75rem; background: #10b981; color: #064e3b; font-weight: 700;"
+                    onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.value); window.open('{{ h.url }}', '_blank');">📋 Kopieren & Inserat öffnen</button>
+          {% endif %}
+        </div>
+        {% if h.draft_question %}
+          <textarea rows="2" style="width: 100%; font-size: 0.8rem; background: #111827; color: #f3f4f6; border: 1px solid #4b5563; border-radius: 4px; padding: 4px;">{{ h.draft_question }}</textarea>
+        {% endif %}
+        <form hx-post="/api/listing/{{ h.key }}/update_chat" hx-target="closest article" hx-swap="outerHTML show:none" style="display: flex; flex-direction: column; gap: 4px;">
+          <input type="hidden" name="search_id" value="{{ h.search_id }}">
+          <textarea name="seller_chat" rows="2" placeholder="Antwort des Verkäufers hier einfügen (z.B. '400 CHF inkl. Versand geht klar, keine Risse')..." style="width: 100%; font-size: 0.8rem; background: #111827; color: #f3f4f6; border: 1px solid #4b5563; border-radius: 4px; padding: 4px;">{% if h.seller_chat %}{{ h.seller_chat }}{% endif %}</textarea>
+          <button type="submit" class="btn small" style="align-self: flex-start; padding: 2px 8px; font-size: 0.75rem;">💾 Antwort speichern & KI-Score neu berechnen</button>
+        </form>
+      </div>
+    </details>
   </div>
 </article>

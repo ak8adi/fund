@@ -96,10 +96,18 @@ def connect() -> Iterator[sqlite3.Connection]:
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
+        _ensure_chat_cols(conn)
         conn.commit()
     finally:
         conn.close()
 
+
+def _ensure_chat_cols(conn):
+    for col in ('seller_chat TEXT', 'draft_question TEXT'):
+        try:
+            conn.execute(f'ALTER TABLE listings ADD COLUMN {col}')
+        except Exception:
+            pass
 
 def init_db() -> None:
     with connect() as c:
@@ -380,3 +388,14 @@ def finish_run(run_id: int, new_hits: int, errors: int) -> None:
 def last_runs(limit: int = 5) -> list[dict]:
     with connect() as c:
         return [dict(r) for r in c.execute("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,))]
+
+
+def update_listing_chat(key: str, seller_chat: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE listings SET seller_chat = ? WHERE key = ?", (seller_chat, key))
+        conn.commit()
+
+def update_listing_draft(key: str, draft_question: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE listings SET draft_question = ? WHERE key = ?", (draft_question, key))
+        conn.commit()
