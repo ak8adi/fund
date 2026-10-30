@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import quote
 
+from ..matching import matches_query
 from ..models import Listing, Seller
 from .base import Adapter, fetch_html
 
@@ -29,12 +30,6 @@ def parse_price_de(value: str | None) -> float | None:
     if not m:
         return None
     return float(m.group(0).replace(".", "").replace(",", "."))
-
-
-def _matches(query: str, text: str) -> bool:
-    """Alle Suchwörter müssen in Titel oder Beschreibung vorkommen (Markt.de sucht sehr unscharf)."""
-    text = text.lower()
-    return all(w in text for w in re.findall(r"\w{2,}", query.lower()))
 
 
 class MarktAdapter(Adapter):
@@ -63,7 +58,7 @@ class MarktAdapter(Adapter):
             title = _field(item, "link")
             if not m_link or not title:
                 continue
-            if query and not _matches(query, f"{title} {_field(item, 'description') or ''}"):
+            if query and not matches_query(query, f"{title} {_field(item, 'description') or ''}"):
                 continue
             url = html_lib.unescape(m_link.group(1)).split("?")[0]
             m_img = re.search(r'<img src="([^"]+)"', item)

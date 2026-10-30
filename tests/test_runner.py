@@ -66,3 +66,24 @@ def test_blocked_platform_pauses_for_next_runs(monkeypatch):
     runner.run("test")
     assert FakeAdapter.calls == 1                            # und im nächsten Lauf Pause
     assert db.platform_states()["ricardo"]["last_error"].startswith("Pausiert nach Sperre")
+
+
+def test_gone_listing_reappears_and_ai_reset(monkeypatch):
+    monkeypatch.setattr(runner, "all_adapters", lambda cfg: [FakeAdapter(cfg)])
+    sid = db.save_search({"query": "kite"})
+    FakeAdapter.inventory = [item(1)]
+    runner.run("test")
+    db.mark_listing_gone("ricardo:1")
+    assert db.get_listing("ricardo:1")["gone_at"]
+    db.update_listing_ai("ricardo:1", relevant=None, tier=None, reason=None)   # Sets-Umschalten: zurücksetzen
+    assert db.get_listing("ricardo:1")["ai_relevant"] is None
+    runner.run("test")                                       # wieder in den Suchergebnissen → verfügbar
+    assert db.get_listing("ricardo:1")["gone_at"] is None
+
+
+def test_prefilter_drops_titles_without_search_words(monkeypatch):
+    monkeypatch.setattr(runner, "all_adapters", lambda cfg: [FakeAdapter(cfg)])
+    sid = db.save_search({"query": "kite 9m"})
+    FakeAdapter.inventory = [item(1, title="North Orbit Kite 9m"), item(2, title="Trapez Gr. M"), item(3, title="Kite 12m")]
+    runner.run("test")
+    assert {h["external_id"] for h in db.hits_for_search(sid)} == {"1"}

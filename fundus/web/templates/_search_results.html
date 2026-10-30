@@ -1,8 +1,11 @@
 {% set relevant_hits = [] %}
 {% set top_hits = [] %}
 {% set irrelevant_hits = [] %}
+{% set gone_hits = [] %}
 {% for h in hits %}
-  {% if h._inactive_platform %}
+  {% if h.gone_at %}
+    {% set _ = gone_hits.append(h) %}
+  {% elif h._inactive_platform %}
     {% set _ = irrelevant_hits.append(h) %}
   {% elif h.ai_relevant is none or h.ai_relevant %}
     {% set _ = relevant_hits.append(h) %}
@@ -42,6 +45,15 @@
       {% endif %}
     {% endfor %}
   </div>
+
+  {% if gone_hits %}
+    <details class="card" style="margin-top: 1rem;">
+      <summary>Nicht mehr verfügbar ({{ gone_hits | length }} verkauft oder gelöscht)</summary>
+      <div class="hits wide" style="margin-top: 1rem;">
+        {% for h in gone_hits %}{% include "_hit.html" %}{% endfor %}
+      </div>
+    </details>
+  {% endif %}
 
   {% if irrelevant_hits %}
     <details class="card" style="margin-top: 1rem;">

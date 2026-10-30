@@ -14,7 +14,9 @@
       <div class="price-row">
         <span class="big-price">{{ price(h.price, h.currency) }}</span>
         {% if h.first_price and h.price and h.price < h.first_price %}<span class="drop">statt {{ price(h.first_price, h.currency) }}</span>{% endif %}
+        {% if h.single_price %}<span class="drop">einzeln {{ price(h.single_price, h.currency) }}</span>{% endif %}
         <span class="cond-badge" style="background:{{ c_bg }};color:{{ c_fg }};">{{ cond }}</span>
+        {% if h.gone_at %}<span class="cond-badge" style="background:#e5e7eb;color:#374151;">NICHT MEHR VERFÜGBAR</span>{% endif %}
       </div>
       <div class="badges-right">
         {% if h.ai_tier %}<span class="badge-tier tier-{{ h.ai_tier | lower }}">{{ h.ai_tier }}-Tier</span>{% endif %}

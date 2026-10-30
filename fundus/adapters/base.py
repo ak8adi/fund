@@ -30,6 +30,10 @@ class BlockedError(AdapterError):
     """Plattform blockt die Anfrage (Captcha, 403, 429)."""
 
 
+class GoneError(AdapterError):
+    """Seite existiert nicht mehr (404, 410) – bei einer Inseratseite: verkauft oder gelöscht."""
+
+
 class Adapter(ABC):
     name: str = ""
     label: str = ""
@@ -89,6 +93,8 @@ def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> 
 
     if resp.status_code in (403, 429, 503):
         raise BlockedError(f"HTTP {resp.status_code} – Plattform blockt vermutlich automatisierte Anfragen")
+    if resp.status_code in (404, 410):
+        raise GoneError(f"HTTP {resp.status_code} für {url}")
     if resp.status_code >= 400:
         raise AdapterError(f"HTTP {resp.status_code} für {url}")
     text = resp.text

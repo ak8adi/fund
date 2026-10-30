@@ -38,12 +38,8 @@ DEFAULTS: dict[str, Any] = {
         "anibis": {"url": "https://www.anibis.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
         "kleinanzeigen": {"url": "https://www.kleinanzeigen.de/s-{query}/k0", "fetcher": "http"},
         "willhaben": {"url": "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword={query}", "fetcher": "http"},
-"markt": {"url": "https://www.markt.de/suche/{query}/", "fetcher": "http"},
-        "leboncoin": {"url": "https://www.leboncoin.fr/recherche?text={query}", "fetcher": "http"},
+        "markt": {"url": "https://www.markt.de/suche/{query}/", "fetcher": "http"},
         "blocket": {"url": "https://www.blocket.se/annonser/hela_sverige?q={query}", "fetcher": "http"},
-        "tradera": {"url": "https://www.tradera.com/search?q={query}", "fetcher": "http"},
-        "subito": {"url": "https://www.subito.it/annunci-italia/vendita/usato/?q={query}", "fetcher": "http"},
-        "facebook": {"url": "https://www.facebook.com/marketplace/search/?query={query}", "fetcher": "http"},
     },
 }
 

@@ -131,6 +131,12 @@ def init_db() -> None:
             c.execute("ALTER TABLE listings ADD COLUMN ai_tier TEXT")
         if "ai_reason" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN ai_reason TEXT")
+        if "single_price" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN single_price REAL")  # KI: Einzelpreis aus Set-Inserat
+        if "gone_at" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN gone_at TEXT")  # Inseratseite antwortet 404/410
+        if "checked_at" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN checked_at TEXT")  # letzte Verfügbarkeitsprüfung
 
         p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
         if "blocked_at" not in p_cols:
@@ -255,7 +261,7 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
                    image=COALESCE(excluded.image, listings.image), location=COALESCE(excluded.location, listings.location),
                    seller=excluded.seller, trust_level=excluded.trust_level, trust_reasons=excluded.trust_reasons,
                    description_full=COALESCE(excluded.description_full, listings.description_full),
-                   last_seen=excluded.last_seen""",
+                   last_seen=excluded.last_seen, gone_at=NULL""",
             (
                 l.key, l.platform, l.external_id, l.title, l.url, l.price, l.price, l.currency, l.image,
                 l.location, l.country, l.posted_at.isoformat() if l.posted_at else None, l.source,
@@ -264,20 +270,44 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
             ),
         )
 
+def mark_listing_gone(key: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE listings SET gone_at = ?, checked_at = ? WHERE key = ?", (now(), now(), key))
+
+
+def mark_listing_checked(key: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE listings SET checked_at = ? WHERE key = ?", (now(), key))
+
+
+def top_hits_to_check(search_id: int, limit: int = 3) -> list[dict]:
+    """Bestbewertete Treffer, die in diesem Lauf nicht in den Suchergebnissen waren und
+    seit einem Tag nicht geprüft wurden."""
+    sql = """SELECT l.key, l.url, l.platform FROM hits h JOIN listings l ON l.key = h.listing_key
+             WHERE h.search_id = ? AND h.hidden = 0 AND l.ai_relevant = 1 AND l.gone_at IS NULL
+               AND l.last_seen < datetime('now', '-1 hour')
+               AND (l.checked_at IS NULL OR l.checked_at < datetime('now', '-1 day'))
+             ORDER BY l.ai_score DESC LIMIT ?"""
+    with connect() as c:
+        return [dict(r) for r in c.execute(sql, (search_id, limit))]
+
+
 def update_listing_description(key: str, description: str) -> None:
     with connect() as c:
         c.execute("UPDATE listings SET description_full = ? WHERE key = ?", (description, key))
 
-def update_listing_ai(key: str, relevant: bool, tier: str | None, reason: str | None, score: int | None = None) -> None:
+def update_listing_ai(key: str, relevant: bool | None, tier: str | None, reason: str | None, score: int | None = None) -> None:
+    """relevant=None setzt die Bewertung zurück, damit die KI das Inserat neu prüft."""
     with connect() as c:
         c.execute(
             "UPDATE listings SET ai_relevant = ?, ai_tier = ?, ai_reason = ?, ai_score = ? WHERE key = ?",
-            (int(relevant), tier, reason, score, key)
+            (None if relevant is None else int(relevant), tier, reason, score, key)
         )
 
 def update_listing_price(key: str, price: float) -> None:
+    """Von der KI erkannter Einzelpreis (Set-Inserat). Eigene Spalte, damit der nächste Lauf ihn nicht überschreibt."""
     with connect() as c:
-        c.execute("UPDATE listings SET price = ? WHERE key = ?", (price, key))
+        c.execute("UPDATE listings SET single_price = ? WHERE key = ?", (price, key))
 
 
 def get_ai_progress() -> tuple[int, int]:
@@ -388,6 +418,20 @@ def record_platform_result(name: str, count: int | None, error: str | None) -> N
 def start_run(trigger: str) -> int:
     with connect() as c:
         return int(c.execute("INSERT INTO runs (trigger, started_at) VALUES (?,?)", (trigger, now())).lastrowid)
+
+
+def close_stale_runs() -> int:
+    """Läufe ohne Ende (Server-Neustart mitten im Lauf) als abgebrochen schliessen."""
+    with connect() as c:
+        return c.execute("UPDATE runs SET finished_at = ?, errors = -1 WHERE finished_at IS NULL", (now(),)).rowcount
+
+
+def searches_with_unevaluated_hits() -> list[int]:
+    with connect() as c:
+        return [r[0] for r in c.execute(
+            """SELECT DISTINCT h.search_id FROM hits h JOIN listings l ON l.key = h.listing_key
+               JOIN searches s ON s.id = h.search_id
+               WHERE s.active = 1 AND h.hidden = 0 AND l.ai_relevant IS NULL AND l.ai_tier IS NULL""")]
 
 
 def finish_run(run_id: int, new_hits: int, errors: int) -> None:

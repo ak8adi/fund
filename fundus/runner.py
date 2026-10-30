@@ -9,10 +9,11 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from . import db
-from .adapters import AdapterError, BlockedError, all_adapters, adapter_for_source
+from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
 from .config import get_config
+from .matching import matches_query
 from .models import Listing
 from .notify import notify_hits
 from .trust import assess, price_in_chf, reference_price
@@ -69,6 +70,8 @@ def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
     for l in listings:
         title = l.title.lower()
         if any(w in title for w in search["exclude_words"]):
+            continue
+        if not matches_query(search["query"], l.title):
             continue
         chf = price_in_chf(l.price, l.currency, fx)
         if chf is not None:
@@ -184,6 +187,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 if desc:
                     db.update_listing_description(key, desc)
                 desc_count += 1
+            except GoneError:
+                db.mark_listing_gone(key)
+                log.info("Inserat nicht mehr verfügbar: %s", url)
             except BlockedError as exc:
                 blocked.add(hit["platform"])
                 db.mark_platform_blocked(hit["platform"])
@@ -202,6 +208,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     break
                 if hit["key"] in new_keys or hit.get("description_full"):
                     continue
+                if hit.get("ai_relevant") == 0 or hit.get("gone_at"):
+                    continue  # Fehltreffer und verkaufte Inserate brauchen keine Beschreibung
                 if hit["platform"] in ("ebay", "ricardo") or hit["platform"] in blocked:
                     continue  # Ricardo: Einzelabrufe nur für neue Treffer, sonst droht eine Sperre
 
@@ -221,12 +229,34 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     if desc:
                         db.update_listing_description(hit["key"], desc)
                     desc_count += 1
+                except GoneError:
+                    db.mark_listing_gone(hit["key"])
+                    log.info("Inserat nicht mehr verfügbar: %s", hit["url"])
                 except BlockedError as exc:
                     blocked.add(hit["platform"])
                     db.mark_platform_blocked(hit["platform"])
                     log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
                 except Exception as exc:
                     log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
+
+        # Die besten Treffer, die nicht mehr in den Suchergebnissen auftauchen, direkt prüfen:
+        # Nur Seite 1 wird abgefragt, «nicht gesehen» heisst also nicht «verkauft».
+        for hit in db.top_hits_to_check(search["id"]):
+            if hit["platform"] in ("ebay", "ricardo") or hit["platform"] in blocked:
+                continue
+            try:
+                time.sleep(random.uniform(2, 4))
+                adapter = adapter_for_source(adapters, hit["platform"])
+                fetch_html(hit["url"], adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http")
+                db.mark_listing_checked(hit["key"])
+            except GoneError:
+                db.mark_listing_gone(hit["key"])
+                log.info("Inserat nicht mehr verfügbar: %s", hit["url"])
+            except BlockedError:
+                blocked.add(hit["platform"])
+                db.mark_platform_blocked(hit["platform"])
+            except Exception as exc:
+                log.warning("Verfügbarkeit von %s nicht prüfbar: %s", hit["url"], exc)
 
         # Automatische KI-Auswertung der neuen Treffer durchführen, falls Gemini API Key hinterlegt ist
         if cfg.get("ai", {}).get("gemini_api_key"):

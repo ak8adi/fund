@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import ai, db, runner
 from ..adapters import all_adapters, adapter_for_source
-from ..adapters.base import fetch_html
+from ..adapters.base import GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page
 from ..config import get_config, save_settings
 from ..notify import format_price, send_test, send_weekly
@@ -33,8 +33,13 @@ state: dict = {"scheduler": None}
 async def lifespan(app: FastAPI):
     cfg = get_config()
     db.init_db()
+    if db.close_stale_runs():
+        log.info("Abgebrochenen Lauf geschlossen")
     runner.available_sources(cfg)
     state["scheduler"] = start_scheduler(cfg)
+    if cfg.get("ai", {}).get("gemini_api_key"):
+        for sid in db.searches_with_unevaluated_hits():  # z.B. nach abgebrochenem Lauf liegengeblieben
+            ai.start_background_evaluation(sid)
     yield
     if state["scheduler"]:
         state["scheduler"].shutdown(wait=False)
@@ -189,6 +194,9 @@ def get_listing_description(key: str):
             if desc:
                 db.update_listing_description(key, desc)
                 return HTMLResponse(desc)
+    except GoneError:
+        db.mark_listing_gone(key)
+        return HTMLResponse("Inserat nicht mehr verfügbar (verkauft oder gelöscht).")
     except Exception as e:
         log.error("Fehler beim Laden der Beschreibung: %s", e)
     return HTMLResponse("Konnte Beschreibung nicht laden.")
@@ -232,7 +240,7 @@ def show_search(request: Request, sid: int):
         if search.get("platforms") and h["platform"] not in search["platforms"]:
             h["_inactive_platform"] = True
 
-    hits.sort(key=lambda x: (x.get("ai_score") is None, -(x.get("ai_score") or 0)))
+    hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_score") is None, -(x.get("ai_score") or 0)))
     resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
@@ -255,7 +263,7 @@ def search_results(request: Request, sid: int):
 
             h["_inactive_platform"] = True
 
-    hits.sort(key=lambda x: (x.get("ai_score") is None, -(x.get("ai_score") or 0)))
+    hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_score") is None, -(x.get("ai_score") or 0)))
 
     return templates.TemplateResponse(request, "_search_results.html", _ctx(request, search=search, hits=hits))
 

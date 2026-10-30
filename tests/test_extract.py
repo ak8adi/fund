@@ -112,3 +112,13 @@ def test_ricardo_next_app_router_flight_data():
     assert len(items) == 1
     assert items[0].url == "https://www.ricardo.ch/de/a/1332672514/"
     assert items[0].price == 450
+
+
+def test_matches_query():
+    from fundus.matching import matches_query
+    assert matches_query("core sensor pro 4", "Core Sensor4 Pro Bar")              # Zahl am Wort klebt
+    assert matches_query("thule urban glide 3", "Urban Glide 3 Kinderwagen")       # Marke fehlt: erlaubt
+    assert not matches_query("thule urban glide 3", "Thule Urban Glide 2")         # Modellnummer muss passen
+    assert not matches_query("core sensor pro 3", "APPLE MacBook Pro Touch Bar 2019 Core i7")
+    assert not matches_query("duotone trust bar", "Trust Company - The Lonely Position (CD)")
+    assert not matches_query("kinderwagen", "Sandalen")

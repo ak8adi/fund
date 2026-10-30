@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-from .base import Adapter, AdapterError, BlockedError
+from .base import Adapter, AdapterError, BlockedError, GoneError
 from .ebay import EbayAdapter
 from .scraped import AnibisAdapter, RicardoAdapter, TuttiAdapter
 from .kleinanzeigen import KleinanzeigenAdapter
 from .willhaben import WillhabenAdapter
 from .markt import MarktAdapter
-from .leboncoin import LeboncoinAdapter
 from .blocket import BlocketAdapter
-from .tradera import TraderaAdapter
-from .subito import SubitoAdapter
-from .facebook import FacebookAdapter
 
 ADAPTER_CLASSES: list[type[Adapter]] = [
     RicardoAdapter, TuttiAdapter, AnibisAdapter, EbayAdapter, KleinanzeigenAdapter, WillhabenAdapter, MarktAdapter,
-    LeboncoinAdapter, BlocketAdapter, TraderaAdapter, SubitoAdapter, FacebookAdapter
+    BlocketAdapter,
 ]
 
 
@@ -32,4 +28,4 @@ def adapter_for_source(adapters: list[Adapter], source: str) -> Adapter:
     raise KeyError(source)
 
 
-__all__ = ["Adapter", "AdapterError", "BlockedError", "all_adapters", "adapter_for_source"]
+__all__ = ["Adapter", "AdapterError", "BlockedError", "GoneError", "all_adapters", "adapter_for_source"]

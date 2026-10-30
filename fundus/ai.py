@@ -7,8 +7,9 @@ import random
 from . import db
 from .config import get_config
 from .adapters import all_adapters, adapter_for_source
-from .adapters.base import fetch_html
+from .adapters.base import GoneError, fetch_html
 from .adapters.extract import extract_description_from_page
+from .matching import matches_query
 
 log = logging.getLogger(__name__)
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -43,18 +44,20 @@ def evaluate_listings(search_id: int) -> int:
 
     # Hole alle bisher unbewerteten Hits
     hits = db.hits_for_search(search_id)
-    to_evaluate = [h for h in hits if h.get("ai_tier") is None and h.get("ai_relevant") is None]
+    to_evaluate = [h for h in hits if h.get("ai_tier") is None and h.get("ai_relevant") is None and not h.get("gone_at")]
 
     excl = [w.lower() for w in (search.get("exclude_words") or []) if w]
-    if excl:
-        kept = []
-        for h in to_evaluate:
-            txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
-            if any(w in txt for w in excl):
-                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
-            else:
-                kept.append(h)
-        to_evaluate = kept
+    kept = []
+    for h in to_evaluate:
+        txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
+        if excl and any(w in txt for w in excl):
+            db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
+        elif not matches_query(search["query"], h.get("title", "")):
+            # Treffer von vor dem Vorfilter (runner._filter) – ohne Gemini-Aufruf aussortieren
+            db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Suchwörter fehlen im Titel", score=None)
+        else:
+            kept.append(h)
+    to_evaluate = kept
     to_evaluate = to_evaluate[:20]
     if not to_evaluate:
         return 0
@@ -76,20 +79,15 @@ def evaluate_listings(search_id: int) -> int:
 
     # Detailbeschreibungen nachladen
     desc_count = 0
-    ricardo_desc_count = 0
     adapters = all_adapters(cfg)
     for h in to_evaluate:
         if desc_count >= 20: # Allow fetching for the entire batch since it's a background loop now
             break
         if h.get("description_full"):
             continue
-        if h["platform"] not in ("tutti", "kleinanzeigen", "willhaben", "ricardo"):
+        # Ricardo nicht: sperrt bei Einzelabrufen schnell, der Prüflauf lädt dort nur neue Treffer (runner.py)
+        if h["platform"] not in ("tutti", "kleinanzeigen", "willhaben"):
             continue
-
-        if h["platform"] == "ricardo":
-            if ricardo_desc_count >= 3:
-                continue
-            ricardo_desc_count += 1
 
         try:
             time.sleep(random.uniform(1, 2))
@@ -102,6 +100,8 @@ def evaluate_listings(search_id: int) -> int:
                 db.update_listing_description(h["key"], desc)
                 h["description_full"] = desc
             desc_count += 1
+        except GoneError:
+            db.mark_listing_gone(h["key"])
         except Exception as exc:
             log.warning("Konnte Beschreibung für %s nicht laden: %s", h["url"], exc)
 
@@ -128,8 +128,10 @@ Wenn das gesuchte Produkt als Einzelkauf in einem Set-Inserat verfügbar ist, gi
 
     prompt += """b) Tier-List: Bewerte alle relevanten Inserate in Tiers ("S" / "A" für die besten 30 % mit detaillierter Begründung zu Preis-Leistung und Zustand in ai_reason, sowie "B" und "C" für den Rest mit knapper Einschätzung).
 
-{'WICHTIG: Schliesse Angebote aus (ai_relevant=false), die ausdrücklich KEINEN Versand (nur Abholung) anbieten!\n' if search.get('require_shipping') else ''}Hier sind die Inserate im JSON Format:
 """
+    if search.get("require_shipping"):
+        prompt += "WICHTIG: Schliesse Angebote aus (ai_relevant=false), die ausdrücklich KEINEN Versand (nur Abholung) anbieten!\n"
+    prompt += "Hier sind die Inserate im JSON Format:\n"
     items = []
     for h in to_evaluate:
         desc = h.get("description_full")
@@ -323,10 +325,8 @@ Gib ausschließlich ein JSON-Objekt zurück mit den Feldern:
         new_p = r.get("extracted_single_price")
         if new_p is not None:
             try:
-                with db.connect() as conn:
-                    conn.execute("UPDATE listings SET price = ? WHERE key = ?", (float(new_p), key))
-                    conn.commit()
-            except Exception:
+                db.update_listing_price(key, float(new_p))
+            except (ValueError, TypeError):
                 pass
         return True
     except Exception as exc:
