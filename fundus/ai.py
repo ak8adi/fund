@@ -11,6 +11,14 @@ from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
 
 log = logging.getLogger(__name__)
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+def _gemini_headers(api_key: str) -> dict:
+    # Schlüssel im Header statt in der URL – URLs landen in Logs und Fehlermeldungen
+    return {"x-goog-api-key": api_key}
+
+
 _AI_FX = {"CHF": 1.0, "EUR": 0.94, "USD": 0.88, "GBP": 1.12, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22}
 _NO_SHIP = ("kein versand", "nur abholung", "nur selbstabholung", "no shipping", "collection only", "pickup only", "pas d'envoi", "solo ritiro", "non spedisco", "ingen frakt")
 def _ai_chf(amount, cur):
@@ -144,13 +152,13 @@ Wenn das gesuchte Produkt als Einzelkauf in einem Set-Inserat verfügbar ist, gi
 - extracted_single_price: (number, optional) falls es ein Set ist, bei dem das gesuchte Produkt auch einzeln verkauft wird, und ein Preis angegeben ist"""
 
     def make_request(model):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        url = f"{GEMINI_URL}/{model}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_instruction}]},
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.2}
         }
-        resp = httpx.post(url, json=payload, timeout=45)
+        resp = httpx.post(url, json=payload, headers=_gemini_headers(api_key), timeout=45)
         resp.raise_for_status()
         return resp.json()
 
@@ -239,10 +247,10 @@ def _call_gemini_text(prompt: str, system_instruction: str = "") -> str:
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
     for model in ("gemini-3.5-flash-lite", "gemini-3.7-flash"):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        url = f"{GEMINI_URL}/{model}:generateContent"
         try:
             for _ in range(2):
-                resp = httpx.post(url, json=payload, timeout=45)
+                resp = httpx.post(url, json=payload, headers=_gemini_headers(api_key), timeout=45)
                 if resp.status_code != 503:
                     break
                 time.sleep(2)
