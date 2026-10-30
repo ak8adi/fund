@@ -4,26 +4,26 @@
 {% endif %}
 
 {% if is_active %}
-  <div style="display: flex; align-items: center; gap: 8px;">
+  <div class="status-line">
     <div class="ping-indicator">
       <div class="ping"></div>
       <div class="dot"></div>
     </div>
     <span class="muted small">
-      {% if running and ai_running %}Prüft & wertet aus...
-      {% elif running %}Prüft gerade...
-      {% else %}Wertet aus...{% endif %}
+      {% if running and ai_running %}Sucht und bewertet …
+      {% elif running %}Sucht …
+      {% else %}KI bewertet …{% endif %}
     </span>
   </div>
 {% else %}
   <form hx-post="/run" hx-target="#status" hx-swap="innerHTML" method="post" action="/run" class="inline">
-    <button class="btn small">Alle jetzt prüfen</button>
+    <button class="btn small ghost">Alle jetzt prüfen</button>
   </form>
 {% endif %}
-<span class="muted small" style="margin-left: 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 8px;">
-  {% if ai_progress and ai_progress.total > 0 %}
-    Geprüfte Angebote: {{ ai_progress.evaluated }} / {{ ai_progress.total }} ({{ (ai_progress.evaluated / ai_progress.total * 100) | round | int }}%)
-    <progress value="{{ ai_progress.evaluated }}" max="{{ ai_progress.total }}" style="width: 80px; height: 12px;"></progress>
+<span class="muted small status-line">
+  {% if is_active and ai_progress and ai_progress.total > 0 and ai_progress.evaluated < ai_progress.total %}
+    KI {{ ai_progress.evaluated }}/{{ ai_progress.total }}
+    <progress value="{{ ai_progress.evaluated }}" max="{{ ai_progress.total }}"></progress>
     ·
   {% endif %}
   {% if not is_active %}
