@@ -450,7 +450,7 @@ def recent_new_hits(limit: int = 30) -> list[dict]:
     sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, s.query AS search_query, s.id AS search_id,
                     {HIT_AI_SELECT}
              FROM hits h JOIN listings l ON l.key = h.listing_key JOIN searches s ON s.id = h.search_id
-             WHERE h.is_new = 1 AND h.hidden = 0
+             WHERE h.is_new = 1 AND h.hidden = 0 AND (h.ai_relevant IS NULL OR h.ai_relevant = 1) AND l.gone_at IS NULL
              ORDER BY h.first_seen DESC LIMIT ?"""
     with connect() as c:
         return [_listing_row(r) for r in c.execute(sql, (limit,))]
