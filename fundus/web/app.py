@@ -19,7 +19,7 @@ from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page
 from ..config import get_config, save_settings
-from ..notify import format_price, send_test, send_weekly
+from ..notify import format_price, image_url, send_test, send_weekly
 from ..scheduler import apply_schedule, next_runs, start_scheduler
 from ..trust import LEVELS
 
@@ -573,3 +573,4 @@ def price_chf_html(amount, currency: str | None = "CHF", approx: bool = False):
     return _Markup(f'{"≈ " if approx else "~"}{chf_r} CHF <span class="orig-price">({orig_r} {cur})</span>')
 
 templates.env.globals['price'] = price_chf_html
+templates.env.filters['img'] = lambda url: image_url(url, large=False)

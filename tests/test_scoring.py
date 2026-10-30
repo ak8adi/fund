@@ -119,7 +119,7 @@ def test_push_only_for_top_offers_after_ai(monkeypatch):
     scoring.rescore_search(sid)
     keys = notify.notify_top_hits(sid)
     assert keys == ["tutti:0"]                               # nur das klar günstigste, Zubehör nie
-    assert "Pkt." in sent[0]["message"]
+    assert "Pkt" in sent[0]["title"] and "📦" in sent[0]["message"] and sent[0]["actions"][0]["url"] == "u0"
     assert notify.notify_top_hits(sid) == []                 # nicht doppelt
 
 

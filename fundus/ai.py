@@ -72,14 +72,15 @@ die wertet das Programm über req selbst aus.
     return prompt + "Inserate:\n" + json.dumps(items, ensure_ascii=False)
 
 
-def _gemini_json(prompt: str, system_instruction: str, api_key: str):
+def _gemini_json(prompt: str, system_instruction: str, api_key: str,
+                 models: tuple[str, ...] = ("gemini-3.5-flash-lite", "gemini-3.7-flash")):
     payload = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
     }
     last_exc = None
-    for model in ("gemini-3.5-flash-lite", "gemini-3.7-flash"):
+    for model in models:
         try:
             resp = httpx.post(f"{GEMINI_URL}/{model}:generateContent", json=payload,
                               headers=_gemini_headers(api_key), timeout=60)

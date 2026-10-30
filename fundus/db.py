@@ -190,7 +190,8 @@ def init_db() -> None:
         if "requirements" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN requirements TEXT NOT NULL DEFAULT ''")  # Freitext für die KI
         for col, typ in (("new_price", "REAL"), ("new_price_note", "TEXT"), ("new_price_manual", "INTEGER NOT NULL DEFAULT 0"),
-                         ("new_price_at", "TEXT"), ("product_size", "TEXT"), ("product_weight", "REAL")):
+                         ("new_price_at", "TEXT"), ("product_size", "TEXT"), ("product_weight", "REAL"),
+                         ("new_price_offers", "TEXT")):
             if col not in cols:  # Neupreis (newprice.py) und typische Versandgrösse des Produkts
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
         c.execute("""CREATE TABLE IF NOT EXISTS geo (
@@ -228,6 +229,7 @@ def _search_row(r: sqlite3.Row) -> dict:
     d["platforms"] = json.loads(d["platforms"]) if d.get("platforms") else None
     d["exclude_words"] = [w.strip().lower() for w in d["exclude"].split(",") if w.strip()]
     d["allow_sets"] = bool(d.get("allow_sets", 1))
+    d["new_price_offers"] = json.loads(d["new_price_offers"]) if d.get("new_price_offers") else []
     return d
 
 
@@ -259,12 +261,14 @@ def save_search(data: dict, search_id: int | None = None) -> int:
 
 
 def set_new_price(search_id: int, price: float | None, note: str | None, manual: bool,
-                  size: str | None = None, weight: float | None = None) -> None:
-    """Neupreis speichern. size/weight None = bisherige Werte behalten."""
+                  size: str | None = None, weight: float | None = None, offers: list[dict] | None = None) -> None:
+    """Neupreis speichern. size/weight/offers None = bisherige Werte behalten."""
     with connect() as c:
         c.execute("""UPDATE searches SET new_price = ?, new_price_note = ?, new_price_manual = ?, new_price_at = ?,
-                                         product_size = COALESCE(?, product_size), product_weight = COALESCE(?, product_weight)
-                     WHERE id = ?""", (price, note, int(manual), now(), size, weight, search_id))
+                                         product_size = COALESCE(?, product_size), product_weight = COALESCE(?, product_weight),
+                                         new_price_offers = COALESCE(?, new_price_offers)
+                     WHERE id = ?""", (price, note, int(manual), now(), size, weight,
+                                       json.dumps(offers, ensure_ascii=False) if offers is not None else None, search_id))
 
 
 def geo_get(query: str) -> dict | None:

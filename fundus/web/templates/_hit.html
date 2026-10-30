@@ -7,7 +7,7 @@
 {% set visible = h.ai_relevant is none or h.ai_relevant %}
 <article class="hit{% if h.ai_tier %} tier-{{ h.ai_tier | lower }}{% endif %}{% if h.is_new %} new{% endif %}{% if h.gone_at %} gone{% endif %}">
   <a class="thumb" href="{{ h.url }}" target="_blank" rel="noopener">
-    {% if h.image %}<img src="{{ h.image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span>kein Foto</span>{% endif %}
+    {% if h.image %}<img src="{{ h.image | img }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span>kein Foto</span>{% endif %}
   </a>
   <div class="body">
     <div class="hit-top">

@@ -144,3 +144,23 @@ def test_normal_search_page_is_not_gone():
     from fundus.adapters.base import _check_gone
 
     _check_gone((Path(__file__).parent / "fixtures" / "kleinanzeigen_macbook.html").read_text(), "u")
+
+
+def test_new_price_offer_from_json_ld():
+    from fundus.newprice import extract_offer
+    page = """<script type="application/ld+json">{"@context":"http://schema.org","@graph":[{"@type":"Product",
+      "name":"Core Sensor 4 Pro Bar","offers":[{"@type":"Offer","price":"765.00","priceCurrency":"CHF",
+      "itemCondition":"https://schema.org/NewCondition"},{"@type":"Offer","price":"749","priceCurrency":"CHF"}]}]}</script>"""
+    assert extract_offer(page) == {"name": "Core Sensor 4 Pro Bar", "price": 749.0, "currency": "CHF", "condition": ""}
+    meta = '<meta property="og:title" content="Trust Bar"><meta property="product:price:amount" content="549.90">' \
+           '<meta property="product:price:currency" content="chf">'
+    assert extract_offer(meta)["price"] == 549.9 and extract_offer(meta)["currency"] == "CHF"
+    assert extract_offer("<html>kein Produkt</html>") is None
+
+
+def test_large_image_variants():
+    from fundus.notify import image_url
+    assert image_url("https://c.tutti.ch/thumbnail/1.jpg") == "https://c.tutti.ch/big/1.jpg"
+    assert image_url("https://img.kleinanzeigen.de/api/v1/prod-ads/images/7/x?rule=$_2.AUTO").endswith("rule=$_59.AUTO")
+    assert "/t_1000x750/" in image_url("https://img.ricardostatic.ch/images/a/t_265x200/b")
+    assert image_url("https://cache.willhaben.at/mmo/1_hoved.jpg") == "https://cache.willhaben.at/mmo/1.jpg"

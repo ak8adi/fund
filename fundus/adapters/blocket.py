@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 import json
+import re
 from datetime import datetime, timezone
 
 from ..models import Listing, Seller
@@ -100,4 +102,9 @@ class BlocketAdapter(ScrapedAdapter):
                             seller=Seller()
                         ))
 
+        for l in listings:  # Ort steht nur in der Ergebnis-Karte, nicht in den Strukturdaten
+            i = page.find(f'id="{l.external_id}"')
+            m = re.search(r'<span class="whitespace-nowrap truncate mr-8">([^<]{2,60})</span>', page[i:i + 8000]) if i >= 0 else None
+            if m:
+                l.location = html.unescape(m.group(1)).strip()
         return listings

@@ -8,7 +8,7 @@
   <div class="row">
     <label>Preis min (CHF)<input name="min_price" inputmode="decimal" value="{{ s.min_price | int if s and s.min_price is not none else '' }}"></label>
     <label>Preis max (CHF)<input name="max_price" inputmode="decimal" value="{{ s.max_price | int if s and s.max_price is not none else '' }}"></label>
-    <label title="Leer lassen: fundus sucht den Neupreis selbst (Toppreise.ch oder KI-Schätzung)">Neupreis (CHF)
+    <label title="Leer lassen: fundus sucht den Neupreis selbst in Online-Shops">Neupreis (CHF)
       <input name="new_price" inputmode="decimal" value="{{ s.new_price | int if s and s.new_price_manual and s.new_price else '' }}"
              placeholder="{{ 'automatisch: %d' % s.new_price if s and s.new_price and not s.new_price_manual else 'automatisch' }}"></label>
   </div>

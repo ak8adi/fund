@@ -6,7 +6,7 @@
   <title>{% block title %}fundus{% endblock %}</title>
   <meta name="theme-color" content="#2f5d50">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%232f5d50' stroke-width='4'/%3E%3Cpath d='M21 21l7 7' stroke='%232f5d50' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=7">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body>
@@ -14,7 +14,7 @@
     <a href="/" class="brand">fundus</a>
     <nav>
       <a href="/" {% if request.url.path != '/settings' %}class="here"{% endif %}>Suchen</a>
-      <a href="/settings" {% if request.url.path == '/settings' %}class="here"{% endif %}>Einstellungen</a>
+      <a href="/settings" {% if request.url.path == '/settings' %}class="here"{% endif %} title="Einstellungen"><span class="lbl">Einstellungen</span><span class="ico" aria-hidden="true">⚙︎</span></a>
     </nav>
     {% if not ntfy_ok %}
     <a href="/settings" class="bell-off" title="Push-Benachrichtigungen sind aus – in den Einstellungen einrichten">
