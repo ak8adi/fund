@@ -1,7 +1,7 @@
 <li class="source {{ 'on' if s.enabled and s.ready else 'off' }}" id="src-{{ s.name | replace(':', '-') }}">
   <div>
     <strong>{{ s.label }}</strong>
-    {% if not s.ready %}<div class="warn small">{{ s.hint }}</div>
+    {% if not s.ready %}<div class="muted small">{{ s.hint }}</div>
     {% elif s.last_error %}<div class="warn small">{{ s.last_error }}</div>
     {% elif s.last_run %}<div class="muted small">{{ s.last_count }} Treffer · {{ s.last_run | ago }}</div>
     {% else %}<div class="muted small">noch nicht abgefragt</div>{% endif %}
