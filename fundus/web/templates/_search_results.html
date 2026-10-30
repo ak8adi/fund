@@ -30,15 +30,14 @@
   {% endif %}
 >
   {% if top_hits %}
-    <div class="card gemini-top-hits" style="margin-top: 1rem; border-left: 4px solid #6b4c9a;">
-      <h3 style="margin-top: 0;">Beste Angebote{% if search.market_price %} <span class="muted small">· Marktpreis {{ price(search.market_price, 'CHF') }} (Median der passenden Treffer)</span>{% endif %}</h3>
-      <div class="hits wide">
-        {% for h in top_hits %}{% include "_hit.html" %}{% endfor %}
-      </div>
+    <h2 class="section-title">Beste Angebote{% if search.market_price %} <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:500;">· Marktpreis {{ price(search.market_price, 'CHF') }}, Median der passenden Treffer</span>{% endif %}</h2>
+    <div class="hits wide">
+      {% for h in top_hits %}{% include "_hit.html" %}{% endfor %}
     </div>
   {% endif %}
 
-  <div class="hits wide" id="normal-hits" style="margin-top: 1rem;">
+  {% if relevant_hits | length > top_hits | length %}<h2>Weitere Treffer</h2>{% endif %}
+  <div class="hits wide" id="normal-hits">
     {% for h in relevant_hits %}
       {% if h not in top_hits %}
         {% include "_hit.html" %}
@@ -64,7 +63,7 @@
     </details>
   {% endif %}
 
-  {% if not hits and search.baseline_done %}<p class="muted">Keine Treffer. Plattform-Status unter «Einstellungen» prüfen.</p>{% endif %}
+  {% if not hits and search.baseline_done %}<p class="empty">Noch keine Treffer. Alle Wörter und Zahlen der Suche müssen im Titel stehen – Masse wie «160 90» stehen selten dort. Tipp: Suchbegriff kürzen oder Plattform-Status unter «Einstellungen» prüfen.</p>{% endif %}
 
   <script>
     {% set to_serialize = [] %}

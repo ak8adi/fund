@@ -4,26 +4,24 @@
 <div class="search-head">
   <h2>{{ search.query }} {% if not search.active %}<span class="pill">pausiert</span>{% endif %}</h2>
   <div class="actions">
-    <button class="btn small" onclick="copyForGemini(this)">Für Gemini kopieren</button>
     <form method="post" action="/search/{{ search.id }}/run" class="inline"><button class="btn small">Jetzt prüfen</button></form>
-    {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
-      <form method="post" action="/search/{{ search.id }}/ai" class="inline"><button class="btn small">KI-Auswertung jetzt starten</button></form>
-    {% endif %}
-    <form method="post" action="/search/{{ search.id }}/toggle" class="inline">
-      <button class="btn small ghost">{{ 'Pausieren' if search.active else 'Fortsetzen' }}</button>
-    </form>
-    <details class="inline-confirm">
-      <summary class="btn small ghost danger">Löschen</summary>
-      <form method="post" action="/search/{{ search.id }}/delete" class="inline">
-        <span class="small">Suche samt Treffern löschen?</span>
-        <button class="btn small danger">Ja, löschen</button>
-      </form>
+    <details class="menu">
+      <summary class="btn small ghost" title="Weitere Aktionen">⋯</summary>
+      <div class="menu-list">
+        {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
+          <form method="post" action="/search/{{ search.id }}/ai"><button>KI-Bewertung jetzt starten</button></form>
+        {% endif %}
+        <button type="button" onclick="copyForGemini(this)">Treffer für Gemini kopieren</button>
+        <form method="post" action="/search/{{ search.id }}/toggle"><button>{{ 'Suche pausieren' if search.active else 'Suche fortsetzen' }}</button></form>
+        <form method="post" action="/search/{{ search.id }}/delete" onsubmit="return confirm('Suche samt Treffern löschen?')"><button class="danger">Suche löschen</button></form>
+      </div>
     </details>
   </div>
 </div>
-<p class="muted small">
+<p class="muted small subline">
   {% if not search.baseline_done %}Bestand wird gerade eingelesen …{% else %}zuletzt geprüft {{ search.last_run_at | ago }}{% endif %}
   · {{ hits | length }} Treffer
+  {% if search.max_price %} · bis {{ search.max_price | int }} CHF{% endif %}
 </p>
 
 <details class="card">

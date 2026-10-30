@@ -6,16 +6,18 @@
     {% if not searches %}
       <p class="muted">Noch keine Suche. Beim ersten Lauf wird nur der aktuelle Bestand eingelesen – gemeldet wird erst, was danach neu dazukommt.</p>
     {% endif %}
+    {% set best_by = {} %}{% for b in best %}{% set _ = best_by.update({b.search_id: b}) %}{% endfor %}
     <ul class="searches">
       {% for s in searches %}
       <li class="{{ '' if s.active else 'paused' }}">
         <a href="/search/{{ s.id }}">
           <span class="q">{{ s.query }}</span>
           {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% endif %}
+          {% set b = best_by.get(s.id) %}
+          {% if b %}<span class="best" title="Bestes Angebot: {{ b.title }}">{{ price(b.total_chf or b.price, 'CHF' if b.total_chf else b.currency) }} <span class="tier tier-{{ b.ai_tier | lower }}" style="min-width:20px;height:20px;font-size:12px;">{{ b.ai_tier }}</span></span>{% endif %}
           <span class="muted small">
             {{ s.total }} Treffer
-            {% if s.max_price %} · bis {{ s.max_price | int }}{% endif %}
-            {% if s.platforms %} · {{ s.platforms | join(', ') }}{% endif %}
+            {% if s.max_price %} · bis {{ s.max_price | int }} CHF{% endif %}
             {% if not s.active %} · pausiert{% endif %}
           </span>
         </a>
@@ -30,16 +32,18 @@
   <div>
     {% if best %}
     <h2>Beste Angebote jetzt</h2>
-    <p class="muted small">Pro Suche das Angebot mit dem besten Verhältnis von Endpreis zu Marktpreis.</p>
+    <p class="muted small">Pro Suche das Angebot mit dem besten Endpreis im Vergleich zum Marktpreis.</p>
     <div class="hits">
       {% for h in best %}
-        <p class="muted small" style="margin:.6rem 0 .2rem;"><a href="/search/{{ h.search_id }}">{{ h.search_query }}</a></p>
-        {% include "_hit.html" %}
+        <div>
+          <p class="best-group"><a href="/search/{{ h.search_id }}">{{ h.search_query }} ›</a></p>
+          {% include "_hit.html" %}
+        </div>
       {% endfor %}
     </div>
     {% endif %}
     <h2>Neu gefunden</h2>
-    {% if not hits %}<p class="muted">Nichts Neues, das du noch nicht angeschaut hast.</p>{% endif %}
+    {% if not hits %}<p class="empty">Nichts Neues seit deinem letzten Besuch.</p>{% endif %}
     <div class="hits">
       {% for h in hits %}{% include "_hit.html" %}{% endfor %}
     </div>
