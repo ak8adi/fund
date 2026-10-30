@@ -9,7 +9,7 @@
     {% set _ = irrelevant_hits.append(h) %}
   {% elif h.ai_relevant is none or h.ai_relevant %}
     {% set _ = relevant_hits.append(h) %}
-    {% if h.ai_score is not none and top_hits | length < 3 %}
+    {% if search.sort_by != 'price' and h.ai_score is not none and top_hits | length < 3 %}
       {% set _ = top_hits.append(h) %}
     {% endif %}
   {% else %}
@@ -36,7 +36,7 @@
     </div>
   {% endif %}
 
-  {% if relevant_hits | length > top_hits | length %}<h2>Weitere Treffer</h2>{% endif %}
+  {% if top_hits and relevant_hits | length > top_hits | length %}<h2>Weitere Treffer</h2>{% endif %}
   <div class="hits wide" id="normal-hits">
     {% for h in relevant_hits %}
       {% if h not in top_hits %}

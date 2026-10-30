@@ -36,6 +36,10 @@ FACTS_INSTRUCTION = """Antworte AUSSCHLIESSLICH mit gültigem JSON: ein Array mi
 - year: (integer oder null) Modelljahr bzw. Kaufjahr, nur wenn im Inserat genannt
 - single_price: (number oder null) Einzelpreis des gesuchten Produkts, falls es Teil eines Sets ist und
   im Text ein Einzelpreis steht – in der Währung des Inserats
+- req: nur wenn Anforderungen genannt sind: "ja" (klar erfüllt), "nein" (klar nicht erfüllt) oder "unklar"
+  (Angabe fehlt im Inserat); sonst null
+- req_note: (string oder null) die gefundene Angabe zu den Anforderungen, ganz kurz, z.B. "Länge 140 cm",
+  "Länge nicht angegeben", "180 × 90 cm"
 Bewerte NICHT, ob der Preis gut ist – das rechnet das Programm selbst."""
 
 
@@ -46,6 +50,13 @@ Fehltreffer (mehrdeutige Begriffe, blosses Zubehör, Ersatzteile, anderes Modell
     if not search.get("allow_sets", True):
         prompt += """Ich suche NUR das Einzelprodukt. Reine Sets → relevant = false, ausser im Text steht, dass das gesuchte
 Produkt auch einzeln verkauft wird: dann relevant = true und single_price setzen.
+"""
+    if (search.get("requirements") or "").strip():
+        prompt += f"""Meine Anforderungen: «{search["requirements"].strip()}»
+Prüfe sie an Titel, Beschreibung und Verkäufer-Chat. Rechne Einheiten um (z.B. 1,4 m = 140 cm; «140x80» bei Tischen
+heisst meist Länge × Breite). Klar nicht erfüllt → req = "nein", reason nennt den Wert. Steht die Angabe nirgends
+→ req = "unklar". WICHTIG: relevant beurteilt nur, ob es das gesuchte Produkt ist – unabhängig von den Anforderungen,
+die wertet das Programm über req selbst aus.
 """
     return prompt + "Inserate:\n" + json.dumps(items, ensure_ascii=False)
 
@@ -94,7 +105,13 @@ def _store_facts(search: dict, r: dict) -> bool:
         ship_cost = float(r["shipping_cost"]) if r.get("shipping_cost") is not None else None
     except (TypeError, ValueError):
         ship_cost = None
-    db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost)
+    req = r.get("req") if r.get("req") in ("ja", "nein", "unklar") else None
+    if not (search.get("requirements") or "").strip():
+        req = None
+    note = str(r["req_note"])[:80] if req and r.get("req_note") else None
+    if req == "nein" and relevant:
+        relevant, reason = False, f"Erfüllt deine Anforderung nicht ({note or 'laut Inserat'})"
+    db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost, req, note)
     return True
 
 

@@ -214,14 +214,29 @@ def create_search(
     max_price: str = Form(""),
     platforms: list[str] = Form([]),
     allow_sets: str | None = Form(None),
+    require_shipping: str | None = Form(None),
+    requirements: str = Form(""),
 ):
     sid = db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
-        "allow_sets": allow_sets == "on",
+        "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
+        "requirements": requirements,
     })
     runner.run_in_background("neue Suche", [sid])  # Bestand sofort einlesen (ohne Meldungen)
     return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+def _sort_hits(hits: list[dict], search: dict) -> None:
+    """Deal-Score (Standard) oder stur nach Preis in CHF, günstigster zuerst; Inserate ohne Preis ans Ende."""
+    if search.get("sort_by") == "price":
+        fx = fx_rates.rates(get_config())
+        def chf(h):
+            p = scoring.effective_price_chf(h, fx)
+            return (p is None, p or 0)
+        hits.sort(key=lambda x: (bool(x.get("gone_at")), *chf(x)))
+    else:
+        hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_score") is None, -(x.get("ai_score") or 0)))
 
 
 @app.get("/search/{sid}", response_class=HTMLResponse)
@@ -235,7 +250,7 @@ def show_search(request: Request, sid: int):
         if search.get("platforms") and h["platform"] not in search["platforms"]:
             h["_inactive_platform"] = True
 
-    hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_score") is None, -(x.get("ai_score") or 0)))
+    _sort_hits(hits, search)
     resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
@@ -258,7 +273,7 @@ def search_results(request: Request, sid: int):
 
             h["_inactive_platform"] = True
 
-    hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_score") is None, -(x.get("ai_score") or 0)))
+    _sort_hits(hits, search)
 
     return templates.TemplateResponse(request, "_search_results.html", _ctx(request, search=search, hits=hits))
 
@@ -273,16 +288,24 @@ def update_search(
     max_price: str = Form(""),
     platforms: list[str] = Form([]),
     allow_sets: str | None = Form(None),
+    require_shipping: str | None = Form(None),
+    requirements: str = Form(""),
 ):
     old_search = db.get_search(sid)
     db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
-        "allow_sets": allow_sets == "on",
+        "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
+        "requirements": requirements,
     }, sid)
 
     search = db.get_search(sid)
-    if search:
+    if search and old_search and (old_search.get("requirements") or "") != search["requirements"]:
+        # Neue Anforderungen: alle Treffer neu von der KI prüfen lassen
+        db.reset_search_ai(sid)
+        from ..ai import start_background_evaluation
+        start_background_evaluation(sid)
+    elif search:
         hits = db.hits_for_search(sid, include_hidden=False)
 
         allow_sets_changed = old_search and (old_search["allow_sets"] != search["allow_sets"])
@@ -314,6 +337,12 @@ def update_search(
             from ..ai import start_background_evaluation
             start_background_evaluation(sid)
 
+    return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+@app.post("/search/{sid}/sort")
+def sort_search(sid: int, by: str = Form("score")):
+    db.set_search_sort(sid, by)
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 

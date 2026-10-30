@@ -41,3 +41,47 @@ def test_web_pages_render(monkeypatch):
         assert "Tutti" in page and "eBay DE" in page
         assert client.post("/platforms/tutti/toggle").status_code == 200
         assert db.platform_states()["tutti"]["enabled"] == 0
+
+
+def test_requirements_and_price_sort(monkeypatch):
+    from fundus import ai, runner
+    from fundus.models import Listing
+    from fundus.web import app as webapp
+
+    monkeypatch.setattr(runner, "run_in_background", lambda *a, **k: True)
+    started = []
+    monkeypatch.setattr(ai, "start_background_evaluation", lambda sid: started.append(sid))
+    with TestClient(webapp.app) as client:
+        r = client.post("/searches", data={"query": "tisch", "requirements": "130 bis 150 cm lang",
+                                           "require_shipping": "1"}, follow_redirects=False)
+        sid = int(r.headers["location"].rsplit("/", 1)[1])
+        s = db.get_search(sid)
+        assert s["requirements"] == "130 bis 150 cm lang" and s["require_shipping"] == 1
+
+        for i, price in enumerate((300, 100, 200)):
+            l = Listing(platform="tutti", external_id=str(i), title=f"Tisch {i}", url=f"https://x/{i}", price=price,
+                        currency="CHF")
+            db.upsert_listing(l, "ok", [])
+            db.add_hit(sid, l.key, False)
+        db.update_hit_ai(sid, "tutti:0", True, "x", "gut", req="ja", req_note="Länge 140 cm")
+
+        client.post(f"/search/{sid}/sort", data={"by": "price"})
+        page = client.get(f"/search/{sid}").text
+        assert page.index("Tisch 1") < page.index("Tisch 2") < page.index("Tisch 0")
+        assert "✓ Länge 140 cm" in page
+
+        # Geänderte Anforderungen: Bewertungen verworfen, KI startet neu
+        client.post(f"/search/{sid}", data={"query": "tisch", "requirements": "nur rund"})
+        assert db.hits_for_search(sid)[0]["ai_relevant"] is None and started == [sid]
+
+
+def test_store_facts_requirement_not_met():
+    from fundus import ai
+    sid = db.save_search({"query": "tisch", "requirements": "130-150 cm"})
+    from fundus.models import Listing
+    l = Listing(platform="tutti", external_id="1", title="Tisch", url="https://x/1", price=100, currency="CHF")
+    db.upsert_listing(l, "ok", [])
+    db.add_hit(sid, l.key, False)
+    ai._store_facts(db.get_search(sid), {"key": l.key, "relevant": True, "req": "nein", "req_note": "180 cm"})
+    h = db.hits_for_search(sid)[0]
+    assert h["ai_relevant"] == 0 and h["ai_req"] == "nein" and h["ai_req_note"] == "180 cm"

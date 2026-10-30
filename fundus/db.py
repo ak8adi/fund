@@ -123,9 +123,10 @@ def _ensure_chat_cols(conn):
 
 HIT_AI_SELECT = ", ".join(f"h.{col}" for col in (
     "ai_relevant", "ai_reason", "ai_condition", "ai_shipping", "single_price", "ai_year", "ai_shipping_cost", "ai_score",
-    "ai_tier", "score_reason", "total_chf"))
+    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note"))
 HIT_AI_COLS = {"ai_relevant": "INTEGER", "ai_reason": "TEXT", "ai_condition": "TEXT", "ai_shipping": "TEXT",
-               "single_price": "REAL", "ai_year": "INTEGER", "ai_shipping_cost": "REAL", "total_chf": "REAL", "ai_score": "INTEGER", "ai_tier": "TEXT", "score_reason": "TEXT"}
+               "single_price": "REAL", "ai_year": "INTEGER", "ai_shipping_cost": "REAL", "total_chf": "REAL", "ai_score": "INTEGER", "ai_tier": "TEXT", "score_reason": "TEXT",
+               "ai_req": "TEXT", "ai_req_note": "TEXT"}  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
 
 
 def _migrate_ai_to_hits(c: sqlite3.Connection, l_cols: set[str]) -> None:
@@ -183,6 +184,10 @@ def init_db() -> None:
         _migrate_ai_to_hits(c, l_cols)
         if "market_price" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN market_price REAL")
+        if "requirements" not in cols:
+            c.execute("ALTER TABLE searches ADD COLUMN requirements TEXT NOT NULL DEFAULT ''")  # Freitext für die KI
+        if "sort_by" not in cols:
+            c.execute("ALTER TABLE searches ADD COLUMN sort_by TEXT NOT NULL DEFAULT 'score'")  # score | price
 
         p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
         if "blocked_at" not in p_cols:
@@ -225,19 +230,28 @@ def save_search(data: dict, search_id: int | None = None) -> int:
         data.get("max_price"),
         json.dumps(data["platforms"]) if data.get("platforms") else None,
         int(data.get("allow_sets", True)),
+        int(data.get("require_shipping", False)),
+        (data.get("requirements") or "").strip(),
     )
     with connect() as c:
         if search_id is None:
             cur = c.execute(
-                "INSERT INTO searches (query, exclude, min_price, max_price, platforms, allow_sets, created_at) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO searches (query, exclude, min_price, max_price, platforms, allow_sets, require_shipping, requirements,"
+                " created_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (*values, now()),
             )
             return int(cur.lastrowid)
         c.execute(
-            "UPDATE searches SET query=?, exclude=?, min_price=?, max_price=?, platforms=?, allow_sets=? WHERE id=?",
+            "UPDATE searches SET query=?, exclude=?, min_price=?, max_price=?, platforms=?, allow_sets=?, require_shipping=?,"
+            " requirements=? WHERE id=?",
             (*values, search_id),
         )
         return search_id
+
+
+def set_search_sort(search_id: int, sort_by: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE searches SET sort_by = ? WHERE id = ?", ("price" if sort_by == "price" else "score", search_id))
 
 
 def set_search_active(search_id: int, active: bool) -> None:
@@ -343,27 +357,37 @@ def update_listing_description(key: str, description: str) -> None:
 
 def update_hit_ai(search_id: int, key: str, relevant: bool, reason: str | None, condition: str | None = None,
                   shipping: str | None = None, single_price: float | None = None, year: int | None = None,
-                  shipping_cost: float | None = None) -> None:
+                  shipping_cost: float | None = None, req: str | None = None, req_note: str | None = None) -> None:
     """KI-Merkmale eines Treffers für eine Suche. Der Deal-Score kommt danach aus scoring.rescore_search()."""
     with connect() as c:
         c.execute(
             """UPDATE hits SET ai_relevant = ?, ai_reason = ?, ai_condition = ?, ai_shipping = ?, single_price = ?,
-                               ai_year = ?, ai_shipping_cost = ?
+                               ai_year = ?, ai_shipping_cost = ?, ai_req = ?, ai_req_note = ?
                WHERE search_id = ? AND listing_key = ?""",
-            (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, search_id, key),
+            (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, req, req_note, search_id, key),
         )
 
 
 def reset_hit_ai(search_id: int | None, key: str) -> None:
     """Bewertung verwerfen, damit die KI neu prüft. search_id=None: in allen Suchen."""
     sql = """UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
-                             single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL, ai_score = NULL, ai_tier = NULL, score_reason = NULL
+                             single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL, ai_score = NULL, ai_tier = NULL, score_reason = NULL,
+                             ai_req = NULL, ai_req_note = NULL
              WHERE listing_key = ?"""
     with connect() as c:
         if search_id is None:
             c.execute(sql, (key,))
         else:
             c.execute(sql + " AND search_id = ?", (key, search_id))
+
+
+def reset_search_ai(search_id: int) -> None:
+    """Alle Bewertungen einer Suche verwerfen (z.B. nach geänderten Anforderungen). Von Hand Ausgeblendetes bleibt."""
+    with connect() as c:
+        c.execute("""UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
+                                     single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL,
+                                     ai_score = NULL, ai_tier = NULL, score_reason = NULL, ai_req = NULL, ai_req_note = NULL
+                     WHERE search_id = ? AND hidden = 0""", (search_id,))
 
 
 def set_hit_relevant(search_id: int, key: str, relevant: bool, reason: str) -> None:

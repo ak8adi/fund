@@ -23,6 +23,12 @@
   · {{ hits | length }} Treffer
   {% if search.max_price %} · bis {{ search.max_price | int }} CHF{% endif %}
 </p>
+{% if search.requirements %}<p class="small req-line">Muss erfüllen: {{ search.requirements }}</p>{% endif %}
+<form method="post" action="/search/{{ search.id }}/sort" class="sort-switch" aria-label="Sortierung">
+  <span class="muted small">Sortieren:</span>
+  <button name="by" value="score" class="{{ 'on' if search.sort_by != 'price' }}">Bestes Angebot</button>
+  <button name="by" value="price" class="{{ 'on' if search.sort_by == 'price' }}">Preis ↑</button>
+</form>
 
 <details class="card">
   <summary>Suche bearbeiten</summary>

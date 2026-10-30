@@ -25,6 +25,9 @@
     <div class="chips">
       {% if h.is_new %}<span class="chip new">Neu</span>{% endif %}
       {% if h.gone_at %}<span class="chip bad">Nicht mehr verfügbar</span>{% endif %}
+      {% if h.ai_req == 'ja' %}<span class="chip good" title="Erfüllt deine Anforderungen">✓ {{ h.ai_req_note or 'passt' }}</span>
+      {% elif h.ai_req == 'unklar' %}<span class="chip hint" title="Im Inserat nicht angegeben – beim Verkäufer nachfragen">? {{ h.ai_req_note or 'Angabe fehlt' }}</span>
+      {% elif h.ai_req == 'nein' %}<span class="chip bad">✗ {{ h.ai_req_note or 'passt nicht' }}</span>{% endif %}
       {% if cond %}<span class="chip {{ cond_cls }}">{{ cond }}</span>{% endif %}
       {% if h.ai_year %}<span class="chip">{{ h.ai_year }}</span>{% endif %}
       {% if h.single_price %}<span class="chip">einzeln {{ price(h.single_price, h.currency) }}</span>{% endif %}

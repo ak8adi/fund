@@ -108,10 +108,10 @@ details[open] > :not(summary) { animation: fade-down .25s var(--ease); }
 .search-form .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; border: 0; padding: 0; }
 .search-form label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; min-width: 110px; flex: 1; }
 .search-form label.grow { flex: 3; }
-.search-form input:not([type=checkbox]), form.stack input, form.stack select {
+.search-form input:not([type=checkbox]), .search-form textarea, form.stack input, form.stack select {
   font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   transition: border-color .15s, box-shadow .15s; }
-.search-form input:focus, form.stack input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.search-form input:focus, .search-form textarea:focus, form.stack input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 .search-form legend { font-size: 12px; color: var(--muted); margin-bottom: 6px; padding: 0; }
 .search-form .platforms { gap: 6px; }
 .search-form label.check { flex-direction: row; align-items: center; gap: 6px; flex: 0 0 auto; min-width: 0; font-size: 14px; color: var(--ink); }
@@ -252,3 +252,13 @@ details.inline-confirm[open] > summary { display: none; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 .orig-price { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+
+/* Sortierung: zwei Knöpfe als Umschalter */
+.sort-switch { display: flex; align-items: center; gap: 4px; margin: 4px 0 8px; flex-wrap: wrap; }
+.sort-switch .muted { margin-right: 4px; }
+.sort-switch button { font: inherit; font-size: 13px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); transition: background .15s, color .15s; }
+.sort-switch button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.req-line { margin: -4px 0 6px; color: var(--ink); }
+.search-form > label.grow { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+.search-form textarea { resize: vertical; min-height: 54px; }

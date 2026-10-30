@@ -9,6 +9,9 @@
     <label>Preis min (CHF)<input name="min_price" inputmode="decimal" value="{{ s.min_price | int if s and s.min_price is not none else '' }}"></label>
     <label>Preis max (CHF)<input name="max_price" inputmode="decimal" value="{{ s.max_price | int if s and s.max_price is not none else '' }}"></label>
   </div>
+  <label class="grow">Was muss es erfüllen? <span class="muted small">(optional, die KI liest jedes Inserat darauf)</span>
+    <textarea name="requirements" rows="2" placeholder="z.B. nur Tische zwischen 130 und 150 cm lang, ausziehbar">{{ s.requirements if s and s.requirements else '' }}</textarea>
+  </label>
   <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets or s.require_shipping) %}open{% endif %} style="margin-bottom:12px;">
     <summary>Mehr Optionen ▾</summary>
     <div class="more-body">
