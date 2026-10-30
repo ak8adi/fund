@@ -17,6 +17,9 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setitem(fx._cache, "ts", float("inf"))
     monkeypatch.setitem(fx._cache, "rates", {})
 
+    from fundus import delivery
+    monkeypatch.setattr(delivery, "ENABLED", False)  # keine Fahrzeit-Abfragen ins Netz
+
     db.init_db()
     yield
     config.get_config.cache_clear()

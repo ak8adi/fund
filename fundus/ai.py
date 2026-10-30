@@ -39,6 +39,10 @@ FACTS_INSTRUCTION = """Antworte AUSSCHLIESSLICH mit gültigem JSON: ein Array mi
 - single_price: (number oder null) bei Sets der Preis des gesuchten Produkts allein, in der Währung des Inserats.
   Steht er im Text, diesen nehmen. Sonst schätzen: Setpreis nach den typischen Gebrauchtpreisen der Teile
   aufteilen (dein Wissen über das Produkt und die übrigen Teile). Kein Set → null
+- size: Versandgrösse des Inserats, verpackt (bei Sets alles zusammen): "S" (Päckchen bis 35×25×10 cm),
+  "M" (bis 60×30×15 cm), "L" (bis 120×60×60 cm und 31 kg), "XL" (sperrig, bis 200 cm lang),
+  "fracht" (Möbel o.ä., zu gross oder schwer für ein Paket)
+- weight_kg: (number) geschätztes Versandgewicht in kg
 - single_price_estimated: (boolean) true, wenn single_price geschätzt und nicht im Text genannt ist
 - req: nur wenn Anforderungen genannt sind: "ja" (klar erfüllt), "nein" (klar nicht erfüllt) oder "unklar"
   (Angabe fehlt im Inserat); sonst null
@@ -103,6 +107,11 @@ def _store_facts(search: dict, r: dict) -> bool:
     except (TypeError, ValueError):
         single = None
     estimated = bool(single and r.get("single_price_estimated"))
+    size = r.get("size") if r.get("size") in ("S", "M", "L", "XL", "fracht") else None
+    try:
+        weight = float(r["weight_kg"]) if r.get("weight_kg") else None
+    except (TypeError, ValueError):
+        weight = None
     set_items = str(r["set_items"])[:120] if r.get("set_items") else None
     try:
         year = int(r["year"]) if r.get("year") else None
@@ -121,7 +130,7 @@ def _store_facts(search: dict, r: dict) -> bool:
     if req == "nein" and relevant:
         relevant, reason = False, f"Erfüllt deine Anforderung nicht ({note or 'laut Inserat'})"
     db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost, req, note,
-                     set_items, estimated)
+                     set_items, estimated, size, weight)
     return True
 
 

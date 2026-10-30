@@ -11,6 +11,7 @@
         {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
           <form method="post" action="/search/{{ search.id }}/ai"><button>KI-Bewertung jetzt starten</button></form>
         {% endif %}
+        <form method="post" action="/search/{{ search.id }}/newprice"><button>Neupreis neu suchen</button></form>
         <button type="button" onclick="copyForGemini(this)">Treffer für Gemini kopieren</button>
         <form method="post" action="/search/{{ search.id }}/toggle"><button>{{ 'Suche pausieren' if search.active else 'Suche fortsetzen' }}</button></form>
         <form method="post" action="/search/{{ search.id }}/delete" onsubmit="return confirm('Suche samt Treffern löschen?')"><button class="danger">Suche löschen</button></form>
@@ -22,6 +23,12 @@
   {% if not search.baseline_done %}Bestand wird gerade eingelesen …{% else %}zuletzt geprüft {{ search.last_run_at | ago }}{% endif %}
   · {{ hits | length }} Treffer
   {% if search.max_price %} · bis {{ search.max_price | int }} CHF{% endif %}
+</p>
+<p class="small newprice">
+  {% if search.new_price %}Neupreis <strong>{{ price(search.new_price, 'CHF') }}</strong>
+    <span class="muted">· {{ search.new_price_note or '' }}{% if search.new_price_manual %} (von Hand){% endif %}</span>
+  {% elif search.new_price_at %}<span class="muted">{{ search.new_price_note or 'Kein Neupreis gefunden' }}</span>
+  {% else %}<span class="muted">Neupreis wird beim nächsten Prüflauf gesucht …</span>{% endif %}
 </p>
 {% if search.requirements %}<p class="small req-line">Muss erfüllen: {{ search.requirements }}</p>{% endif %}
 <form method="post" action="/search/{{ search.id }}/sort" class="sort-switch" aria-label="Sortierung">

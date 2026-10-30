@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import ai, db, runner, scoring
+from .. import ai, db, newprice, runner, scoring
 from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page
@@ -216,6 +216,7 @@ def create_search(
     allow_sets: str | None = Form(None),
     require_shipping: str | None = Form(None),
     requirements: str = Form(""),
+    new_price: str = Form(""),
 ):
     sid = db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
@@ -223,7 +224,9 @@ def create_search(
         "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
         "requirements": requirements,
     })
-    runner.run_in_background("neue Suche", [sid])  # Bestand sofort einlesen (ohne Meldungen)
+    if _num(new_price):
+        db.set_new_price(sid, _num(new_price), "von Hand", True)
+    runner.run_in_background("neue Suche", [sid])  # Bestand sofort einlesen (ohne Meldungen), sucht auch den Neupreis
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
@@ -290,6 +293,7 @@ def update_search(
     allow_sets: str | None = Form(None),
     require_shipping: str | None = Form(None),
     requirements: str = Form(""),
+    new_price: str = Form(""),
 ):
     old_search = db.get_search(sid)
     db.save_search({
@@ -298,6 +302,18 @@ def update_search(
         "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
         "requirements": requirements,
     }, sid)
+
+    if old_search:
+        manual = _num(new_price)
+        if manual:
+            if manual != old_search.get("new_price") or not old_search.get("new_price_manual"):
+                db.set_new_price(sid, manual, "von Hand", True)
+                scoring.rescore_search(sid)
+            if old_search["query"] != query.strip():
+                newprice.refresh_in_background(sid)  # Produktgrösse zur neuen Suche
+        elif old_search.get("new_price_manual") or old_search["query"] != query.strip():
+            db.set_new_price(sid, None, None, False)  # wieder automatisch
+            newprice.refresh_in_background(sid)
 
     search = db.get_search(sid)
     if search and old_search and (old_search.get("requirements") or "") != search["requirements"]:
@@ -337,6 +353,12 @@ def update_search(
             from ..ai import start_background_evaluation
             start_background_evaluation(sid)
 
+    return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+@app.post("/search/{sid}/newprice")
+def refresh_new_price(sid: int):
+    newprice.refresh_in_background(sid)
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
@@ -525,7 +547,8 @@ def _round_chf_generous(val: float) -> int:
         return int(round(val))
     return max(1, int(round(val)))
 
-def price_chf_html(amount, currency: str | None = "CHF"):
+def price_chf_html(amount, currency: str | None = "CHF", approx: bool = False):
+    """Preis in CHF; Fremdwährung mit «~» und Originalbetrag. approx: geschätzt, «≈» statt «~»."""
     if amount is None:
         return "VB / k.A."
     try:
@@ -541,12 +564,12 @@ def price_chf_html(amount, currency: str | None = "CHF"):
 
     if cur == "CHF":
         chf_r = _round_chf_generous(val)
-        return _Markup(f"{chf_r} CHF")
+        return _Markup(f"{'≈ ' if approx else ''}{chf_r} CHF")
 
     rates = fx_rates.rates(get_config())
     rate = rates.get(cur, 0.94)
     chf_r = _round_chf_generous(val * rate)
     orig_r = int(round(val))
-    return _Markup(f'~{chf_r} CHF <span class="orig-price">({orig_r} {cur})</span>')
+    return _Markup(f'{"≈ " if approx else "~"}{chf_r} CHF <span class="orig-price">({orig_r} {cur})</span>')
 
 templates.env.globals['price'] = price_chf_html

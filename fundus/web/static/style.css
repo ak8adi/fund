@@ -263,3 +263,5 @@ details.inline-confirm[open] > summary { display: none; }
 .search-form > label.grow { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .search-form textarea { resize: vertical; min-height: 54px; }
 .set-price { color: var(--muted); font-size: 12px; font-weight: 500; }
+.deliv { font-size: 13px; color: var(--ink); padding: 5px 9px; border-radius: 8px; background: var(--surface-2); line-height: 1.4; }
+.newprice { margin: -4px 0 6px; }

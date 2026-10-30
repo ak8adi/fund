@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS hits (
     ai_score      INTEGER,                      -- Deal-Score 0–100
     ai_tier       TEXT,                         -- S, A, B, C
     score_reason  TEXT,
-    total_chf     REAL,                         -- Endpreis inkl. Versand und Einfuhr-MWST (costs.py)
+    total_chf     REAL,                         -- Endpreis inkl. Versand und Einfuhr-MWST (delivery.py)
     PRIMARY KEY (search_id, listing_key)
 );
 CREATE TABLE IF NOT EXISTS platforms (
@@ -123,11 +123,13 @@ def _ensure_chat_cols(conn):
 
 HIT_AI_SELECT = ", ".join(f"h.{col}" for col in (
     "ai_relevant", "ai_reason", "ai_condition", "ai_shipping", "single_price", "ai_year", "ai_shipping_cost", "ai_score",
-    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note", "ai_set_items", "single_estimated"))
+    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note", "ai_set_items", "single_estimated", "ai_size", "ai_weight", "delivery"))
 HIT_AI_COLS = {"ai_relevant": "INTEGER", "ai_reason": "TEXT", "ai_condition": "TEXT", "ai_shipping": "TEXT",
                "single_price": "REAL", "ai_year": "INTEGER", "ai_shipping_cost": "REAL", "total_chf": "REAL", "ai_score": "INTEGER", "ai_tier": "TEXT", "score_reason": "TEXT",
                "ai_req": "TEXT", "ai_req_note": "TEXT",
-               "ai_set_items": "TEXT", "single_estimated": "INTEGER"}  # Set-Inhalt; single_price von der KI geschätzt  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
+               "ai_set_items": "TEXT", "single_estimated": "INTEGER",   # Set-Inhalt; single_price von der KI geschätzt
+               "ai_size": "TEXT", "ai_weight": "REAL",                # Versandgrösse (delivery.SIZES) und kg
+               "delivery": "TEXT"}                                    # beste Lieferart, kurz (delivery.plan)  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
 
 
 def _migrate_ai_to_hits(c: sqlite3.Connection, l_cols: set[str]) -> None:
@@ -187,6 +189,12 @@ def init_db() -> None:
             c.execute("ALTER TABLE searches ADD COLUMN market_price REAL")
         if "requirements" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN requirements TEXT NOT NULL DEFAULT ''")  # Freitext für die KI
+        for col, typ in (("new_price", "REAL"), ("new_price_note", "TEXT"), ("new_price_manual", "INTEGER NOT NULL DEFAULT 0"),
+                         ("new_price_at", "TEXT"), ("product_size", "TEXT"), ("product_weight", "REAL")):
+            if col not in cols:  # Neupreis (newprice.py) und typische Versandgrösse des Produkts
+                c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
+        c.execute("""CREATE TABLE IF NOT EXISTS geo (
+                         query TEXT PRIMARY KEY, lat REAL, lon REAL, minutes INTEGER, checked_at TEXT NOT NULL)""")
         if "sort_by" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN sort_by TEXT NOT NULL DEFAULT 'score'")  # score | price
 
@@ -248,6 +256,27 @@ def save_search(data: dict, search_id: int | None = None) -> int:
             (*values, search_id),
         )
         return search_id
+
+
+def set_new_price(search_id: int, price: float | None, note: str | None, manual: bool,
+                  size: str | None = None, weight: float | None = None) -> None:
+    """Neupreis speichern. size/weight None = bisherige Werte behalten."""
+    with connect() as c:
+        c.execute("""UPDATE searches SET new_price = ?, new_price_note = ?, new_price_manual = ?, new_price_at = ?,
+                                         product_size = COALESCE(?, product_size), product_weight = COALESCE(?, product_weight)
+                     WHERE id = ?""", (price, note, int(manual), now(), size, weight, search_id))
+
+
+def geo_get(query: str) -> dict | None:
+    with connect() as c:
+        r = c.execute("SELECT * FROM geo WHERE query = ?", (query,)).fetchone()
+        return dict(r) if r else None
+
+
+def geo_put(query: str, lat: float | None, lon: float | None, minutes: int | None) -> None:
+    with connect() as c:
+        c.execute("INSERT OR REPLACE INTO geo (query, lat, lon, minutes, checked_at) VALUES (?,?,?,?,?)",
+                  (query, lat, lon, minutes, now()))
 
 
 def set_search_sort(search_id: int, sort_by: str) -> None:
@@ -359,16 +388,17 @@ def update_listing_description(key: str, description: str) -> None:
 def update_hit_ai(search_id: int, key: str, relevant: bool, reason: str | None, condition: str | None = None,
                   shipping: str | None = None, single_price: float | None = None, year: int | None = None,
                   shipping_cost: float | None = None, req: str | None = None, req_note: str | None = None,
-                  set_items: str | None = None, single_estimated: bool = False) -> None:
+                  set_items: str | None = None, single_estimated: bool = False, size: str | None = None,
+                  weight: float | None = None) -> None:
     """KI-Merkmale eines Treffers für eine Suche. Der Deal-Score kommt danach aus scoring.rescore_search()."""
     with connect() as c:
         c.execute(
             """UPDATE hits SET ai_relevant = ?, ai_reason = ?, ai_condition = ?, ai_shipping = ?, single_price = ?,
                                ai_year = ?, ai_shipping_cost = ?, ai_req = ?, ai_req_note = ?, ai_set_items = ?,
-                               single_estimated = ?
+                               single_estimated = ?, ai_size = ?, ai_weight = ?
                WHERE search_id = ? AND listing_key = ?""",
             (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, req, req_note, set_items,
-             int(single_estimated), search_id, key),
+             int(single_estimated), size, weight, search_id, key),
         )
 
 
@@ -376,7 +406,8 @@ def reset_hit_ai(search_id: int | None, key: str) -> None:
     """Bewertung verwerfen, damit die KI neu prüft. search_id=None: in allen Suchen."""
     sql = """UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
                              single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL, ai_score = NULL, ai_tier = NULL, score_reason = NULL,
-                             ai_req = NULL, ai_req_note = NULL, ai_set_items = NULL, single_estimated = NULL
+                             ai_req = NULL, ai_req_note = NULL, ai_set_items = NULL, single_estimated = NULL,
+                             ai_size = NULL, ai_weight = NULL, delivery = NULL
              WHERE listing_key = ?"""
     with connect() as c:
         if search_id is None:
@@ -391,7 +422,8 @@ def reset_search_ai(search_id: int) -> None:
         c.execute("""UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
                                      single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL,
                                      ai_score = NULL, ai_tier = NULL, score_reason = NULL, ai_req = NULL, ai_req_note = NULL,
-                                     ai_set_items = NULL, single_estimated = NULL
+                                     ai_set_items = NULL, single_estimated = NULL, ai_size = NULL, ai_weight = NULL,
+                                     delivery = NULL
                      WHERE search_id = ? AND hidden = 0""", (search_id,))
 
 
@@ -403,11 +435,12 @@ def set_hit_relevant(search_id: int, key: str, relevant: bool, reason: str) -> N
 
 
 def set_scores(search_id: int, market_price: float | None, scores: list[tuple]) -> None:
-    """scores: (score, tier, reason, total_chf, key)."""
+    """scores: (score, tier, reason, total_chf, delivery, key)."""
     with connect() as c:
         c.execute("UPDATE searches SET market_price = ? WHERE id = ?", (market_price, search_id))
         c.executemany(
-            "UPDATE hits SET ai_score = ?, ai_tier = ?, score_reason = ?, total_chf = ? WHERE listing_key = ? AND search_id = ?",
+            "UPDATE hits SET ai_score = ?, ai_tier = ?, score_reason = ?, total_chf = ?, delivery = ?"
+            " WHERE listing_key = ? AND search_id = ?",
             [(*row, search_id) for row in scores],
         )
 

@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import db, fx as fx_rates, scoring
+from . import db, fx as fx_rates, newprice, scoring
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
@@ -154,6 +154,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     "trust_level": t.level, "trust_label": t.label, "trust_reasons": t.reasons,
                 })
         db.mark_search_run(search["id"])
+        if newprice.is_stale(search):  # Neupreis beim ersten Lauf, danach monatlich auffrischen
+            newprice.refresh(search["id"])
         scoring.rescore_search(search["id"])  # Preise können sich geändert haben
         total_new += len(new_hits)
         if new_hits and not cfg.get("ai", {}).get("gemini_api_key"):

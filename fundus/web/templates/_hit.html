@@ -13,8 +13,8 @@
     <div class="hit-top">
       <div class="price-row">
         {% if h.single_price and h.price and h.single_price < h.price %}
-          <span class="big-price" title="{{ 'Von der KI aus dem Setpreis geschätzt' if h.single_estimated else 'Einzelpreis laut Inserat' }}">{{ '≈ ' if h.single_estimated }}{{ price(h.single_price, h.currency) }}</span>
-          <span class="set-price">{{ 'geschätzt aus' if h.single_estimated else 'einzeln, Set' }} {{ price(h.price, h.currency) }}</span>
+          <span class="big-price" title="{{ 'Von der KI aus dem Setpreis geschätzt' if h.single_estimated else 'Einzelpreis laut Inserat' }}">{{ price(h.single_price, h.currency, h.single_estimated) }}</span>
+          <span class="set-price">({{ 'geschätzt aus Setpreis' if h.single_estimated else 'einzeln, Setpreis' }} {{ "{:,.0f}".format(h.price).replace(",", "'") }} {{ h.currency or 'CHF' }})</span>
         {% else %}
           <span class="big-price">{{ price(h.price, h.currency) }}</span>
           {% if h.first_price and h.price and h.price < h.first_price %}<span class="drop">↓ statt {{ price(h.first_price, h.currency) }}</span>{% endif %}
@@ -35,11 +35,11 @@
       {% elif h.ai_req == 'nein' %}<span class="chip bad">✗ {{ h.ai_req_note or 'passt nicht' }}</span>{% endif %}
       {% if cond %}<span class="chip {{ cond_cls }}">{{ cond }}</span>{% endif %}
       {% if h.ai_year %}<span class="chip">{{ h.ai_year }}</span>{% endif %}
-      {% if h.ai_set_items %}<span class="chip hint" title="Was im Set dabei ist">Set: {{ h.ai_set_items }}</span>{% endif %}
-      {% if h.ai_shipping == 'ja' %}<span class="chip">Versand</span>{% elif h.ai_shipping == 'nein' %}<span class="chip hint">Nur Abholung</span>{% endif %}
-      {% if h.total_chf and (h.currency != 'CHF' or h.total_chf != h.price) %}<span class="chip" title="inkl. Versand und ggf. Einfuhr-MWST">≈ {{ price(h.total_chf | round(0), 'CHF') }} bis zu dir</span>{% endif %}
       {% if h.trust_level in ('check', 'warn') %}<span class="chip {{ 'bad' if h.trust_level == 'warn' else 'hint' }}">{{ trust_labels[h.trust_level] }}</span>{% endif %}
     </div>
+    {% if h.delivery and visible %}
+      <div class="deliv" title="Beste Lieferart, Endpreis inkl. Versand, Gebühren und ggf. MWST">{{ h.delivery }}{% if h.total_chf %} → <strong>{{ price(h.total_chf | round(0), 'CHF') }}</strong> bis zu dir{% endif %}</div>
+    {% endif %}
     {% if h._inactive_platform %}
       <div class="why muted">Plattform ist für diese Suche ausgeschaltet.</div>
     {% elif h.score_reason %}
@@ -56,6 +56,7 @@
         <summary {% if not h.description_full %}hx-get="/api/listing/{{ h.key }}/description" hx-target="next .desc-content" hx-swap="innerHTML" hx-trigger="click once"{% endif %}>Details ▾</summary>
         <div class="more-body">
           {% if visible and h.ai_reason %}<div class="small"><strong>KI:</strong> {{ h.ai_reason }}</div>{% endif %}
+          {% if h.ai_set_items %}<div class="small"><strong>Im Set:</strong> {{ h.ai_set_items }}</div>{% endif %}
           <div class="desc-content">{% if h.description_full %}{{ h.description_full }}{% else %}Lade …{% endif %}</div>
           <details>
             <summary class="small muted">Beschreibung von Hand ergänzen</summary>

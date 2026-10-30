@@ -45,16 +45,56 @@ def test_market_only_from_relevant_hits_and_per_search():
     assert scoring.rescore_search(a) == 110                                  # Zubehör verfälscht nicht
     assert scoring.rescore_search(b) is None                                 # andere Suche: eigene Bewertung
     hits = {h["key"]: h for h in db.hits_for_search(a)}
-    assert hits["tutti:0"]["total_chf"] == 110 and hits["tutti:3"]["ai_score"] is None   # 100 + 10 Versand (Schätzung CH)
+    assert hits["tutti:0"]["total_chf"] == 112 and hits["tutti:3"]["ai_score"] is None   # 100 + 12 PostPac bis 10 kg
 
 
-def test_total_cost_includes_shipping_and_import_vat():
-    from fundus.costs import total_cost_chf
-    de = {"platform": "kleinanzeigen", "price": 400, "currency": "EUR"}
-    total, notes = total_cost_chf(de, FX, {**HOME, "import_vat": 0.081, "vat_free_limit_chf": 150})
-    assert total == round((400 * 0.94 + 7) * 1.081, 2) and "inkl. Einfuhr-MWST" in notes
-    ch = {"platform": "tutti", "price": 400, "currency": "CHF", "ai_shipping": "nein"}
-    assert total_cost_chf(ch, FX, HOME)[0] == 400
+def test_delivery_routes():
+    from fundus import delivery as d
+    cfg = {**HOME, "import_vat": 0.081, "vat_free_limit_chf": 150}
+    # DE, gross genug für MWST: DHL 10 kg + Paket4you L + 8,1 % auf Ware und Versand
+    de = {"platform": "kleinanzeigen", "price": 400, "currency": "EUR", "ai_size": "L", "ai_weight": 8}
+    p = d.plan(de, FX, cfg)
+    goods = 400 * 0.94 + 10.49 * 0.94
+    assert p.total == round(goods * 1.081 + 6 * 0.94, 2) and "Paket4you" in p.label and "MWST" in p.label
+    # DE, klein und günstig: keine MWST
+    small = d.plan({**de, "price": 50, "ai_size": "S", "ai_weight": 1}, FX, cfg)
+    assert "ohne MWST" in small.label and small.total == round((50 + 4.19 + 2.5) * 0.94, 2)
+    # CH: PostPac, Sperrgut, Abholung, Möbel
+    ch = {"platform": "tutti", "price": 400, "currency": "CHF"}
+    assert d.plan({**ch, "ai_size": "M", "ai_weight": 3}, FX, cfg).total == 412
+    assert "Sperrgut" in d.plan({**ch, "ai_size": "XL"}, FX, cfg).label
+    assert d.plan({**ch, "ai_shipping": "nein"}, FX, cfg).total == 400
+    assert "zu gross" in d.plan({**ch, "ai_size": "fracht"}, FX, cfg).label
+    # Versandkosten aus dem Inserat haben Vorrang
+    assert d.plan({**ch, "ai_shipping_cost": 15}, FX, cfg).total == 415
+
+
+def test_pickup_penalty_from_drive_time(monkeypatch):
+    from fundus import delivery as d
+    monkeypatch.setattr(d, "drive_minutes", lambda place, country, cfg: 180)
+    p = d.plan({"platform": "kleinanzeigen", "price": 100, "currency": "EUR", "ai_shipping": "nein",
+                "location": "80331 München"}, FX, HOME)
+    assert p.penalty == 9 and "3 h 00 min Fahrt" in p.label
+
+
+def test_new_price_caps_value_and_fills_missing_market():
+    h = {"price": 100, "currency": "CHF", "ai_condition": "gut"}
+    assert _score({**h, "price": 200}, 300, FX)[0] > _score_np({**h, "price": 200}, 300, 220)[0]  # Neupreis begrenzt
+    score, reason, _ = _score_np({**h, "price": 200}, 300, 150)
+    assert score <= 30 and "teurer als neu" in reason
+    sid = db.save_search({"query": "bar"})
+    l = Listing(platform="tutti", external_id="1", title="Bar", url="u1", price=60)
+    db.upsert_listing(l, "neutral", [])
+    db.add_hit(sid, l.key, False)
+    db.update_hit_ai(sid, l.key, True, "x", "gut", "nein")
+    db.set_new_price(sid, 200, "von Hand", True)
+    scoring.rescore_search(sid)
+    h = db.hits_for_search(sid)[0]
+    assert h["ai_score"] is not None and "60 % vom Neupreis" in h["score_reason"]   # Markt ≈ 120 aus Neupreis
+
+
+def _score_np(h, market, new_price):
+    return scoring.score_hit({"platform": "tutti", "ai_shipping": "nein", **h}, market, FX, None, HOME, new_price)
 
 
 def test_duplicates_do_not_count_twice():

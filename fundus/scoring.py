@@ -2,7 +2,7 @@
 
 Die KI liefert nur Fakten (relevant, Zustand, Jahrgang, Versand, Einzelpreis). Das Ranking rechnet dieses
 Modul, damit Scores über Stapel und Zeit vergleichbar sind und ein neues, besseres Angebot
-ältere automatisch nach unten schiebt. Verglichen wird der Endpreis (costs.py) mit dem fairen Preis.
+ältere automatisch nach unten schiebt. Verglichen wird der Endpreis (delivery.py) mit dem fairen Preis.
 
 Score 50 = Endpreis entspricht dem fairen Preis (Marktpreis, angepasst an Zustand und Modelljahr).
 Halber Preis → 90, ein Drittel → 100, doppelter Preis → 10.
@@ -17,7 +17,7 @@ import re
 
 from . import db, fx as fx_rates
 from .config import get_config
-from .costs import total_cost_chf
+from . import delivery as deliv
 from .trust import price_in_chf
 
 # Wert relativ zu neu; «gut» ist der typische Zustand im Gebrauchtmarkt
@@ -28,7 +28,7 @@ SCAM_RATIO = 0.35     # Preis unter 35 % des Marktpreises: typisches Betrugsmust
 TRUST_PENALTY = {"warn": 15, "check": 5}
 YEARLY_LOSS = 0.10    # Wertverlust pro Modelljahr Unterschied zum mittleren Jahrgang
 SLOPE = 40            # Punkte pro Verdoppelung des Preis-Leistungs-Verhältnisses
-PICKUP_ABROAD_PENALTY = 10
+USED_SHARE = 0.6     # ohne Vergleichspreise: Marktpreis ≈ 60 % des Neupreises
 
 
 def effective_price_chf(h: dict, fx: dict) -> float | None:
@@ -45,10 +45,12 @@ def tier_for(score: int) -> str:
 
 
 def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = None,
-              delivery: dict | None = None) -> tuple[int, str, float]:
+              delivery: dict | None = None, new_price: float | None = None,
+              plan: deliv.Plan | None = None, market_estimated: bool = False) -> tuple[int, str, float]:
     """(Score 0–100, Begründung, Endpreis CHF) für einen relevanten Treffer mit Preis."""
     price = effective_price_chf(h, fx)
-    total, notes = total_cost_chf(h, fx, delivery or {})
+    plan = plan or deliv.plan(h, fx, delivery or {})
+    total = plan.total
     cond = h.get("ai_condition") or "unbekannt"
     value = market * CONDITION_VALUE.get(cond, TYPICAL) / TYPICAL   # fairer Preis für diesen Zustand
     year = h.get("ai_year")
@@ -56,18 +58,23 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
         value *= (1 - YEARLY_LOSS) ** max(-6, min(6, typical_year - year))
     elif typical_year:
         value *= 1 - YEARLY_LOSS  # ohne Jahrgang vorsichtig rechnen: ältere Modelle nennen ihn seltener
-    score = 50 + SLOPE * math.log2(value / total)
+    if new_price:
+        value = min(value, new_price * CONDITION_VALUE.get(cond, TYPICAL))  # gebraucht nie mehr wert als neu
+    score = 50 + SLOPE * math.log2(value / total) - plan.penalty
     diff = (1 - total / market) * 100
-    parts = [f"Endpreis ≈ {_chf(total)} CHF" + (f" ({', '.join(notes)})" if notes else ""),
-             f"{abs(diff):.0f} % {'unter' if diff >= 0 else 'über'} Marktpreis ({_chf(market)} CHF)"]
-    if any(n.startswith("nur Abholung in") for n in notes):
-        score -= PICKUP_ABROAD_PENALTY
+    parts = [f"Endpreis {abs(diff):.0f} % {'unter' if diff >= 0 else 'über'} "
+             + (f"geschätztem Marktpreis ({_chf(market)} CHF, 60 % vom Neupreis)" if market_estimated
+                else f"Marktpreis ({_chf(market)} CHF)")]
+    if new_price:
+        if price > new_price:
+            score = min(score, 30)
+            parts.append(f"teurer als neu ({_chf(new_price)} CHF)")
+        else:
+            parts.append(f"{price / new_price * 100:.0f} % vom Neupreis")
     if cond != "unbekannt":
         parts.append(f"Zustand {cond}")
     if year:
         parts.append(f"Jahrgang {year}")
-    elif typical_year:
-        parts.append("Jahrgang unbekannt")
     if h.get("single_price"):
         parts.append("Einzelpreis aus Set geschätzt" if h.get("single_estimated") else "Einzelpreis aus Set")
     if price / market < SCAM_RATIO:
@@ -113,21 +120,29 @@ def rescore_search(search_id: int) -> float | None:
     mark_duplicates(hits)
     market = market_price(hits, fx)
     year = typical_year(hits)
+    search = db.get_search(search_id) or {}
+    new_price = search.get("new_price")
+    reference = market or (new_price * USED_SHARE if new_price else None)
+    dcfg = cfg.get("delivery", {})
     rows = []
     for h in hits:
         if h.get("ai_relevant") != 1:
-            rows.append((None, None, None, None, h["key"]))
-        elif h.get("_dup"):
-            rows.append((None, None, "Doppelt inseriert – gleiches Angebot weiter oben", None, h["key"]))
-        elif effective_price_chf(h, fx) is None:
-            rows.append((None, None, "Preis offen", None, h["key"]))
-        elif market is None:
-            total, _ = total_cost_chf(h, fx, cfg.get("delivery", {}))
-            rows.append((None, None, "Noch zu wenig Vergleichspreise für einen Marktpreis", total, h["key"]))
+            rows.append((None, None, None, None, None, h["key"]))
+            continue
+        p = deliv.plan(h, fx, dcfg, search.get("product_size"), search.get("product_weight"))
+        label = p.label if p else None
+        if h.get("_dup"):
+            rows.append((None, None, "Doppelt inseriert – gleiches Angebot weiter oben", None, label, h["key"]))
+        elif p is None:
+            rows.append((None, None, "Preis offen", None, label, h["key"]))
+        elif reference is None:
+            rows.append((None, None, "Noch zu wenig Vergleichspreise für einen Marktpreis", p.total, label, h["key"]))
         else:
-            score, reason, total = score_hit(h, market, fx, year, cfg.get("delivery", {}))
-            rows.append((score, tier_for(score), reason, total, h["key"]))
+            score, reason, total = score_hit(h, reference, fx, year, dcfg, new_price, p, market is None)
+            rows.append((score, tier_for(score), reason, total, label, h["key"]))
     db.set_scores(search_id, market, rows)
+    if deliv.pending():  # neue Abholorte: Fahrzeiten nachschlagen, danach neu rechnen
+        deliv.resolve_pending(dcfg, rescore_all)
     return market
 
 

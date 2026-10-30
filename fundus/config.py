@@ -31,10 +31,13 @@ DEFAULTS: dict[str, Any] = {
     "ai": {
         "gemini_api_key": "",
     },
-    # Endpreis-Rechnung (costs.py): wohin geliefert werden kann und was Versand/Einfuhr kosten
+    # Endpreis-Rechnung (delivery.py): wohin geliefert werden kann und was Versand/Einfuhr kosten
     "delivery": {
         "home_country": "CH",
+        "home_place": "Winterthur",                # Start für Fahrzeiten bei Abholung
         "addresses": ["CH", "DE"],                 # Länder mit eigener Lieferadresse
+        "forwarder": "Paket4you",                  # deutsche Lieferadresse, Abholung an der Grenze
+        "forwarder_address": "Hohenkrähenstrasse 22, 79798 Jestetten",
         # Versandkosten-Schätzung in CHF, wenn das Inserat keine nennt (an eine Adresse im selben Land)
         "shipping_estimate_chf": {"CH": 10, "DE": 7, "AT": 12, "FR": 15, "IT": 15, "SE": 30},
         "import_vat": 0.081,                       # Schweizer MWST bei der Einfuhr
