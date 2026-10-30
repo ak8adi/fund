@@ -252,6 +252,9 @@ def extract_listings(
         for d in walk(blob):
             if d.get("@type") == "ListItem" and isinstance(d.get("item"), dict):
                 d = {**d["item"], **({"url": d["url"]} if "url" in d and "url" not in d["item"] else {})}
+            loc = d.get("localization")  # Tutti/Anibis: Titel steckt in localization.title
+            if "title" not in d and isinstance(loc, dict) and isinstance(loc.get("title"), str):
+                d = {**d, "title": loc["title"]}
             if not looks_like_listing(d):
                 continue
             listing = _to_listing(d, platform, base_url, url_builder)

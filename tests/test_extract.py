@@ -50,6 +50,29 @@ def test_tutti_like_structure():
     assert kite.posted_at is not None
 
 
+def test_tutti_title_in_localization():
+    """Stand Okt. 2026: Tutti/Anibis liefern den Titel nur noch unter localization.title."""
+    data = {
+        "props": {"pageProps": {"dehydratedState": {"queries": [{"state": {"data": {"listings": {"edges": [
+            {"node": {
+                "listingID": "82625814",
+                "localization": {"title": "Kinderwagen Hartan", "body": "Gut erhalten", "translationStatus": "ORIGINAL"},
+                "formattedPrice": "1'200.-",
+                "timestamp": "2026-10-30T09:07:26+01:00",
+                "postcodeInformation": {"postcode": "8400", "locationName": "Winterthur", "canton": {"shortName": "ZH"}},
+                "sellerInfo": {"alias": "Janet"},
+                "seoInformation": {"deSlug": "zuerich/baby-kind/kinderwagen/kinderwagen-hartan"},
+            }},
+        ]}}}}]}}},
+    }
+    listings = TuttiAdapter(get_config()).parse(page_with(data))
+    assert len(listings) == 1
+    l = listings[0]
+    assert l.title == "Kinderwagen Hartan"
+    assert l.price == 1200.0
+    assert l.url == "https://www.tutti.ch/de/vi/zuerich/baby-kind/kinderwagen/kinderwagen-hartan/82625814"
+
+
 def test_ricardo_like_structure_ignores_navigation():
     data = {"props": {"pageProps": {"initialState": {"srp": {"results": [
         {"id": 1290000001, "title": "MacBook Air M2 16GB", "buyNowPrice": 790, "bidPrice": None,

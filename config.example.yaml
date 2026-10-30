@@ -47,7 +47,7 @@ platforms:
     url: "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest"
     fetcher: http
   anibis:
-    url: "https://www.anibis.ch/de/q/alle-kategorien/{query}?sorting=newest"
+    url: "https://www.anibis.ch/de/q/suche?query={query}&sorting=newest"
     fetcher: http
   kleinanzeigen:
     url: "https://www.kleinanzeigen.de/s-{query}/k0"
