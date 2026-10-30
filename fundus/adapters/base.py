@@ -20,6 +20,8 @@ USER_AGENTS = [
 ]
 
 BLOCK_MARKERS = ("cf-challenge", "challenge-platform", "captcha", "Access Denied", "px-captcha", "datadome")
+# Plattformen, die gelöschte Inserate nicht mit 404 melden, sondern auf eine Übersicht umleiten
+GONE_MARKERS = ("srchrslt-adexpired",)   # Kleinanzeigen: «Die gewünschte Anzeige ist nicht mehr verfügbar.»
 
 
 class AdapterError(Exception):
@@ -99,7 +101,13 @@ def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> 
         raise AdapterError(f"HTTP {resp.status_code} für {url}")
     text = resp.text
     _check_blocked(text)
+    _check_gone(text, url)
     return text
+
+
+def _check_gone(html: str, url: str) -> None:
+    if any(m in html for m in GONE_MARKERS):
+        raise GoneError(f"Inserat nicht mehr verfügbar (umgeleitet): {url}")
 
 
 def _check_blocked(html: str) -> None:

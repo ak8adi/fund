@@ -122,3 +122,25 @@ def test_matches_query():
     assert not matches_query("core sensor pro 3", "APPLE MacBook Pro Touch Bar 2019 Core i7")
     assert not matches_query("duotone trust bar", "Trust Company - The Lonely Position (CD)")
     assert not matches_query("kinderwagen", "Sandalen")
+
+
+def test_redirect_to_expired_notice_counts_as_gone(monkeypatch):
+    """Kleinanzeigen leitet gelöschte Inserate mit 200 auf eine Kategorieseite um statt 404."""
+    import pytest
+    from fundus.adapters import base
+
+    class Resp:
+        status_code = 200
+        text = '<div id="srchrslt-adexpired">Die gewünschte Anzeige ist nicht mehr verfügbar.</div>' + "x" * 40000
+
+    monkeypatch.setattr(base, "CURL_AVAILABLE", True)
+    monkeypatch.setattr(base.curl_requests, "get", lambda *a, **k: Resp())
+    with pytest.raises(base.GoneError):
+        base.fetch_html("https://www.kleinanzeigen.de/s-anzeige/x/1-230-1")
+
+
+def test_normal_search_page_is_not_gone():
+    from pathlib import Path
+    from fundus.adapters.base import _check_gone
+
+    _check_gone((Path(__file__).parent / "fixtures" / "kleinanzeigen_macbook.html").read_text(), "u")
