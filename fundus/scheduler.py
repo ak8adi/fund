@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 
+from datetime import datetime, timedelta, timezone
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 from . import db
 from .config import get_config
@@ -19,7 +22,34 @@ def start_scheduler(cfg: dict) -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=cfg["schedule"].get("timezone", "Europe/Zurich"))
     scheduler.start()
     apply_schedule(scheduler, cfg)
+    _catch_up(scheduler, cfg)
     return scheduler
+
+
+def missed_run(last_started: datetime | None, times: list, now: datetime) -> bool:
+    """War seit dem letzten Lauf ein geplanter Zeitpunkt, den niemand ausgeführt hat (Server war aus)?"""
+    if not times:
+        return False
+    if last_started is None:
+        return True
+    for day in (now.date(), now.date() - timedelta(days=1)):
+        for t in times:
+            hour, minute = (int(x) for x in str(t).split(":"))
+            slot = datetime.combine(day, datetime.min.time(), now.tzinfo).replace(hour=hour, minute=minute)
+            if last_started < slot <= now:
+                return True
+    return False
+
+
+def _catch_up(scheduler: BackgroundScheduler, cfg: dict) -> None:
+    """Verpasste Läufe nachholen: der Zeitplan lebt nur im Speicher, bei ausgeschaltetem Server fällt er aus."""
+    runs = db.last_runs(1)
+    last = datetime.fromisoformat(runs[0]["started_at"]) if runs else None
+    now = datetime.now(timezone.utc).astimezone(scheduler.timezone)
+    if missed_run(last, cfg["schedule"].get("times") or [], now):
+        when = now + timedelta(minutes=2)
+        scheduler.add_job(run, DateTrigger(when), kwargs={"trigger": "nachgeholt"}, id="catch-up", max_instances=1)
+        log.info("Geplanter Lauf wurde verpasst – wird um %s nachgeholt", when.strftime("%H:%M"))
 
 
 def apply_schedule(scheduler: BackgroundScheduler, cfg: dict) -> None:
