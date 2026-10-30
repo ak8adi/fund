@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS searches (
     last_run_at   TEXT,
     notify_new    INTEGER NOT NULL DEFAULT 1,   -- Meldung bei neuem Angebot
     notify_weekly INTEGER NOT NULL DEFAULT 1,   -- in der Wochenübersicht aufführen
-    allow_sets    INTEGER NOT NULL DEFAULT 1
+    allow_sets    INTEGER NOT NULL DEFAULT 1,
+    market_price  REAL                          -- Median CHF der relevanten Treffer (scoring.py)
 );
 CREATE TABLE IF NOT EXISTS listings (
     key           TEXT PRIMARY KEY,
@@ -47,10 +48,6 @@ CREATE TABLE IF NOT EXISTS listings (
     trust_level   TEXT,
     trust_reasons TEXT,                         -- JSON-Liste
     description_full TEXT,
-    ai_score      INTEGER,
-    ai_relevant   INTEGER,                      -- 1=True, 0=False
-    ai_tier       TEXT,                         -- S, A, B, C
-    ai_reason     TEXT,
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL
 );
@@ -61,6 +58,19 @@ CREATE TABLE IF NOT EXISTS hits (
     is_new        INTEGER NOT NULL DEFAULT 1,   -- noch nicht angeschaut
     notified      INTEGER NOT NULL DEFAULT 0,
     hidden        INTEGER NOT NULL DEFAULT 0,
+    -- KI-Merkmale pro Suche: dasselbe Inserat kann für eine Suche passen, für eine andere nicht
+    ai_relevant   INTEGER,                      -- 1/0, NULL = noch nicht bewertet
+    ai_reason     TEXT,
+    ai_condition  TEXT,                         -- neu, neuwertig, sehr gut, gut, gebraucht, defekt, unbekannt
+    ai_shipping   TEXT,                         -- ja, nein, unbekannt
+    single_price  REAL,                         -- Einzelpreis aus Set-Inserat (Währung des Inserats)
+    ai_year       INTEGER,                      -- Modell-/Kaufjahr laut Inserat
+    ai_shipping_cost REAL,                      -- Versandkosten laut Inserat (Währung des Inserats)
+    -- vom Programm berechnet (scoring.py)
+    ai_score      INTEGER,                      -- Deal-Score 0–100
+    ai_tier       TEXT,                         -- S, A, B, C
+    score_reason  TEXT,
+    total_chf     REAL,                         -- Endpreis inkl. Versand und Einfuhr-MWST (costs.py)
     PRIMARY KEY (search_id, listing_key)
 );
 CREATE TABLE IF NOT EXISTS platforms (
@@ -111,6 +121,49 @@ def _ensure_chat_cols(conn):
         except Exception:
             pass
 
+HIT_AI_SELECT = ", ".join(f"h.{col}" for col in (
+    "ai_relevant", "ai_reason", "ai_condition", "ai_shipping", "single_price", "ai_year", "ai_shipping_cost", "ai_score",
+    "ai_tier", "score_reason", "total_chf"))
+HIT_AI_COLS = {"ai_relevant": "INTEGER", "ai_reason": "TEXT", "ai_condition": "TEXT", "ai_shipping": "TEXT",
+               "single_price": "REAL", "ai_year": "INTEGER", "ai_shipping_cost": "REAL", "total_chf": "REAL", "ai_score": "INTEGER", "ai_tier": "TEXT", "score_reason": "TEXT"}
+
+
+def _migrate_ai_to_hits(c: sqlite3.Connection, l_cols: set[str]) -> None:
+    """Okt. 2026: KI-Bewertung lag pro Inserat in `listings`, gilt aber pro Suche → nach `hits` verschieben."""
+    h_cols = {r["name"] for r in c.execute("PRAGMA table_info(hits)")}
+    for col, typ in HIT_AI_COLS.items():
+        if col not in h_cols:
+            c.execute(f"ALTER TABLE hits ADD COLUMN {col} {typ}")
+    old = [col for col in ("ai_relevant", "ai_reason", "ai_score", "ai_tier", "single_price") if col in l_cols]
+    if not old:
+        return
+    sets = ", ".join(f"{col} = (SELECT l.{col} FROM listings l WHERE l.key = hits.listing_key)" for col in old)
+    c.execute(f"UPDATE hits SET {sets} WHERE ai_relevant IS NULL")
+    for col in old:
+        c.execute(f"ALTER TABLE listings DROP COLUMN {col}")
+    _reassess_trust(c)
+
+
+def _reassess_trust(c: sqlite3.Connection) -> None:
+    """Ampel ohne den alten Preis-Median neu berechnen (Preisvergleich steckt jetzt im Deal-Score)."""
+    from .models import Seller
+    from .trust import assess
+
+    rows = c.execute("SELECT key, platform, external_id, title, url, price, currency, image, seller, trust_reasons FROM listings")
+    updates = []
+    for r in rows.fetchall():
+        sd = json.loads(r["seller"]) if r["seller"] else {}
+        if sd.get("member_since"):
+            sd["member_since"] = datetime.fromisoformat(sd["member_since"])
+        listing = Listing(platform=r["platform"], external_id=r["external_id"], title=r["title"], url=r["url"],
+                          price=r["price"], currency=r["currency"] or "CHF", image=r["image"],
+                          seller=Seller(**{k: v for k, v in sd.items() if k in Seller.__dataclass_fields__}))
+        t = assess(listing)
+        drops = [x for x in json.loads(r["trust_reasons"] or "[]") if x.startswith("Preis-Drop")]
+        updates.append((t.level, json.dumps(t.reasons + drops, ensure_ascii=False), r["key"]))
+    c.executemany("UPDATE listings SET trust_level = ?, trust_reasons = ? WHERE key = ?", updates)
+
+
 def init_db() -> None:
     with connect() as c:
         c.execute("PRAGMA journal_mode = WAL")
@@ -123,20 +176,13 @@ def init_db() -> None:
         l_cols = {r["name"] for r in c.execute("PRAGMA table_info(listings)")}
         if "description_full" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN description_full TEXT")
-        if "ai_score" not in l_cols:
-            c.execute("ALTER TABLE listings ADD COLUMN ai_score INTEGER")
-        if "ai_relevant" not in l_cols:
-            c.execute("ALTER TABLE listings ADD COLUMN ai_relevant INTEGER")
-        if "ai_tier" not in l_cols:
-            c.execute("ALTER TABLE listings ADD COLUMN ai_tier TEXT")
-        if "ai_reason" not in l_cols:
-            c.execute("ALTER TABLE listings ADD COLUMN ai_reason TEXT")
-        if "single_price" not in l_cols:
-            c.execute("ALTER TABLE listings ADD COLUMN single_price REAL")  # KI: Einzelpreis aus Set-Inserat
         if "gone_at" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN gone_at TEXT")  # Inseratseite antwortet 404/410
         if "checked_at" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN checked_at TEXT")  # letzte Verfügbarkeitsprüfung
+        _migrate_ai_to_hits(c, l_cols)
+        if "market_price" not in cols:
+            c.execute("ALTER TABLE searches ADD COLUMN market_price REAL")
 
         p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
         if "blocked_at" not in p_cols:
@@ -248,8 +294,7 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
                 if r not in trust_reasons:
                     trust_reasons.append(r)
 
-            # Reset AI score to trigger re-evaluation due to price drop
-            c.execute("UPDATE listings SET ai_score = NULL, ai_tier = NULL, ai_reason = NULL WHERE key = ?", (l.key,))
+            # Deal-Score passt sich beim nächsten scoring.rescore_search() an, KI-Merkmale bleiben gültig
 
         c.execute(
             """INSERT INTO listings (key, platform, external_id, title, url, price, first_price, currency, image,
@@ -284,10 +329,10 @@ def top_hits_to_check(search_id: int, limit: int = 3) -> list[dict]:
     """Bestbewertete Treffer, die in diesem Lauf nicht in den Suchergebnissen waren und
     seit einem Tag nicht geprüft wurden."""
     sql = """SELECT l.key, l.url, l.platform FROM hits h JOIN listings l ON l.key = h.listing_key
-             WHERE h.search_id = ? AND h.hidden = 0 AND l.ai_relevant = 1 AND l.gone_at IS NULL
+             WHERE h.search_id = ? AND h.hidden = 0 AND h.ai_relevant = 1 AND l.gone_at IS NULL
                AND l.last_seen < datetime('now', '-1 hour')
                AND (l.checked_at IS NULL OR l.checked_at < datetime('now', '-1 day'))
-             ORDER BY l.ai_score DESC LIMIT ?"""
+             ORDER BY h.ai_score DESC LIMIT ?"""
     with connect() as c:
         return [dict(r) for r in c.execute(sql, (search_id, limit))]
 
@@ -296,29 +341,55 @@ def update_listing_description(key: str, description: str) -> None:
     with connect() as c:
         c.execute("UPDATE listings SET description_full = ? WHERE key = ?", (description, key))
 
-def update_listing_ai(key: str, relevant: bool | None, tier: str | None, reason: str | None, score: int | None = None) -> None:
-    """relevant=None setzt die Bewertung zurück, damit die KI das Inserat neu prüft."""
+def update_hit_ai(search_id: int, key: str, relevant: bool, reason: str | None, condition: str | None = None,
+                  shipping: str | None = None, single_price: float | None = None, year: int | None = None,
+                  shipping_cost: float | None = None) -> None:
+    """KI-Merkmale eines Treffers für eine Suche. Der Deal-Score kommt danach aus scoring.rescore_search()."""
     with connect() as c:
         c.execute(
-            "UPDATE listings SET ai_relevant = ?, ai_tier = ?, ai_reason = ?, ai_score = ? WHERE key = ?",
-            (None if relevant is None else int(relevant), tier, reason, score, key)
+            """UPDATE hits SET ai_relevant = ?, ai_reason = ?, ai_condition = ?, ai_shipping = ?, single_price = ?,
+                               ai_year = ?, ai_shipping_cost = ?
+               WHERE search_id = ? AND listing_key = ?""",
+            (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, search_id, key),
         )
 
-def update_listing_price(key: str, price: float) -> None:
-    """Von der KI erkannter Einzelpreis (Set-Inserat). Eigene Spalte, damit der nächste Lauf ihn nicht überschreibt."""
+
+def reset_hit_ai(search_id: int | None, key: str) -> None:
+    """Bewertung verwerfen, damit die KI neu prüft. search_id=None: in allen Suchen."""
+    sql = """UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
+                             single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL, ai_score = NULL, ai_tier = NULL, score_reason = NULL
+             WHERE listing_key = ?"""
     with connect() as c:
-        c.execute("UPDATE listings SET single_price = ? WHERE key = ?", (price, key))
+        if search_id is None:
+            c.execute(sql, (key,))
+        else:
+            c.execute(sql + " AND search_id = ?", (key, search_id))
+
+
+def set_hit_relevant(search_id: int, key: str, relevant: bool, reason: str) -> None:
+    """Manuelles Ein-/Ausblenden: Zustand, Versand usw. aus der KI bleiben erhalten."""
+    with connect() as c:
+        c.execute("UPDATE hits SET ai_relevant = ?, ai_reason = ? WHERE search_id = ? AND listing_key = ?",
+                  (int(relevant), reason, search_id, key))
+
+
+def set_scores(search_id: int, market_price: float | None, scores: list[tuple]) -> None:
+    """scores: (score, tier, reason, total_chf, key)."""
+    with connect() as c:
+        c.execute("UPDATE searches SET market_price = ? WHERE id = ?", (market_price, search_id))
+        c.executemany(
+            "UPDATE hits SET ai_score = ?, ai_tier = ?, score_reason = ?, total_chf = ? WHERE listing_key = ? AND search_id = ?",
+            [(*row, search_id) for row in scores],
+        )
 
 
 def get_ai_progress() -> tuple[int, int]:
-    """Returns (evaluated_count, total_count) for AI evaluated listings."""
+    """(bewertet, gesamt) über alle sichtbaren Treffer."""
     with connect() as c:
         row = c.execute(
-            "SELECT COUNT(key) as total, SUM(CASE WHEN ai_relevant IS NOT NULL OR ai_score IS NOT NULL THEN 1 ELSE 0 END) as evaluated FROM listings"
+            "SELECT COUNT(*) AS total, SUM(ai_relevant IS NOT NULL) AS evaluated FROM hits WHERE hidden = 0"
         ).fetchone()
-        total = row["total"] or 0
-        evaluated = row["evaluated"] or 0
-        return int(evaluated), int(total)
+        return int(row["evaluated"] or 0), int(row["total"] or 0)
 
 
 def add_hit(search_id: int, listing_key: str, is_new: bool) -> bool:
@@ -331,6 +402,17 @@ def add_hit(search_id: int, listing_key: str, is_new: bool) -> bool:
         return cur.rowcount == 1
 
 
+def pending_top_hits(search_id: int, min_score: int, max_age_days: int = 3) -> list[dict]:
+    """Neue, noch nicht gemeldete Top-Angebote einer Suche."""
+    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, h.search_id, {HIT_AI_SELECT}
+              FROM hits h JOIN listings l ON l.key = h.listing_key
+              WHERE h.search_id = ? AND h.notified = 0 AND h.hidden = 0 AND h.ai_relevant = 1
+                AND h.ai_score >= ? AND l.gone_at IS NULL AND h.first_seen >= datetime('now', ?)
+              ORDER BY h.ai_score DESC"""
+    with connect() as c:
+        return [_listing_row(r) for r in c.execute(sql, (search_id, min_score, f"-{max_age_days} days"))]
+
+
 def mark_notified(search_id: int, keys: list[str]) -> None:
     with connect() as c:
         c.executemany(
@@ -340,7 +422,7 @@ def mark_notified(search_id: int, keys: list[str]) -> None:
 
 
 def hits_for_search(search_id: int, include_hidden: bool = False, limit: int = 300) -> list[dict]:
-    sql = """SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, h.search_id
+    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, h.search_id, {HIT_AI_SELECT}
              FROM hits h JOIN listings l ON l.key = h.listing_key
              WHERE h.search_id = ?"""
     if not include_hidden:
@@ -350,8 +432,23 @@ def hits_for_search(search_id: int, include_hidden: bool = False, limit: int = 3
         return [_listing_row(r) for r in c.execute(sql, (search_id, limit))]
 
 
+def best_hits(per_search: int = 1) -> list[dict]:
+    """Die besten verfügbaren Angebote jeder aktiven Suche (höchster Deal-Score)."""
+    sql = f"""SELECT * FROM (
+                SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, s.query AS search_query, s.id AS search_id,
+                       {HIT_AI_SELECT},
+                       ROW_NUMBER() OVER (PARTITION BY h.search_id ORDER BY h.ai_score DESC) AS rank
+                FROM hits h JOIN listings l ON l.key = h.listing_key JOIN searches s ON s.id = h.search_id
+                WHERE s.active = 1 AND h.hidden = 0 AND h.ai_relevant = 1 AND h.ai_score IS NOT NULL
+                  AND l.gone_at IS NULL)
+             WHERE rank <= ? ORDER BY ai_score DESC"""
+    with connect() as c:
+        return [_listing_row(r) for r in c.execute(sql, (per_search,))]
+
+
 def recent_new_hits(limit: int = 30) -> list[dict]:
-    sql = """SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, s.query AS search_query, s.id AS search_id
+    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, s.query AS search_query, s.id AS search_id,
+                    {HIT_AI_SELECT}
              FROM hits h JOIN listings l ON l.key = h.listing_key JOIN searches s ON s.id = h.search_id
              WHERE h.is_new = 1 AND h.hidden = 0
              ORDER BY h.first_seen DESC LIMIT ?"""
@@ -377,10 +474,10 @@ def mark_seen(search_id: int) -> None:
 
 
 def hide_hit(search_id: int, listing_key: str) -> None:
+    """Nur in dieser Suche als unpassend markieren (landet bei «Ausgefiltert», kann eingeblendet werden)."""
     with connect() as c:
-        c.execute("UPDATE hits SET is_new = 0 WHERE search_id = ? AND listing_key = ?",
-                  (search_id, listing_key))
-    update_listing_ai(listing_key, relevant=False, tier=None, reason="Manuell ausgeblendet", score=None)
+        c.execute("""UPDATE hits SET is_new = 0, ai_relevant = 0, ai_reason = 'Manuell ausgeblendet'
+                     WHERE search_id = ? AND listing_key = ?""", (search_id, listing_key))
 
 
 # ---------- Plattform-Schalter ----------
@@ -431,7 +528,7 @@ def searches_with_unevaluated_hits() -> list[int]:
         return [r[0] for r in c.execute(
             """SELECT DISTINCT h.search_id FROM hits h JOIN listings l ON l.key = h.listing_key
                JOIN searches s ON s.id = h.search_id
-               WHERE s.active = 1 AND h.hidden = 0 AND l.ai_relevant IS NULL AND l.ai_tier IS NULL""")]
+               WHERE s.active = 1 AND h.hidden = 0 AND h.ai_relevant IS NULL AND l.gone_at IS NULL""")]
 
 
 def finish_run(run_id: int, new_hits: int, errors: int) -> None:

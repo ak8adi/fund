@@ -8,7 +8,6 @@ hängt davon ab, wie viele Verkäuferdaten eine Plattform in der Trefferliste mi
 from __future__ import annotations
 
 import re
-import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -46,12 +45,9 @@ def price_in_chf(price: float | None, currency: str, fx: dict) -> float | None:
     return price * float(fx.get(currency, 1.0))
 
 
-def reference_price(listings: list[Listing], fx: dict) -> float | None:
-    prices = [p for p in (price_in_chf(l.price, l.currency, fx) for l in listings) if p]
-    return statistics.median(prices) if len(prices) >= 5 else None
-
-
-def assess(l: Listing, median_chf: float | None, fx: dict) -> TrustResult:
+def assess(l: Listing) -> TrustResult:
+    """Nur Verkäufer- und Textsignale. Der Preisvergleich mit dem Markt gehört zur Suche und steckt
+    im Deal-Score (scoring.py) – früher verfälschten Zubehör und Fehltreffer hier den Median."""
     score = 0
     reasons: list[str] = []
     s = l.seller
@@ -91,16 +87,6 @@ def assess(l: Listing, median_chf: float | None, fx: dict) -> TrustResult:
         has_data = True
         score += 1
         reasons.append("verifiziert")
-
-    chf = price_in_chf(l.price, l.currency, fx)
-    if chf and median_chf:
-        ratio = chf / median_chf
-        if ratio < 0.35:
-            score -= 2
-            reasons.append(f"Preis {100 - ratio * 100:.0f} % unter dem Median – typisches Betrugsmuster")
-        elif ratio < 0.55:
-            score -= 1
-            reasons.append(f"Preis deutlich unter dem Median ({ratio * 100:.0f} %)")
 
     for pattern, text in SUSPICIOUS:
         if pattern.search(l.title):

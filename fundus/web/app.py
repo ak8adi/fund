@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import ai, db, runner
+from .. import ai, db, runner, scoring
 from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     if db.close_stale_runs():
         log.info("Abgebrochenen Lauf geschlossen")
     runner.available_sources(cfg)
+    scoring.rescore_all()
     state["scheduler"] = start_scheduler(cfg)
     if cfg.get("ai", {}).get("gemini_api_key"):
         for sid in db.searches_with_unevaluated_hits():  # z.B. nach abgebrochenem Lauf liegengeblieben
@@ -138,19 +139,12 @@ def edit_listing_description(request: Request, key: str, description: str = Form
         return HTMLResponse("Nicht gefunden", status_code=404)
 
     db.update_listing_description(key, description)
-    # Reset AI score to force re-evaluation
-    db.update_listing_ai(key, relevant=None, tier=None, reason=None, score=None)
-
-    # Run evaluation if listing belongs to a search and AI is configured
+    # Neue Beschreibung → Fakten in allen Suchen neu erheben
+    db.reset_hit_ai(None, key)
     try:
-        # Find which search this listing belongs to by checking hits
         with db.connect() as c:
-            hit = c.execute("SELECT search_id FROM hits WHERE listing_key = ?", (key,)).fetchone()
-            if hit:
-                sid = hit["search_id"]
-                # Start evaluation in background instead of inline to not block response
-                from ..ai import start_background_evaluation
-                start_background_evaluation(sid)
+            for row in c.execute("SELECT search_id FROM hits WHERE listing_key = ?", (key,)).fetchall():
+                ai.start_background_evaluation(row["search_id"])
     except Exception as e:
         log.error("Fehler beim Starten der KI-Neubewertung: %s", e)
 
@@ -207,6 +201,7 @@ def index(request: Request):
         request,
         searches=db.list_searches(),
         hits=db.recent_new_hits(40),
+        best=db.best_hits(1),
         runs=db.last_runs(1),
     ))
 
@@ -297,20 +292,20 @@ def update_search(
             if allow_sets_changed and search["allow_sets"] and h.get("ai_relevant") is False and h.get("ai_reason"):
                 reason = h["ai_reason"].lower()
                 if "set" in reason or "bundle" in reason:
-                    db.update_listing_ai(key=h["key"], relevant=None, tier=None, reason=None, score=None)
+                    db.reset_hit_ai(sid, h["key"])
                     continue
 
             # Standard exclude words check
             if h.get("ai_relevant") is not False:
                 txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
                 if any(w in txt for w in search["exclude_words"]):
-                    db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
+                    db.set_hit_relevant(sid, h["key"], False, "Ausgeschlossener Begriff")
                 # Sets not allowed anymore
                 elif not search["allow_sets"] and h.get("ai_relevant") is not False:
                     # Check if ai_reason mentions set/bundle, or if title does
                     reason = (h.get("ai_reason") or "").lower()
                     if "set" in reason or "bundle" in reason or "komplett" in txt or "set" in txt or "bundle" in txt or "+" in txt:
-                        db.update_listing_ai(key=h["key"], relevant=None, tier=None, reason=None, score=None)
+                        db.reset_hit_ai(sid, h["key"])
 
         if old_search and platforms and (not old_search["platforms"] or set(platforms) - set(old_search["platforms"])):
             runner.run_in_background("neue Plattformen", [sid])
@@ -355,14 +350,14 @@ def run_ai(sid: int):
 @app.post("/search/{sid}/hide", response_class=HTMLResponse)
 def hide(sid: int, key: str = Form(...)):
     db.hide_hit(sid, key)
+    scoring.rescore_search(sid)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @app.post("/search/{sid}/restore", response_class=HTMLResponse)
 def restore_hit(sid: int, key: str = Form(...)):
-    h = db.get_listing(key)
-    score = 50 if h and not h.get("ai_score") else (h.get("ai_score") if h else None)
-    db.update_listing_ai(key, relevant=True, tier=h.get("ai_tier") if h else None, reason="Manuell eingeblendet", score=score)
+    db.set_hit_relevant(sid, key, True, "Manuell eingeblendet")
+    scoring.rescore_search(sid)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

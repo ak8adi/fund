@@ -28,6 +28,16 @@
     </details>
   </div>
   <div>
+    {% if best %}
+    <h2>Beste Angebote jetzt</h2>
+    <p class="muted small">Pro Suche das Angebot mit dem besten Verhältnis von Endpreis zu Marktpreis.</p>
+    <div class="hits">
+      {% for h in best %}
+        <p class="muted small" style="margin:.6rem 0 .2rem;"><a href="/search/{{ h.search_id }}">{{ h.search_query }}</a></p>
+        {% include "_hit.html" %}
+      {% endfor %}
+    </div>
+    {% endif %}
     <h2>Neu gefunden</h2>
     {% if not hits %}<p class="muted">Nichts Neues, das du noch nicht angeschaut hast.</p>{% endif %}
     <div class="hits">

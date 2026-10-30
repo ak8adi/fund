@@ -2,6 +2,7 @@ import json
 import logging
 import httpx
 import time
+from datetime import datetime
 import random
 
 from . import db
@@ -9,7 +10,9 @@ from .config import get_config
 from .adapters import all_adapters, adapter_for_source
 from .adapters.base import GoneError, fetch_html
 from .adapters.extract import extract_description_from_page
+from . import scoring
 from .matching import matches_query
+from .notify import notify_top_hits
 
 log = logging.getLogger(__name__)
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -20,188 +23,152 @@ def _gemini_headers(api_key: str) -> dict:
     return {"x-goog-api-key": api_key}
 
 
-_AI_FX = {"CHF": 1.0, "EUR": 0.94, "USD": 0.88, "GBP": 1.12, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22}
 _NO_SHIP = ("kein versand", "nur abholung", "nur selbstabholung", "no shipping", "collection only", "pickup only", "pas d'envoi", "solo ritiro", "non spedisco", "ingen frakt")
-def _ai_chf(amount, cur):
-    if amount is None: return "VB"
-    try: v = float(amount)
-    except Exception: return str(amount)
-    c = (cur or "CHF").upper().strip()
-    r = _AI_FX.get(c, 0.94)
-    chf = int(round((v * r) / 5.0) * 5) if (v * r) >= 100 else int(round(v * r))
-    return f"{chf} CHF" if c == "CHF" else f"ca. {chf} CHF ({int(round(v))} {c})"
+CONDITIONS = ("neu", "neuwertig", "sehr gut", "gut", "gebraucht", "defekt", "unbekannt")
+
+FACTS_INSTRUCTION = """Antworte AUSSCHLIESSLICH mit gültigem JSON: ein Array mit einem Objekt pro Inserat, Felder:
+- key: (string) der Inserat-Key
+- relevant: (boolean) ist es wirklich das gesuchte Produkt (nicht Zubehör, Ersatzteil, anderes Modell)?
+- reason: (string) ein Satz: warum (nicht) relevant, plus Auffälliges (Mängel, Set-Inhalt, Alter, Rechnung)
+- condition: einer von "neu", "neuwertig", "sehr gut", "gut", "gebraucht", "defekt", "unbekannt"
+- shipping: "ja" (Versand angeboten), "nein" (nur Abholung) oder "unbekannt"
+- shipping_cost: (number oder null) Versandkosten, nur wenn im Inserat genannt, in der Währung des Inserats
+- year: (integer oder null) Modelljahr bzw. Kaufjahr, nur wenn im Inserat genannt
+- single_price: (number oder null) Einzelpreis des gesuchten Produkts, falls es Teil eines Sets ist und
+  im Text ein Einzelpreis steht – in der Währung des Inserats
+Bewerte NICHT, ob der Preis gut ist – das rechnet das Programm selbst."""
+
+
+def _facts_prompt(search: dict, items: list[dict]) -> str:
+    prompt = f"""Ich suche: '{search["query"]}'. Lies die Inserate und liefere Fakten pro Inserat.
+Fehltreffer (mehrdeutige Begriffe, blosses Zubehör, Ersatzteile, anderes Modell/Grösse) → relevant = false.
+"""
+    if not search.get("allow_sets", True):
+        prompt += """Ich suche NUR das Einzelprodukt. Reine Sets → relevant = false, ausser im Text steht, dass das gesuchte
+Produkt auch einzeln verkauft wird: dann relevant = true und single_price setzen.
+"""
+    return prompt + "Inserate:\n" + json.dumps(items, ensure_ascii=False)
+
+
+def _gemini_json(prompt: str, system_instruction: str, api_key: str):
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
+    }
+    last_exc = None
+    for model in ("gemini-3.5-flash-lite", "gemini-3.7-flash"):
+        try:
+            resp = httpx.post(f"{GEMINI_URL}/{model}:generateContent", json=payload,
+                              headers=_gemini_headers(api_key), timeout=60)
+            resp.raise_for_status()
+            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return json.loads(text.removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+        except Exception as exc:
+            last_exc = exc
+            log.info("Gemini %s fehlgeschlagen: %s", model, exc)
+    raise RuntimeError(f"Gemini nicht erreichbar: {last_exc}")
+
+
+def _store_facts(search: dict, r: dict) -> bool:
+    key = r.get("key")
+    if not key:
+        return False
+    relevant = bool(r.get("relevant", True))
+    reason = r.get("reason")
+    condition = r.get("condition") if r.get("condition") in CONDITIONS else "unbekannt"
+    shipping = r.get("shipping") if r.get("shipping") in ("ja", "nein", "unbekannt") else "unbekannt"
+    if relevant and shipping == "nein" and search.get("require_shipping"):
+        relevant, reason = False, "Kein Versand (nur Abholung)"
+    try:
+        single = float(r["single_price"]) if r.get("single_price") is not None else None
+    except (TypeError, ValueError):
+        single = None
+    try:
+        year = int(r["year"]) if r.get("year") else None
+    except (TypeError, ValueError):
+        year = None
+    if year is not None and not 1980 <= year <= datetime.now().year + 1:
+        year = None
+    try:
+        ship_cost = float(r["shipping_cost"]) if r.get("shipping_cost") is not None else None
+    except (TypeError, ValueError):
+        ship_cost = None
+    db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost)
+    return True
 
 
 def evaluate_listings(search_id: int) -> int:
+    """Bewertet bis zu 20 offene Treffer einer Suche. Gibt die Zahl erledigter Treffer zurück (0 = fertig)."""
     cfg = get_config()
     api_key = cfg.get("ai", {}).get("gemini_api_key")
-    if not api_key:
-        return 0
-
     search = db.get_search(search_id)
-    if not search:
+    if not api_key or not search:
         return 0
 
-    # Hole alle bisher unbewerteten Hits
-    hits = db.hits_for_search(search_id)
-    to_evaluate = [h for h in hits if h.get("ai_tier") is None and h.get("ai_relevant") is None and not h.get("gone_at")]
+    hits = db.hits_for_search(search_id, limit=1000)
+    open_hits = [h for h in hits if h.get("ai_relevant") is None and not h.get("gone_at")]
 
-    excl = [w.lower() for w in (search.get("exclude_words") or []) if w]
-    kept = []
-    for h in to_evaluate:
-        txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
+    # Günstige Vorprüfungen ohne Gemini
+    done = 0
+    to_evaluate = []
+    excl = search.get("exclude_words") or []
+    for h in open_hits:
+        txt = f"{h.get('title','')} {h.get('description_full') or ''}".lower()
         if excl and any(w in txt for w in excl):
-            db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff", score=None)
+            db.update_hit_ai(search_id, h["key"], False, "Ausgeschlossener Begriff")
+            done += 1
         elif not matches_query(search["query"], h.get("title", "")):
-            # Treffer von vor dem Vorfilter (runner._filter) – ohne Gemini-Aufruf aussortieren
-            db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Suchwörter fehlen im Titel", score=None)
+            # Treffer von vor dem Vorfilter (runner._filter)
+            db.update_hit_ai(search_id, h["key"], False, "Suchwörter fehlen im Titel")
+            done += 1
+        elif search.get("require_shipping") and any(t in txt for t in _NO_SHIP):
+            db.update_hit_ai(search_id, h["key"], False, "Kein Versand (nur Abholung)")
+            done += 1
         else:
-            kept.append(h)
-    to_evaluate = kept
+            to_evaluate.append(h)
     to_evaluate = to_evaluate[:20]
     if not to_evaluate:
-        return 0
+        if done:
+            scoring.rescore_search(search_id)
+        return done
 
-    # Median-Preis berechnen
-    fx = cfg.get("fx_to_chf", {})
-    all_hits = hits
-
-    import statistics
-    valid_prices = []
-    for h in all_hits:
-        if h.get("price") and h["price"] > 0:
-            from .trust import price_in_chf
-            chf = price_in_chf(h["price"], h["currency"], fx)
-            if chf:
-                valid_prices.append(chf)
-
-    median_price = statistics.median(valid_prices) if valid_prices else None
-
-    # Detailbeschreibungen nachladen
-    desc_count = 0
+    # Detailbeschreibungen nachladen – Ricardo nicht: sperrt bei Einzelabrufen schnell,
+    # der Prüflauf lädt dort nur neue Treffer (runner.py)
     adapters = all_adapters(cfg)
     for h in to_evaluate:
-        if desc_count >= 20: # Allow fetching for the entire batch since it's a background loop now
-            break
-        if h.get("description_full"):
+        if h.get("description_full") or h["platform"] not in ("tutti", "kleinanzeigen", "willhaben"):
             continue
-        # Ricardo nicht: sperrt bei Einzelabrufen schnell, der Prüflauf lädt dort nur neue Treffer (runner.py)
-        if h["platform"] not in ("tutti", "kleinanzeigen", "willhaben"):
-            continue
-
         try:
             time.sleep(random.uniform(1, 2))
             adapter = adapter_for_source(adapters, h["platform"])
-            fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
-            page = fetch_html(h["url"], fetcher)
+            page = fetch_html(h["url"], adapter.platform_cfg().get("fetcher", "http"))
             desc = extract_description_from_page(page, h["platform"])
-
             if desc:
                 db.update_listing_description(h["key"], desc)
                 h["description_full"] = desc
-            desc_count += 1
         except GoneError:
             db.mark_listing_gone(h["key"])
         except Exception as exc:
             log.warning("Konnte Beschreibung für %s nicht laden: %s", h["url"], exc)
 
-    if search.get("require_shipping"):
-        kept_s = []
-        for h in to_evaluate:
-            if any(t in f"{h.get('title','')} {h.get('description_full','')}".lower() for t in _NO_SHIP):
-                db.update_listing_ai(key=h["key"], relevant=False, tier=None, reason="Kein Versand (nur Abholung)")
-            else:
-                kept_s.append(h)
-        to_evaluate = kept_s
-        if not to_evaluate: return 0
-    prompt = f"""Analysiere diese Inserate für meine Suche nach '{search["query"]}' und erstelle eine Tier-List mit Fokus auf die besten 30 %.
-"""
-    if median_price:
-        prompt += f"Aktueller Markt-Median der gefundenen Inserate: {median_price:.0f} CHF/EUR.\n"
-
-    prompt += """a) Relevanz-Check: Prüfe, ob das Inserat wirklich das gesuchte Produkt ist oder ein Fehltreffer durch mehrdeutige Begriffe oder bloßes Zubehör/Ersatzteil. Markiere Fehltreffer mit ai_relevant = false und kurzem Grund (ai_reason).
-"""
-    if not search.get("allow_sets", True):
-        prompt += """Achtung: Dies ist eine Suche NUR nach dem Einzelprodukt. Reine Sets (z.B. Kite + Bar + Board) müssen mit ai_relevant = false markiert werden, es sei denn, im Text steht explizit, dass das gesuchte Produkt AUCH EINZELN verkauft wird (inkl. Einzelpreis).
-Wenn das gesuchte Produkt als Einzelkauf in einem Set-Inserat verfügbar ist, gilt das Inserat als relevant! Extrahiere in diesem Fall den Einzelpreis als 'extracted_single_price' (als Zahl) und erwähne ihn im 'ai_reason'.
-"""
-
-    prompt += """b) Tier-List: Bewerte alle relevanten Inserate in Tiers ("S" / "A" für die besten 30 % mit detaillierter Begründung zu Preis-Leistung und Zustand in ai_reason, sowie "B" und "C" für den Rest mit knapper Einschätzung).
-
-"""
-    if search.get("require_shipping"):
-        prompt += "WICHTIG: Schliesse Angebote aus (ai_relevant=false), die ausdrücklich KEINEN Versand (nur Abholung) anbieten!\n"
-    prompt += "Hier sind die Inserate im JSON Format:\n"
-    items = []
-    for h in to_evaluate:
-        desc = h.get("description_full")
-        desc = desc[:1000] if desc else ""
-        items.append({
-            "key": h["key"],
-            "title": h["title"],
-            "price": _ai_chf(h.get("price"), h.get("currency")),
-            "description": desc,
-            "seller_chat": (h.get("seller_chat") or "")[:1000]
-        })
-    prompt += json.dumps(items, ensure_ascii=False)
-
-    system_instruction = """Antworte AUSSCHLIESSLICH mit gültigem JSON, das ein Array von Objekten ist, ohne Markdown Blocks (z.B. kein ```json). Jedes Objekt muss die folgenden Felder haben:
-- key: (string) der Inserat key
-- ai_relevant: (boolean)
-- ai_tier: (string) "S", "A", "B", oder "C" (null if irrelevant)
-- ai_score: (integer) 0 bis 100
-- ai_reason: (string) Begründung
-- extracted_single_price: (number, optional) falls es ein Set ist, bei dem das gesuchte Produkt auch einzeln verkauft wird, und ein Preis angegeben ist"""
-
-    def make_request(model):
-        url = f"{GEMINI_URL}/{model}:generateContent"
-        payload = {
-            "systemInstruction": {"parts": [{"text": system_instruction}]},
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2}
-        }
-        resp = httpx.post(url, json=payload, headers=_gemini_headers(api_key), timeout=45)
-        resp.raise_for_status()
-        return resp.json()
-
+    items = [{
+        "key": h["key"],
+        "title": h["title"],
+        "price": f"{h['price']:g} {h.get('currency') or ''}".strip() if h.get("price") else "Preis offen",
+        "description": (h.get("description_full") or "")[:1000],
+        "seller_chat": (h.get("seller_chat") or "")[:1000],
+    } for h in to_evaluate]
     try:
-        try:
-            data = make_request("gemini-3.5-flash-lite")
-        except Exception:
-            log.info("gemini-3.5-flash-lite fehlgeschlagen, nutze Fallback gemini-3.7-flash")
-            data = make_request("gemini-3.7-flash")
-
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.endswith("```"):
-            text = text[:-3]
-
-        results = json.loads(text.strip())
-
-        count = 0
-        for r in results:
-            key = r.get("key")
-            if not key: continue
-
-            db.update_listing_ai(
-                key=key,
-                relevant=bool(r.get("ai_relevant", True)),
-                tier=r.get("ai_tier"),
-                reason=r.get("ai_reason"),
-                score=r.get("ai_score")
-            )
-            single_price = r.get("extracted_single_price")
-            if single_price is not None:
-                try:
-                    db.update_listing_price(key, float(single_price))
-                except (ValueError, TypeError):
-                    pass
-            count += 1
-        return count
+        results = _gemini_json(_facts_prompt(search, items), FACTS_INSTRUCTION, api_key)
     except Exception as exc:
-        log.error("Gemini API Error: %s", exc)
-        return 0
+        log.error("KI-Auswertung fehlgeschlagen: %s", exc)
+        return done
+    for r in results if isinstance(results, list) else []:
+        if isinstance(r, dict) and _store_facts(search, r):
+            done += 1
+    scoring.rescore_search(search_id)
+    return done
 
 import threading
 AI_RUNNING = False
@@ -226,6 +193,7 @@ def start_background_evaluation(search_id: int):
                         if len(_active_evaluations) <= 1:
                             AI_RUNNING = False
                     log.info("Hintergrund-Auswertung für Suche %s beendet", search_id)
+                    notify_top_hits(search_id)
                     break
                 time.sleep(7) # 5-10 seconds pause
         finally:
@@ -283,52 +251,27 @@ Formuliere eine kurze, höfliche, direkte Nachricht an den Verkäufer (2-4 Sätz
     return draft
 
 def reevaluate_single_listing(key: str, search_id: int) -> bool:
-    hits = db.hits_for_search(search_id)
-    h = next((x for x in hits if x["key"] == key), None)
-    if not h:
+    """Nach einer Verkäufer-Antwort: Fakten für dieses eine Inserat neu erheben."""
+    api_key = get_config().get("ai", {}).get("gemini_api_key")
+    search = db.get_search(search_id)
+    h = next((x for x in db.hits_for_search(search_id, limit=1000) if x["key"] == key), None)
+    if not api_key or not search or not h:
         return False
-    search = db.get_search(search_id) or {}
-    prompt = f"""Bewerte dieses Inserat für die Suche '{search.get('query', '')}' NEU unter besonderer Berücksichtigung der neuen Verkäufer-Antwort im Chat!
-Titel: {h.get('title')}
-Aktueller Preis: {h.get('price')} {h.get('currency')}
-Beschreibung: {(h.get('description_full') or '')[:1000]}
-WICHTIG - Verkäufer-Chat / Antwort: {h.get('seller_chat') or ''}
-
-Gib ausschließlich ein JSON-Objekt zurück mit den Feldern:
-{{"ai_relevant": true/false, "ai_tier": "S"/"A"/"B"/"C", "ai_score": 0-100, "ai_reason": "Aktualisiertes Fazit inkl. Chat-Infos", "extracted_single_price": null oder Zahl falls neuer Preis im Chat genannt}}"""
-    raw = _call_gemini_text(prompt, "Antworte AUSSCHLIESSLICH mit gültigem JSON-Objekt ohne Markdown-Block.")
-    if not raw:
-        return False
+    item = {
+        "key": key,
+        "title": h["title"],
+        "price": f"{h['price']:g} {h.get('currency') or ''}".strip() if h.get("price") else "Preis offen",
+        "description": (h.get("description_full") or "")[:1000],
+        "seller_chat": (h.get("seller_chat") or "")[:1500],
+    }
+    prompt = _facts_prompt(search, [item]) + "\nDie Verkäufer-Antwort (seller_chat) hat Vorrang vor der Beschreibung."
     try:
-        txt = raw.strip()
-        if txt.startswith("```json"): txt = txt[7:]
-        if txt.startswith("```"): txt = txt[3:]
-        if txt.endswith("```"): txt = txt[:-3]
-        r = json.loads(txt.strip())
-        if isinstance(r, list) and r:
-            r = r[0]
-        try:
-            db.update_listing_ai(
-                key=key,
-                relevant=bool(r.get("ai_relevant", True)),
-                tier=r.get("ai_tier"),
-                reason=r.get("ai_reason"),
-                score=r.get("ai_score")
-            )
-        except TypeError:
-            db.update_listing_ai(
-                key=key,
-                relevant=bool(r.get("ai_relevant", True)),
-                tier=r.get("ai_tier"),
-                reason=r.get("ai_reason")
-            )
-        new_p = r.get("extracted_single_price")
-        if new_p is not None:
-            try:
-                db.update_listing_price(key, float(new_p))
-            except (ValueError, TypeError):
-                pass
-        return True
+        results = _gemini_json(prompt, FACTS_INSTRUCTION, api_key)
     except Exception as exc:
         log.warning("Fehler bei Einzel-Neubewertung: %s", exc)
         return False
+    r = results[0] if isinstance(results, list) and results else results
+    if not isinstance(r, dict) or not _store_facts(search, {**r, "key": key}):
+        return False
+    scoring.rescore_search(search_id)
+    return True

@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import db
+from . import db, scoring
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
@@ -16,7 +16,7 @@ from .config import get_config
 from .matching import matches_query
 from .models import Listing
 from .notify import notify_hits
-from .trust import assess, price_in_chf, reference_price
+from .trust import assess, price_in_chf
 
 log = logging.getLogger(__name__)
 
@@ -143,10 +143,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 log.exception("%s / %s fehlgeschlagen", search["query"], src["name"])
 
         collected = _filter(collected, search, fx)
-        median = reference_price(collected, fx)
         new_hits: list[dict] = []
         for l in collected:
-            t = assess(l, median, fx)
+            t = assess(l)
             db.upsert_listing(l, t.level, t.reasons)
             if db.add_hit(search["id"], l.key, is_new=bool(search["baseline_done"])) and search["baseline_done"]:
                 new_hits.append({
@@ -155,8 +154,10 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     "trust_level": t.level, "trust_label": t.label, "trust_reasons": t.reasons,
                 })
         db.mark_search_run(search["id"])
+        scoring.rescore_search(search["id"])  # Preise können sich geändert haben
         total_new += len(new_hits)
-        if new_hits:
+        if new_hits and not cfg.get("ai", {}).get("gemini_api_key"):
+            # Ohne KI sofort melden; mit KI erst nach der Prüfung und nur Top-Angebote (notify.notify_top_hits)
             db.mark_notified(search["id"], notify_hits(cfg, search, new_hits, labels))
 
         # Detailbeschreibungen im Hintergrund für max 15 Inserate laden
@@ -216,7 +217,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 # Titel-Vorabcheck für existierende Inserate
                 if excl and hit.get("title"):
                     if any(w in hit["title"].lower() for w in excl):
-                        db.update_listing_ai(key=hit["key"], relevant=False, tier=None, reason="Ausgeschlossener Begriff im Titel (Pre-Check)", score=None)
+                        db.update_hit_ai(search["id"], hit["key"], False, "Ausgeschlossener Begriff")
                         continue
 
                 try:

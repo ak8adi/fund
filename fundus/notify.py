@@ -61,9 +61,10 @@ def notify_hits(cfg: dict, search: dict, hits: list[dict], platform_labels: dict
     for h in hits:
         where = " · ".join(p for p in (platform_labels.get(h["platform"], h["platform"]), h.get("location")) if p)
         trust = f"{h['trust_label']}: {', '.join(h['trust_reasons'][:2])}" if h["trust_reasons"] else h["trust_label"]
+        deal = f"\n{h['ai_tier']}-Angebot ({h['ai_score']} Pkt.): {h['score_reason']}" if h.get("score_reason") else ""
         payload = {
             "title": h["title"][:120],
-            "message": f"{format_price(h['price'], h['currency'])} · {where}\n{trust}\nSuche: {search['query']}",
+            "message": f"{format_price(h['price'], h['currency'])} · {where}{deal}\n{trust}\nSuche: {search['query']}",
             "click": h["url"],
             "tags": [TRUST_TAG.get(h["trust_level"], "white_circle")],
         }
@@ -71,6 +72,25 @@ def notify_hits(cfg: dict, search: dict, hits: list[dict], platform_labels: dict
             payload["attach"] = h["image"]
         if _publish(cfg, payload):
             sent.append(h["key"])
+    return sent
+
+
+def notify_top_hits(search_id: int) -> list[str]:
+    """Nach der KI-Prüfung: neue Angebote ab Score notify_min_score (Standard 65 = A-Angebot) melden."""
+    from . import db
+    from .adapters import all_adapters
+    from .config import get_config
+    from .trust import LEVELS
+
+    cfg = get_config()
+    search = db.get_search(search_id)
+    if not search:
+        return []
+    hits = db.pending_top_hits(search_id, int(cfg["ntfy"].get("notify_min_score", 65)))
+    for h in hits:
+        h["trust_label"] = LEVELS.get(h.get("trust_level"), "")
+    sent = notify_hits(cfg, search, hits, {a.name: a.label for a in all_adapters(cfg)})
+    db.mark_notified(search_id, sent)
     return sent
 
 

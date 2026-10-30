@@ -75,8 +75,9 @@ def test_gone_listing_reappears_and_ai_reset(monkeypatch):
     runner.run("test")
     db.mark_listing_gone("ricardo:1")
     assert db.get_listing("ricardo:1")["gone_at"]
-    db.update_listing_ai("ricardo:1", relevant=None, tier=None, reason=None)   # Sets-Umschalten: zurücksetzen
-    assert db.get_listing("ricardo:1")["ai_relevant"] is None
+    db.update_hit_ai(sid, "ricardo:1", True, "passt")
+    db.reset_hit_ai(sid, "ricardo:1")                        # Sets-Umschalten: zurücksetzen
+    assert db.hits_for_search(sid)[0]["ai_relevant"] is None
     runner.run("test")                                       # wieder in den Suchergebnissen → verfügbar
     assert db.get_listing("ricardo:1")["gone_at"] is None
 

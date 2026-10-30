@@ -35,7 +35,7 @@ ebay:
   home_country_only: true  # nur Artikel, die im jeweiligen Land stehen (filtert Dropshipping aus Fernost)
 
 # Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
-fx_to_chf: {CHF: 1.0, EUR: 0.94, GBP: 1.08}
+fx_to_chf: {CHF: 1.0, EUR: 0.94, GBP: 1.08, USD: 0.88, SEK: 0.082, NOK: 0.080, DKK: 0.126, PLN: 0.22}
 
 # Scraping-Plattformen: Such-URL ist anpassbar, falls eine Plattform ihre URLs ändert.
 # {query} wird URL-codiert eingesetzt.

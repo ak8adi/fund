@@ -9,7 +9,7 @@
     {% set _ = irrelevant_hits.append(h) %}
   {% elif h.ai_relevant is none or h.ai_relevant %}
     {% set _ = relevant_hits.append(h) %}
-    {% if h.ai_tier in ['S', 'A'] %}
+    {% if h.ai_score is not none and top_hits | length < 3 %}
       {% set _ = top_hits.append(h) %}
     {% endif %}
   {% else %}
@@ -31,7 +31,7 @@
 >
   {% if top_hits %}
     <div class="card gemini-top-hits" style="margin-top: 1rem; border-left: 4px solid #6b4c9a;">
-      <h3 style="margin-top: 0;">Gemini Tier-List (Top 30 % Fokus)</h3>
+      <h3 style="margin-top: 0;">Beste Angebote{% if search.market_price %} <span class="muted small">· Marktpreis {{ price(search.market_price, 'CHF') }} (Median der passenden Treffer)</span>{% endif %}</h3>
       <div class="hits wide">
         {% for h in top_hits %}{% include "_hit.html" %}{% endfor %}
       </div>

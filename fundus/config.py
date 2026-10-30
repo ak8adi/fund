@@ -17,7 +17,8 @@ DEFAULTS: dict[str, Any] = {
     "request_delay": [4, 11],
     "ntfy": {
         "server": "https://ntfy.sh", "topic": "", "token": "", "max_per_search": 5,
-        "on_new": True,                                  # Meldung bei jedem neuen Angebot
+        "on_new": True,                                  # Meldung bei neuen Angeboten
+        "notify_min_score": 65,                          # mit KI: nur ab diesem Deal-Score (65 = A, 80 = S)
         "weekly": True, "weekly_day": "mon", "weekly_time": "08:00",  # Wochenübersicht
     },
     "ebay": {
@@ -30,8 +31,17 @@ DEFAULTS: dict[str, Any] = {
     "ai": {
         "gemini_api_key": "",
     },
+    # Endpreis-Rechnung (costs.py): wohin geliefert werden kann und was Versand/Einfuhr kosten
+    "delivery": {
+        "home_country": "CH",
+        "addresses": ["CH", "DE"],                 # Länder mit eigener Lieferadresse
+        # Versandkosten-Schätzung in CHF, wenn das Inserat keine nennt (an eine Adresse im selben Land)
+        "shipping_estimate_chf": {"CH": 10, "DE": 7, "AT": 12, "FR": 15, "IT": 15, "SE": 30},
+        "import_vat": 0.081,                       # Schweizer MWST bei der Einfuhr
+        "vat_free_limit_chf": 150,                 # Wertfreigrenze pro Person und Tag
+    },
     # Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
-    "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08, "SEK": 0.082},
+    "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08, "USD": 0.88, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22},
     "platforms": {
         "ricardo": {"url": "https://www.ricardo.ch/de/s/{query}/?sort=newest", "fetcher": "http"},
         "tutti": {"url": "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
