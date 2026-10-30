@@ -1,28 +1,35 @@
 {% set s = search if search is defined else none %}
 <form method="post" action="{{ '/search/%d' % s.id if s else '/searches' }}" class="search-form">
   <div class="row">
-    <label class="grow">Suchbegriff
+    <label class="grow">Was suchst du?
       <input name="query" required placeholder="z.B. kite 9m, eames chair, fujifilm x100" value="{{ s.query if s else '' }}">
     </label>
   </div>
   <div class="row">
     <label>Preis min (CHF)<input name="min_price" inputmode="decimal" value="{{ s.min_price | int if s and s.min_price is not none else '' }}"></label>
     <label>Preis max (CHF)<input name="max_price" inputmode="decimal" value="{{ s.max_price | int if s and s.max_price is not none else '' }}"></label>
-    <label class="grow">Ausschliessen (kommagetrennt)
-      <input name="exclude" placeholder="defekt, kinder, suche" value="{{ s.exclude if s else '' }}">
-    </label>
   </div>
-  <fieldset class="row platforms">
-    <legend>Plattformen <span class="muted small">(nichts angehakt = alle eingeschalteten)</span></legend>
-    {% for name, label in adapters %}
-      <label class="check"><input type="checkbox" name="platforms" value="{{ name }}"
-        {% if s and s.platforms and name in s.platforms %}checked{% endif %}> {{ label }}</label>
-    {% endfor %}
-  </fieldset>
-  <div class="row">
-    <label class="check"><input type="checkbox" name="allow_sets"
-      {% if not s or s.allow_sets %}checked{% endif %}> Sets/Bundles erlauben</label>
-  <label class="check"><input type="checkbox" name="require_shipping" value="1" {% if search and search.require_shipping %}checked{% endif %}> <span>Versand möglich ("Kein Versand / Nur Abholung" ausschliessen)</span></label>
-  </div>
+  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets or s.require_shipping) %}open{% endif %} style="margin-bottom:12px;">
+    <summary>Mehr Optionen ▾</summary>
+    <div class="more-body">
+      <div class="row">
+        <label class="grow">Ausschliessen (kommagetrennt)
+          <input name="exclude" placeholder="defekt, kinder, suche" value="{{ s.exclude if s else '' }}">
+        </label>
+      </div>
+      <fieldset class="row platforms">
+        <legend>Plattformen <span class="muted small">(nichts angehakt = alle eingeschalteten)</span></legend>
+        {% for name, label in adapters %}
+          <label class="check"><input type="checkbox" name="platforms" value="{{ name }}"
+            {% if s and s.platforms and name in s.platforms %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <div class="row">
+        <label class="check"><input type="checkbox" name="allow_sets"
+          {% if not s or s.allow_sets %}checked{% endif %}> Sets/Bundles erlauben</label>
+        <label class="check"><input type="checkbox" name="require_shipping" value="1" {% if s and s.require_shipping %}checked{% endif %}> Nur mit Versand</label>
+      </div>
+    </div>
+  </details>
   <button class="btn">{{ 'Speichern' if s else 'Suche anlegen' }}</button>
 </form>
