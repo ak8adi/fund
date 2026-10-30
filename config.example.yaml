@@ -56,5 +56,5 @@ platforms:
     url: "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?keyword={query}"
     fetcher: http
   markt:
-    url: "https://www.markt.de/suche/?keywords={query}"
+    url: "https://www.markt.de/suche/{query}/"
     fetcher: http

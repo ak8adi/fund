@@ -11,13 +11,12 @@ from .markt import MarktAdapter
 from .leboncoin import LeboncoinAdapter
 from .blocket import BlocketAdapter
 from .tradera import TraderaAdapter
-from .wallapop import WallapopAdapter
 from .subito import SubitoAdapter
 from .facebook import FacebookAdapter
 
 ADAPTER_CLASSES: list[type[Adapter]] = [
     RicardoAdapter, TuttiAdapter, AnibisAdapter, EbayAdapter, KleinanzeigenAdapter, WillhabenAdapter, MarktAdapter,
-    LeboncoinAdapter, BlocketAdapter, TraderaAdapter, WallapopAdapter, SubitoAdapter, FacebookAdapter
+    LeboncoinAdapter, BlocketAdapter, TraderaAdapter, SubitoAdapter, FacebookAdapter
 ]
 
 

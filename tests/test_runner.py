@@ -47,3 +47,22 @@ def test_disabled_platform_is_skipped(monkeypatch):
     FakeAdapter.calls = 0
     runner.run("test")
     assert FakeAdapter.calls == 0
+
+
+def test_blocked_platform_pauses_for_next_runs(monkeypatch):
+    from fundus.adapters import BlockedError
+
+    class BlockingAdapter(FakeAdapter):
+        def search(self, query, source, min_price, max_price):
+            FakeAdapter.calls += 1
+            raise BlockedError("HTTP 403")
+
+    monkeypatch.setattr(runner, "all_adapters", lambda cfg: [BlockingAdapter(cfg)])
+    db.save_search({"query": "sofa"})
+    db.save_search({"query": "tisch"})
+    FakeAdapter.calls = 0
+    runner.run("test")
+    assert FakeAdapter.calls == 1                            # nach Sperre im selben Lauf nicht weiter anklopfen
+    runner.run("test")
+    assert FakeAdapter.calls == 1                            # und im nächsten Lauf Pause
+    assert db.platform_states()["ricardo"]["last_error"].startswith("Pausiert nach Sperre")

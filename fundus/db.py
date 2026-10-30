@@ -132,6 +132,10 @@ def init_db() -> None:
         if "ai_reason" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN ai_reason TEXT")
 
+        p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
+        if "blocked_at" not in p_cols:
+            c.execute("ALTER TABLE platforms ADD COLUMN blocked_at TEXT")  # letzte Sperre (403/429/Captcha)
+
 
 # ---------- Suchen ----------
 
@@ -364,6 +368,11 @@ def ensure_platforms(names: list[str]) -> None:
 def set_platform_enabled(name: str, enabled: bool) -> None:
     with connect() as c:
         c.execute("UPDATE platforms SET enabled = ? WHERE name = ?", (int(enabled), name))
+
+
+def mark_platform_blocked(name: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE platforms SET blocked_at = ? WHERE name = ?", (now(), name))
 
 
 def record_platform_result(name: str, count: int | None, error: str | None) -> None:

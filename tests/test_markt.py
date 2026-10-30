@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from datetime import datetime, timezone
-from fundus.adapters.markt import MarktAdapter
+from fundus.adapters.markt import MarktAdapter, parse_price_de
 from fundus.adapters.extract import extract_description_from_page
 from fundus.config import get_config
 
@@ -11,31 +11,34 @@ def markt_html():
     return (Path(__file__).parent / "fixtures" / "markt_macbook.html").read_text()
 
 
-def test_markt_parse(markt_html):
-    cfg = get_config()
-    adapter = MarktAdapter(cfg)
-    listings = adapter.parse(markt_html, "markt")
+def test_markt_parse():
+    page = (Path(__file__).parent / "fixtures" / "markt_search.html").read_text()
+    listings = MarktAdapter(get_config()).parse(page, "markt", "macbook")
 
-    assert len(listings) == 2, f"Expected 2 organic listings, got {len(listings)}"
-
+    # Partner-Anzeige und Inserat ohne Suchwort fallen weg
+    assert [l.external_id for l in listings] == ["a1b2c3d4"]
     l1 = listings[0]
     assert l1.platform == "markt"
-    assert l1.external_id == "a1b2c3d4"
-    assert "Apple MacBook Pro 15 Zoll" in l1.title
-    assert l1.price == 450.0
+    assert l1.title == "Apple MacBook Pro 15 Zoll"
+    assert l1.price == 1450.5
     assert l1.currency == "EUR"
     assert l1.country == "DE"
-    assert "markt.de" in l1.url
-    assert l1.image == "https://images.markt.de/a1b2c3d4_thumb.jpg"
+    assert l1.url == "https://www.markt.de/apple-macbook-pro-15/a/a1b2c3d4/"
+    assert l1.image == "https://imagecache.markt.de/abc/260x340/a1b2c3d4/image"
     assert l1.location == "10115 Berlin"
-    assert isinstance(l1.posted_at, datetime)
-    assert l1.seller is not None
+    assert l1.posted_at == datetime(2026, 10, 28, tzinfo=timezone.utc)
 
-    l2 = listings[1]
-    assert l2.external_id == "e5f6g7h8"
-    assert l2.price == 800.0
-    assert l2.currency == "EUR"
-    assert l2.country == "DE"
+
+def test_markt_no_results_ignores_filler():
+    page = "<p>Leider wurden keine Anzeigen gefunden.</p><h2>Die neuesten Anzeigen</h2>" + (
+        Path(__file__).parent / "fixtures" / "markt_search.html").read_text()
+    assert MarktAdapter(get_config()).parse(page, "markt", "macbook") == []
+
+
+def test_parse_price_de():
+    assert parse_price_de("1.180,00 €") == 1180.0
+    assert parse_price_de("500 €") == 500.0
+    assert parse_price_de("Zu verschenken") is None
 
 
 def test_markt_description_extraction(markt_html):
