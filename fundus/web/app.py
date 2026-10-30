@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import db, runner
+from .. import ai, db, runner
 from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import fetch_html
 from ..adapters.extract import extract_description_from_page
