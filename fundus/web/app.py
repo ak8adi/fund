@@ -485,26 +485,9 @@ def api_update_chat(request: Request, key: str, search_id: int = Form(...), sell
     return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))
 
 
-import time as _fx_time
 from markupsafe import Markup as _Markup
 
-_FX_CACHE = {"ts": 0, "rates": {"CHF": 1.0, "EUR": 0.94, "USD": 0.88, "GBP": 1.12, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22, "CZK": 0.037}}
-
-def _get_fx_rates() -> dict:
-    now = _fx_time.time()
-    if now - _FX_CACHE["ts"] > 3600:
-        try:
-            import httpx
-            r = httpx.get("https://open.er-api.com/v6/latest/CHF", timeout=3.5)
-            if r.status_code == 200:
-                raw = r.json().get("rates", {})
-                for k, v in raw.items():
-                    if v and v > 0:
-                        _FX_CACHE["rates"][k.upper()] = 1.0 / float(v)
-                _FX_CACHE["ts"] = now
-        except Exception:
-            _FX_CACHE["ts"] = now - 3000
-    return _FX_CACHE["rates"]
+from .. import fx as fx_rates
 
 def _round_chf_generous(val: float) -> int:
     if val >= 100:
@@ -531,7 +514,7 @@ def price_chf_html(amount, currency: str | None = "CHF"):
         chf_r = _round_chf_generous(val)
         return _Markup(f"{chf_r} CHF")
 
-    rates = _get_fx_rates()
+    rates = fx_rates.rates(get_config())
     rate = rates.get(cur, 0.94)
     chf_r = _round_chf_generous(val * rate)
     orig_r = int(round(val))

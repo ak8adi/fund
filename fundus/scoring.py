@@ -15,7 +15,7 @@ import statistics
 
 import re
 
-from . import db
+from . import db, fx as fx_rates
 from .config import get_config
 from .costs import total_cost_chf
 from .trust import price_in_chf
@@ -106,7 +106,7 @@ def mark_duplicates(hits: list[dict]) -> None:
 
 def rescore_search(search_id: int) -> float | None:
     cfg = get_config()
-    fx = cfg.get("fx_to_chf", {})
+    fx = fx_rates.rates(cfg)
     hits = db.hits_for_search(search_id, limit=5000)
     mark_duplicates(hits)
     market = market_price(hits, fx)

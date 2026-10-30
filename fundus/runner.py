@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import db, scoring
+from . import db, fx as fx_rates, scoring
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
@@ -94,7 +94,7 @@ def run(trigger: str = "manuell", search_ids: list[int] | None = None) -> dict:
 
 def _run(trigger: str, search_ids: list[int] | None) -> dict:
     cfg = get_config()
-    fx = cfg.get("fx_to_chf", {})
+    fx = fx_rates.rates(cfg)
     adapters = all_adapters(cfg)
     sources = [s for s in available_sources(cfg) if s["enabled"] and s["ready"]]
     labels = {a.name: a.label for a in adapters}

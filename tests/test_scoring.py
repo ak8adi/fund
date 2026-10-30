@@ -81,3 +81,11 @@ def test_push_only_for_top_offers_after_ai(monkeypatch):
     assert keys == ["tutti:0"]                               # nur das klar günstigste, Zubehör nie
     assert "Pkt." in sent[0]["message"]
     assert notify.notify_top_hits(sid) == []                 # nicht doppelt
+
+
+def test_live_rates_override_config(monkeypatch):
+    from fundus import fx
+
+    monkeypatch.setitem(fx._cache, "rates", {"EUR": 0.92})
+    r = fx.rates({"fx_to_chf": {"EUR": 0.94, "SEK": 0.082}})
+    assert r["EUR"] == 0.92 and r["SEK"] == 0.082 and r["CHF"] == 1.0
