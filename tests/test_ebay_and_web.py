@@ -85,3 +85,17 @@ def test_store_facts_requirement_not_met():
     ai._store_facts(db.get_search(sid), {"key": l.key, "relevant": True, "req": "nein", "req_note": "180 cm"})
     h = db.hits_for_search(sid)[0]
     assert h["ai_relevant"] == 0 and h["ai_req"] == "nein" and h["ai_req_note"] == "180 cm"
+
+
+def test_store_facts_set_estimate():
+    from fundus import ai
+    from fundus.models import Listing
+    sid = db.save_search({"query": "trust bar"})
+    l = Listing(platform="tutti", external_id="9", title="Pack EVO 9m 11m + Trust Bar", url="https://x/9", price=1400,
+                currency="CHF")
+    db.upsert_listing(l, "ok", [])
+    db.add_hit(sid, l.key, False)
+    ai._store_facts(db.get_search(sid), {"key": l.key, "relevant": True, "set_items": "2 Kites, Trust Bar",
+                                         "single_price": 250, "single_price_estimated": True})
+    h = db.hits_for_search(sid)[0]
+    assert h["single_price"] == 250 and h["single_estimated"] == 1 and h["ai_set_items"] == "2 Kites, Trust Bar"

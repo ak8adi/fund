@@ -34,8 +34,12 @@ FACTS_INSTRUCTION = """Antworte AUSSCHLIESSLICH mit gültigem JSON: ein Array mi
 - shipping: "ja" (Versand angeboten), "nein" (nur Abholung) oder "unbekannt"
 - shipping_cost: (number oder null) Versandkosten, nur wenn im Inserat genannt, in der Währung des Inserats
 - year: (integer oder null) Modelljahr bzw. Kaufjahr, nur wenn im Inserat genannt
-- single_price: (number oder null) Einzelpreis des gesuchten Produkts, falls es Teil eines Sets ist und
-  im Text ein Einzelpreis steht – in der Währung des Inserats
+- set_items: (string oder null) nur wenn das Inserat mehr als das gesuchte Produkt enthält (Set, Paket, Bundle):
+  kurz, was alles dabei ist, z.B. "2 Kites EVO SLS 9 & 11 m, Trust Bar"; sonst null
+- single_price: (number oder null) bei Sets der Preis des gesuchten Produkts allein, in der Währung des Inserats.
+  Steht er im Text, diesen nehmen. Sonst schätzen: Setpreis nach den typischen Gebrauchtpreisen der Teile
+  aufteilen (dein Wissen über das Produkt und die übrigen Teile). Kein Set → null
+- single_price_estimated: (boolean) true, wenn single_price geschätzt und nicht im Text genannt ist
 - req: nur wenn Anforderungen genannt sind: "ja" (klar erfüllt), "nein" (klar nicht erfüllt) oder "unklar"
   (Angabe fehlt im Inserat); sonst null
 - req_note: (string oder null) die gefundene Angabe zu den Anforderungen, ganz kurz, z.B. "Länge 140 cm",
@@ -50,6 +54,9 @@ Fehltreffer (mehrdeutige Begriffe, blosses Zubehör, Ersatzteile, anderes Modell
     if not search.get("allow_sets", True):
         prompt += """Ich suche NUR das Einzelprodukt. Reine Sets → relevant = false, ausser im Text steht, dass das gesuchte
 Produkt auch einzeln verkauft wird: dann relevant = true und single_price setzen.
+"""
+    else:
+        prompt += """Sets mit dem gesuchten Produkt sind relevant; set_items und single_price (genannt oder geschätzt) setzen.
 """
     if (search.get("requirements") or "").strip():
         prompt += f"""Meine Anforderungen: «{search["requirements"].strip()}»
@@ -95,6 +102,8 @@ def _store_facts(search: dict, r: dict) -> bool:
         single = float(r["single_price"]) if r.get("single_price") is not None else None
     except (TypeError, ValueError):
         single = None
+    estimated = bool(single and r.get("single_price_estimated"))
+    set_items = str(r["set_items"])[:120] if r.get("set_items") else None
     try:
         year = int(r["year"]) if r.get("year") else None
     except (TypeError, ValueError):
@@ -111,7 +120,8 @@ def _store_facts(search: dict, r: dict) -> bool:
     note = str(r["req_note"])[:80] if req and r.get("req_note") else None
     if req == "nein" and relevant:
         relevant, reason = False, f"Erfüllt deine Anforderung nicht ({note or 'laut Inserat'})"
-    db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost, req, note)
+    db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost, req, note,
+                     set_items, estimated)
     return True
 
 

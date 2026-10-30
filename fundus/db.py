@@ -123,10 +123,11 @@ def _ensure_chat_cols(conn):
 
 HIT_AI_SELECT = ", ".join(f"h.{col}" for col in (
     "ai_relevant", "ai_reason", "ai_condition", "ai_shipping", "single_price", "ai_year", "ai_shipping_cost", "ai_score",
-    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note"))
+    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note", "ai_set_items", "single_estimated"))
 HIT_AI_COLS = {"ai_relevant": "INTEGER", "ai_reason": "TEXT", "ai_condition": "TEXT", "ai_shipping": "TEXT",
                "single_price": "REAL", "ai_year": "INTEGER", "ai_shipping_cost": "REAL", "total_chf": "REAL", "ai_score": "INTEGER", "ai_tier": "TEXT", "score_reason": "TEXT",
-               "ai_req": "TEXT", "ai_req_note": "TEXT"}  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
+               "ai_req": "TEXT", "ai_req_note": "TEXT",
+               "ai_set_items": "TEXT", "single_estimated": "INTEGER"}  # Set-Inhalt; single_price von der KI geschätzt  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
 
 
 def _migrate_ai_to_hits(c: sqlite3.Connection, l_cols: set[str]) -> None:
@@ -357,14 +358,17 @@ def update_listing_description(key: str, description: str) -> None:
 
 def update_hit_ai(search_id: int, key: str, relevant: bool, reason: str | None, condition: str | None = None,
                   shipping: str | None = None, single_price: float | None = None, year: int | None = None,
-                  shipping_cost: float | None = None, req: str | None = None, req_note: str | None = None) -> None:
+                  shipping_cost: float | None = None, req: str | None = None, req_note: str | None = None,
+                  set_items: str | None = None, single_estimated: bool = False) -> None:
     """KI-Merkmale eines Treffers für eine Suche. Der Deal-Score kommt danach aus scoring.rescore_search()."""
     with connect() as c:
         c.execute(
             """UPDATE hits SET ai_relevant = ?, ai_reason = ?, ai_condition = ?, ai_shipping = ?, single_price = ?,
-                               ai_year = ?, ai_shipping_cost = ?, ai_req = ?, ai_req_note = ?
+                               ai_year = ?, ai_shipping_cost = ?, ai_req = ?, ai_req_note = ?, ai_set_items = ?,
+                               single_estimated = ?
                WHERE search_id = ? AND listing_key = ?""",
-            (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, req, req_note, search_id, key),
+            (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, req, req_note, set_items,
+             int(single_estimated), search_id, key),
         )
 
 
@@ -372,7 +376,7 @@ def reset_hit_ai(search_id: int | None, key: str) -> None:
     """Bewertung verwerfen, damit die KI neu prüft. search_id=None: in allen Suchen."""
     sql = """UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
                              single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL, ai_score = NULL, ai_tier = NULL, score_reason = NULL,
-                             ai_req = NULL, ai_req_note = NULL
+                             ai_req = NULL, ai_req_note = NULL, ai_set_items = NULL, single_estimated = NULL
              WHERE listing_key = ?"""
     with connect() as c:
         if search_id is None:
@@ -386,7 +390,8 @@ def reset_search_ai(search_id: int) -> None:
     with connect() as c:
         c.execute("""UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
                                      single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL,
-                                     ai_score = NULL, ai_tier = NULL, score_reason = NULL, ai_req = NULL, ai_req_note = NULL
+                                     ai_score = NULL, ai_tier = NULL, score_reason = NULL, ai_req = NULL, ai_req_note = NULL,
+                                     ai_set_items = NULL, single_estimated = NULL
                      WHERE search_id = ? AND hidden = 0""", (search_id,))
 
 

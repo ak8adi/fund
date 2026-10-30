@@ -89,3 +89,9 @@ def test_live_rates_override_config(monkeypatch):
     monkeypatch.setitem(fx._cache, "rates", {"EUR": 0.92})
     r = fx.rates({"fx_to_chf": {"EUR": 0.94, "SEK": 0.082}})
     assert r["EUR"] == 0.92 and r["SEK"] == 0.082 and r["CHF"] == 1.0
+
+
+def test_estimated_set_price_not_in_market():
+    hits = [{"price": p, "ai_relevant": 1} for p in (100, 110, 120)]
+    hits.append({"price": 1400, "single_price": 300, "single_estimated": 1, "ai_relevant": 1})
+    assert scoring.market_price(hits, FX) == 110

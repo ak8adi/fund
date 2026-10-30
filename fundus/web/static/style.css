@@ -262,3 +262,4 @@ details.inline-confirm[open] > summary { display: none; }
 .req-line { margin: -4px 0 6px; color: var(--ink); }
 .search-form > label.grow { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .search-form textarea { resize: vertical; min-height: 54px; }
+.set-price { color: var(--muted); font-size: 12px; font-weight: 500; }

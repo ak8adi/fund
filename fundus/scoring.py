@@ -69,7 +69,7 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
     elif typical_year:
         parts.append("Jahrgang unbekannt")
     if h.get("single_price"):
-        parts.append("Einzelpreis aus Set")
+        parts.append("Einzelpreis aus Set geschätzt" if h.get("single_estimated") else "Einzelpreis aus Set")
     if price / market < SCAM_RATIO:
         score = min(score, 40)
         parts.append("auffällig billig – Betrugsmuster prüfen")
@@ -81,8 +81,10 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
 
 
 def market_price(hits: list[dict], fx: dict) -> float | None:
-    """Median der relevanten Treffer – auch verkaufter, die zeigen, was der Markt bezahlt."""
-    prices = [p for p in (effective_price_chf(h, fx) for h in hits if h.get("ai_relevant") == 1 and not h.get("_dup")) if p]
+    """Median der Angebotspreise relevanter Treffer – auch verkaufter, die zeigen, was der Markt bezahlt.
+    Geschätzte Set-Anteile zählen nicht mit: sie sind selbst vom Markt abgeleitet."""
+    prices = [p for p in (effective_price_chf(h, fx) for h in hits
+                          if h.get("ai_relevant") == 1 and not h.get("_dup") and not h.get("single_estimated")) if p]
     return statistics.median(prices) if len(prices) >= MIN_PRICES else None
 
 
