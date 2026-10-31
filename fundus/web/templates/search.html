@@ -42,6 +42,27 @@
 {% elif search.new_price_at %}<p class="small newprice muted">{{ search.new_price_note or 'Kein Neupreis online gefunden' }}</p>
 {% else %}<p class="small newprice muted">Neupreis wird beim nächsten Prüflauf online gesucht …</p>{% endif %}
 {% if search.requirements %}<p class="small req-line">Muss erfüllen: {{ search.requirements }}</p>{% endif %}
+{% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
+<details class="card images-card" {% if search.image_auto %}open{% endif %}>
+  <summary>Bilder auswerten (KI)
+    {% if search.image_auto %}<span class="pill new">aktiv</span>{% endif %}
+    {% if search.image_prompt and img_progress.total %}<span class="muted small">· {{ img_progress.done }}/{{ img_progress.total }} geprüft</span>{% endif %}
+  </summary>
+  <form method="post" action="/search/{{ search.id }}/images" class="stack">
+    <textarea name="image_prompt" rows="2" required placeholder="z.B. Bestimme anhand der Bilder den Jahrgang der Duotone Trust Bar">{{ search.image_prompt or '' }}</textarea>
+    <p class="muted small">Die KI schaut sich die Fotos der passenden Angebote dieser Suche an und passt Fazit, Jahrgang, Zustand und Score an.
+      Danach werden auch neue Angebote automatisch so geprüft. Ein geänderter Auftrag prüft alle Fotos neu.</p>
+    <div class="row">
+      <button class="btn small">Bilder auswerten</button>
+    </div>
+  </form>
+  {% if search.image_auto %}
+  <form method="post" action="/search/{{ search.id }}/images/off" class="inline">
+    <button class="btn small ghost">Für neue Angebote ausschalten</button>
+  </form>
+  {% elif search.image_prompt %}<p class="muted small">Für neue Angebote ausgeschaltet – «Bilder auswerten» schaltet es wieder ein.</p>{% endif %}
+</details>
+{% endif %}
 <form method="post" action="/search/{{ search.id }}/sort" class="sort-switch" aria-label="Sortierung">
   <span class="muted small">Sortieren:</span>
   <button name="by" value="score" class="{{ 'on' if search.sort_by != 'price' }}">Bestes Angebot</button>

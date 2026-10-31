@@ -356,6 +356,36 @@ def shipping_from_page(page: str, platform: str) -> str | None:
     return None
 
 
+_GALLERY = {  # Bild-CDN der Plattform; auf der Seite stehen auch Bilder anderer Inserate, darum eng gefasst
+    "kleinanzeigen": r'https://img\.kleinanzeigen\.de/api/v1/prod-ads/images/[0-9a-f]{2}/[0-9a-f-]{36}',
+    "tutti": r'https://c\.tutti\.ch/big/\d+\.jpg',
+    "anibis": r'https://c\.anibis\.ch/big/\d+\.jpg',
+    "willhaben": r'https://cache\.willhaben\.at/mmo/[\d/]+_-?\d+\.jpg',
+    "blocket": r'https://images\.blocketcdn\.se/dynamic/1280w/item/\d+/[0-9a-f-]{36}',
+}
+
+
+def listing_images(page: str, platform: str, external_id: str, limit: int = 4) -> list[str]:
+    """Galerie-Bilder eines Inserats in grosser Auflösung, für die Bildanalyse der KI."""
+    pattern = _GALLERY.get(platform)
+    if not pattern:
+        return []
+    if platform == "kleinanzeigen":  # nur die Galerie: weiter unten folgen «Weitere Anzeigen des Anbieters»
+        start, end = page.find("vip-image-gallery"), page.find('id="viewad-description')
+        page = page[start:end] if 0 <= start < end else ""
+    urls: list[str] = []
+    for url in re.findall(pattern, page):
+        if platform == "willhaben" and not re.sub(r"\D", "", url.split("_")[0]).endswith(external_id):
+            continue  # Bildpfad enthält die Inserat-ID; andere Pfade gehören zu ähnlichen Anzeigen
+        if platform == "blocket" and f"/item/{external_id}/" not in url:
+            continue
+        if platform == "kleinanzeigen":
+            url += "?rule=$_59.AUTO"
+        if url not in urls:
+            urls.append(url)
+    return urls[:limit]
+
+
 def _to_listing(d: dict, platform: str, base_url: str, url_builder) -> Listing | None:
     raw_id = _first(d, ID_KEYS) or _id_from_url(d)
     title = str(_first(d, TITLE_KEYS)).strip()

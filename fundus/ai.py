@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import re
@@ -10,10 +11,10 @@ from . import db
 from .config import get_config
 from .adapters import all_adapters, adapter_for_source
 from .adapters.base import GoneError, fetch_html
-from .adapters.extract import extract_description_from_page, shipping_from_page
+from .adapters.extract import extract_description_from_page, listing_images, shipping_from_page
 from . import scoring
 from .matching import excluded, matches_query
-from .notify import notify_top_hits
+from .notify import image_url, notify_top_hits
 
 log = logging.getLogger(__name__)
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -76,10 +77,13 @@ die wertet das Programm über req selbst aus.
 
 
 def _gemini_json(prompt: str, system_instruction: str, api_key: str,
-                 models: tuple[str, ...] = ("gemini-3.5-flash-lite", "gemini-3.7-flash")):
+                 models: tuple[str, ...] = ("gemini-3.5-flash-lite", "gemini-3.7-flash"),
+                 images: list[tuple[str, bytes]] | None = None):
+    parts = [{"text": prompt}] + [{"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode()}}
+                                  for mime, data in images or []]
     payload = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"parts": parts}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
     }
     last_exc = None
@@ -256,6 +260,130 @@ def evaluate_listings(search_id: int) -> int:
     scoring.rescore_search(search_id)
     return done
 
+# ---------- Bildanalyse (pro Suche, nur auf Auftrag) ----------
+
+IMAGE_INSTRUCTION = """Du siehst die Fotos eines Inserats und einen Prüfauftrag. Antworte AUSSCHLIESSLICH mit einem
+gültigen JSON-Objekt mit den Feldern:
+- finding: (string) Antwort auf den Prüfauftrag anhand der Fotos, höchstens 12 Wörter, mit dem sichtbaren Merkmal,
+  z.B. "Jahrgang 2022 (Logo-Design am Chickenloop)". Zeigen die Fotos es nicht: "auf den Fotos nicht erkennbar"
+- relevant: (boolean) false NUR, wenn die Fotos klar ein anderes Produkt zeigen; sonst true
+- year: (integer oder null) Modelljahr, nur wenn auf den Fotos bestimmbar
+- condition: einer von "neu", "neuwertig", "sehr gut", "gut", "gebraucht", "defekt" – nur wenn die Fotos den Zustand
+  klar zeigen, sonst null
+- req: nur wenn Anforderungen genannt sind: "ja" / "nein" (nach Fotos und Text klar erfüllt bzw. nicht erfüllt)
+  oder "unklar"; sonst null
+- req_note: (string oder null) ganz kurz die Angabe zu den Anforderungen
+- reason: (string) ein Satz Fazit zum Inserat inkl. Fotobefund
+Erfinde nichts: was die Fotos nicht zeigen, bleibt null bzw. «nicht erkennbar»."""
+
+IMAGE_BATCH = 8          # Inserate pro Durchgang, danach kurze Pause
+MAX_IMAGE_BYTES = 4_000_000
+_DETAIL_IMAGE_PLATFORMS = ("tutti", "anibis", "kleinanzeigen", "willhaben", "blocket")
+
+
+def _image_prompt(search: dict, h: dict) -> str:
+    prompt = f"""Ich suche: '{search["query"]}'.
+Prüfauftrag für die Fotos: «{search["image_prompt"].strip()}»
+"""
+    if (search.get("requirements") or "").strip():
+        prompt += f"Meine Anforderungen: «{search['requirements'].strip()}»\n"
+    facts = {k: h.get(k) for k in ("ai_reason", "ai_condition", "ai_year", "ai_req", "ai_req_note") if h.get(k)}
+    return prompt + "Inserat:\n" + json.dumps({
+        "title": h["title"],
+        "price": f"{h['price']:g} {h.get('currency') or ''}".strip() if h.get("price") else "Preis offen",
+        "description": (h.get("description_full") or "")[:800],
+        "bisherige_bewertung_aus_dem_text": facts,
+    }, ensure_ascii=False)
+
+
+def _fetch_images(h: dict, adapters) -> list[tuple[str, bytes]]:
+    """Bis 4 Fotos: die Galerie der Inseratseite, wo die Plattform Einzelabrufe zulässt, sonst das Vorschaubild gross."""
+    urls = []
+    if h["platform"] in _DETAIL_IMAGE_PLATFORMS:
+        try:
+            adapter = adapter_for_source(adapters, h["platform"])
+            page = fetch_html(h["url"], adapter.platform_cfg().get("fetcher", "http"))
+            urls = listing_images(page, h["platform"], h["external_id"])
+            apply_platform_shipping(h["key"], shipping_from_page(page, h["platform"]), rescore=False)
+        except GoneError:
+            db.mark_listing_gone(h["key"])
+            return []
+        except Exception as exc:
+            log.info("Galerie von %s nicht geladen: %s", h["url"], exc)
+    if not urls and h.get("image"):
+        urls = [image_url(h["image"], large=True)]
+    images = []
+    for url in urls:
+        try:
+            r = httpx.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+            mime = r.headers.get("content-type", "").split(";")[0]
+            if r.status_code == 200 and mime.startswith("image/") and len(r.content) <= MAX_IMAGE_BYTES:
+                images.append((mime, r.content))
+        except Exception as exc:
+            log.info("Bild %s nicht geladen: %s", url, exc)
+    return images
+
+
+def _store_image_result(search: dict, h: dict, r: dict, prompt: str) -> None:
+    """Bildbefund über die Text-Bewertung legen: Jahrgang, Zustand und Anforderung können sich ändern,
+    ein klar anderes Produkt fliegt raus, eine nur am Text gescheiterte Anforderung kann jetzt erfüllt sein."""
+    finding = str(r.get("finding") or "")[:120] or None
+    has_req = bool((search.get("requirements") or "").strip())
+    req = r.get("req") if has_req and r.get("req") in ("ja", "nein") else h.get("ai_req")
+    req_note = (str(r["req_note"])[:80] if has_req and r.get("req") in ("ja", "nein") and r.get("req_note")
+                else h.get("ai_req_note"))
+    old_reason = h.get("ai_reason") or ""
+    relevant = h.get("ai_relevant") == 1 or (old_reason.startswith(db.REQ_FAILED) and req == "ja")
+    reason = str(r.get("reason") or "")[:300] or old_reason
+    if r.get("relevant") is False:
+        relevant, reason = False, f"Laut Fotos nicht das gesuchte Produkt – {finding or reason}"
+    elif req == "nein":
+        relevant, reason = False, f"{db.REQ_FAILED} ({req_note or finding or 'laut Fotos'})"
+    try:
+        year = int(r["year"]) if r.get("year") else h.get("ai_year")
+    except (TypeError, ValueError):
+        year = h.get("ai_year")
+    if year is not None and not 1980 <= year <= datetime.now().year + 1:
+        year = h.get("ai_year")
+    condition = r.get("condition") if r.get("condition") in CONDITIONS[:-1] else h.get("ai_condition")
+    db.set_hit_image_result(search["id"], h["key"], prompt, finding, relevant, reason, condition, year, req, req_note)
+
+
+def analyze_images(search_id: int) -> int:
+    """Wertet die Fotos von bis zu IMAGE_BATCH offenen Treffern aus. Gibt die Zahl erledigter zurück (0 = fertig)."""
+    api_key = get_config().get("ai", {}).get("gemini_api_key")
+    search = db.get_search(search_id)
+    prompt = (search or {}).get("image_prompt", "").strip()
+    if not api_key or not prompt:
+        return 0
+    todo = db.hits_for_image_check(search_id, prompt, limit=IMAGE_BATCH)
+    adapters = all_adapters(get_config())
+    done = 0
+    for h in todo:
+        images = _fetch_images(h, adapters)
+        if not images:  # nichts zu sehen: als geprüft markieren, sonst käme der Treffer immer wieder
+            db.set_hit_image_result(search_id, h["key"], prompt, "keine Fotos ladbar", h.get("ai_relevant") == 1,
+                                    h.get("ai_reason"), h.get("ai_condition"), h.get("ai_year"), h.get("ai_req"),
+                                    h.get("ai_req_note"))
+            done += 1
+            continue
+        try:
+            r = _gemini_json(_image_prompt(search, h), IMAGE_INSTRUCTION, api_key,
+                             models=("gemini-3.7-flash", "gemini-3.5-flash-lite"), images=images)
+        except Exception as exc:
+            log.error("Bildanalyse fehlgeschlagen: %s", exc)
+            break  # Gemini nicht erreichbar: beim nächsten Durchgang weiter
+        if isinstance(r, list):
+            r = r[0] if r and isinstance(r[0], dict) else {}
+        if isinstance(r, dict):
+            _store_image_result(search, h, r, prompt)
+            done += 1
+        time.sleep(random.uniform(1, 2))
+    if done:
+        scoring.rescore_search(search_id)
+    return done
+
+
 import threading
 AI_RUNNING = False
 _active_evaluations = set()
@@ -275,6 +403,11 @@ def start_background_evaluation(search_id: int):
             while True:
                 processed = evaluate_listings(search_id)
                 if processed == 0:
+                    search = db.get_search(search_id) or {}
+                    if search.get("image_auto") and search.get("image_prompt"):
+                        # Bildanalyse ist für diese Suche aktiv: neue (und neu bewertete) Angebote gleich mit prüfen
+                        while analyze_images(search_id):
+                            time.sleep(3)
                     with _eval_lock:
                         if len(_active_evaluations) <= 1:
                             AI_RUNNING = False

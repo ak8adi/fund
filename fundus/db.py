@@ -123,13 +123,14 @@ def _ensure_chat_cols(conn):
 
 HIT_AI_SELECT = ", ".join(f"h.{col}" for col in (
     "ai_relevant", "ai_reason", "ai_condition", "ai_shipping", "single_price", "ai_year", "ai_shipping_cost", "ai_score",
-    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note", "ai_set_items", "single_estimated", "ai_size", "ai_weight", "delivery"))
+    "ai_tier", "score_reason", "total_chf", "ai_req", "ai_req_note", "ai_set_items", "single_estimated", "ai_size", "ai_weight", "delivery", "img_note", "img_done"))
 HIT_AI_COLS = {"ai_relevant": "INTEGER", "ai_reason": "TEXT", "ai_condition": "TEXT", "ai_shipping": "TEXT",
                "single_price": "REAL", "ai_year": "INTEGER", "ai_shipping_cost": "REAL", "total_chf": "REAL", "ai_score": "INTEGER", "ai_tier": "TEXT", "score_reason": "TEXT",
                "ai_req": "TEXT", "ai_req_note": "TEXT",
                "ai_set_items": "TEXT", "single_estimated": "INTEGER",   # Set-Inhalt; single_price von der KI geschätzt
                "ai_size": "TEXT", "ai_weight": "REAL",                # Versandgrösse (delivery.SIZES) und kg
-               "delivery": "TEXT"}                                    # beste Lieferart, kurz (delivery.plan)  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
+               "delivery": "TEXT",
+               "img_note": "TEXT", "img_done": "TEXT"}                # Bildanalyse: Befund; mit welchem Auftrag geprüft                                    # beste Lieferart, kurz (delivery.plan)  # ai_req: Freitext-Anforderungen erfüllt? ja/nein/unklar
 
 
 def _migrate_ai_to_hits(c: sqlite3.Connection, l_cols: set[str]) -> None:
@@ -201,6 +202,9 @@ def init_db() -> None:
                          query TEXT PRIMARY KEY, lat REAL, lon REAL, minutes INTEGER, checked_at TEXT NOT NULL)""")
         if "sort_by" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN sort_by TEXT NOT NULL DEFAULT 'score'")  # score | price
+        if "image_prompt" not in cols:  # Bildanalyse: Auftrag an die KI; image_auto = auch neue Angebote prüfen
+            c.execute("ALTER TABLE searches ADD COLUMN image_prompt TEXT NOT NULL DEFAULT ''")
+            c.execute("ALTER TABLE searches ADD COLUMN image_auto INTEGER NOT NULL DEFAULT 0")
 
         # willhaben-Links ohne /iad/ führten auf 404 und galten deshalb fälschlich als verkauft
         c.execute("""UPDATE listings SET url = replace(url, 'willhaben.at/kaufen-und-verkaufen/', 'willhaben.at/iad/kaufen-und-verkaufen/'),
@@ -445,7 +449,7 @@ def update_hit_ai(search_id: int, key: str, relevant: bool, reason: str | None, 
         c.execute(
             """UPDATE hits SET ai_relevant = ?, ai_reason = ?, ai_condition = ?, ai_shipping = ?, single_price = ?,
                                ai_year = ?, ai_shipping_cost = ?, ai_req = ?, ai_req_note = ?, ai_set_items = ?,
-                               single_estimated = ?, ai_size = ?, ai_weight = ?
+                               single_estimated = ?, ai_size = ?, ai_weight = ?, img_note = NULL, img_done = NULL
                WHERE search_id = ? AND listing_key = ?""",
             (int(relevant), reason, condition, shipping, single_price, year, shipping_cost, req, req_note, set_items,
              int(single_estimated), size, weight, search_id, key),
@@ -457,7 +461,7 @@ def reset_hit_ai(search_id: int | None, key: str) -> None:
     sql = """UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
                              single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL, ai_score = NULL, ai_tier = NULL, score_reason = NULL,
                              ai_req = NULL, ai_req_note = NULL, ai_set_items = NULL, single_estimated = NULL,
-                             ai_size = NULL, ai_weight = NULL, delivery = NULL
+                             ai_size = NULL, ai_weight = NULL, delivery = NULL, img_note = NULL, img_done = NULL
              WHERE listing_key = ?"""
     with connect() as c:
         if search_id is None:
@@ -482,7 +486,7 @@ def reset_search_ai(search_id: int) -> None:
                                      single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL,
                                      ai_score = NULL, ai_tier = NULL, score_reason = NULL, ai_req = NULL, ai_req_note = NULL,
                                      ai_set_items = NULL, single_estimated = NULL, ai_size = NULL, ai_weight = NULL,
-                                     delivery = NULL
+                                     delivery = NULL, img_note = NULL, img_done = NULL
                      WHERE search_id = ? AND hidden = 0 AND ai_reason IS NOT 'Manuell eingeblendet'
                        AND (ai_relevant IS NULL OR ai_relevant = 1 OR ai_req = 'nein' OR ai_reason LIKE ? || '%')""",
                   (search_id, REQ_FAILED))
@@ -504,6 +508,44 @@ def set_scores(search_id: int, market_price: float | None, scores: list[tuple]) 
             " WHERE listing_key = ? AND search_id = ?",
             [(*row, search_id) for row in scores],
         )
+
+
+def set_image_analysis(search_id: int, prompt: str, auto: bool) -> None:
+    with connect() as c:
+        c.execute("UPDATE searches SET image_prompt = ?, image_auto = ? WHERE id = ?", (prompt, int(auto), search_id))
+
+
+def hits_for_image_check(search_id: int, prompt: str, limit: int = 1000) -> list[dict]:
+    """Passende, noch verfügbare Treffer mit Bild, die mit diesem Auftrag noch nicht geprüft sind. Wegen nicht
+    erfüllter Anforderung Aussortierte gehören dazu – das Bild kann die fehlende Angabe liefern."""
+    sql = f"""SELECT l.*, h.search_id, {HIT_AI_SELECT} FROM hits h JOIN listings l ON l.key = h.listing_key
+              WHERE h.search_id = ? AND h.hidden = 0 AND l.gone_at IS NULL AND l.image IS NOT NULL
+                AND (h.ai_relevant = 1 OR (h.ai_relevant = 0 AND h.ai_reason LIKE ? || '%'))
+                AND h.img_done IS NOT ?
+              ORDER BY h.ai_score DESC LIMIT ?"""
+    with connect() as c:
+        return [_listing_row(r) for r in c.execute(sql, (search_id, REQ_FAILED, prompt, limit))]
+
+
+def image_progress(search_id: int, prompt: str) -> tuple[int, int]:
+    """(geprüft, gesamt) der Bildanalyse einer Suche."""
+    with connect() as c:
+        r = c.execute(f"""SELECT COUNT(*) AS total, SUM(h.img_done IS ?) AS done FROM hits h
+                          JOIN listings l ON l.key = h.listing_key
+                          WHERE h.search_id = ? AND h.hidden = 0 AND l.gone_at IS NULL AND l.image IS NOT NULL
+                            AND (h.ai_relevant = 1 OR h.img_done IS ?
+                                 OR (h.ai_relevant = 0 AND h.ai_reason LIKE ? || '%'))""",
+                      (prompt, search_id, prompt, REQ_FAILED)).fetchone()
+        return int(r["done"] or 0), int(r["total"] or 0)
+
+
+def set_hit_image_result(search_id: int, key: str, prompt: str, note: str | None, relevant: bool, reason: str | None,
+                         condition: str | None, year: int | None, req: str | None, req_note: str | None) -> None:
+    with connect() as c:
+        c.execute("""UPDATE hits SET img_done = ?, img_note = ?, ai_relevant = ?, ai_reason = ?, ai_condition = ?,
+                                     ai_year = ?, ai_req = ?, ai_req_note = ?
+                     WHERE search_id = ? AND listing_key = ?""",
+                  (prompt, note, int(relevant), reason, condition, year, req, req_note, search_id, key))
 
 
 def get_ai_progress() -> tuple[int, int]:

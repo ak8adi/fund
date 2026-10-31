@@ -184,11 +184,29 @@ def get_listing_description(key: str):
         log.error("Fehler beim Laden der Beschreibung: %s", e)
     return HTMLResponse("Konnte Beschreibung nicht laden.")
 
+def _cheapest_by_search(searches: list[dict]) -> dict[int, dict]:
+    """Günstigstes passendes Angebot jeder Suche – dieselbe Rechnung wie «nach Preis» in der Suche
+    (Einzelpreis vor Inseratpreis, in CHF umgerechnet). Früher stand hier der Endpreis des Angebots mit dem
+    höchsten Deal-Score inkl. Versand, das war oft ein anderes Angebot als das günstigste."""
+    fx = fx_rates.rates(get_config())
+    out = {}
+    for s in searches:
+        priced = [(p, h) for h in db.hits_for_search(s["id"], limit=5000)
+                  if h.get("ai_relevant") == 1 and not h.get("gone_at")
+                  and (p := scoring.effective_price_chf(h, fx)) is not None]
+        if priced:
+            p, h = min(priced, key=lambda x: x[0])
+            out[s["id"]] = {**h, "chf": p}
+    return out
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    searches = db.list_searches()
     return templates.TemplateResponse(request, "index.html", _ctx(
         request,
-        searches=db.list_searches(),
+        searches=searches,
+        cheapest=_cheapest_by_search(searches),
         hits=db.recent_new_hits(40),
         best=db.best_hits(1),
         runs=db.last_runs(1),
@@ -269,7 +287,9 @@ def show_search(request: Request, sid: int):
             h["_inactive_platform"] = True
 
     _sort_hits(hits, search)
-    resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits))
+    img_done, img_total = db.image_progress(sid, search["image_prompt"]) if search.get("image_prompt") else (0, 0)
+    resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits,
+                                                                    img_progress={"done": img_done, "total": img_total}))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
 
@@ -408,6 +428,25 @@ def run_one(sid: int):
 @app.post("/search/{sid}/ai")
 def run_ai(sid: int):
     ai.start_background_evaluation(sid)  # im Hintergrund – die Seite zeigt den Fortschritt
+    return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+@app.post("/search/{sid}/images")
+def analyze_images(sid: int, image_prompt: str = Form("")):
+    """Fotos aller passenden Angebote mit diesem Auftrag auswerten; bleibt danach für neue Angebote aktiv."""
+    prompt = image_prompt.strip()[:500]
+    if db.get_search(sid):
+        db.set_image_analysis(sid, prompt, bool(prompt))
+        if prompt:
+            ai.start_background_evaluation(sid)  # erst offene Text-Bewertungen, dann die Fotos
+    return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+@app.post("/search/{sid}/images/off")
+def images_off(sid: int):
+    search = db.get_search(sid)
+    if search:  # Auftrag und bisherige Befunde bleiben, nur neue Angebote werden nicht mehr automatisch geprüft
+        db.set_image_analysis(sid, search.get("image_prompt") or "", False)
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
