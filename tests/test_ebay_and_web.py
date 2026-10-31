@@ -227,3 +227,27 @@ def test_every_route_answers(monkeypatch):
             resp = client.post(url, data=data)
             assert resp.status_code < 500, (url, resp.status_code)
         assert client.get(f"/search/{sid}", follow_redirects=False).status_code == 303  # gelöscht → Startseite
+
+
+def test_gemini_retries_after_timeout(monkeypatch):
+    import httpx
+    from fundus import ai
+    calls = []
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}]}
+
+    def post(url, **kw):
+        calls.append(url)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("The read operation timed out")
+        return Resp()
+
+    monkeypatch.setattr(ai.httpx, "post", post)
+    monkeypatch.setattr(ai.time, "sleep", lambda s: None)
+    assert ai._gemini_json("p", "s", "k") == {"ok": True}
+    assert len(calls) == 2 and calls[0] == calls[1]  # gleiches Modell nochmals, nicht gleich aufgegeben

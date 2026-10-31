@@ -84,15 +84,21 @@ def _gemini_json(prompt: str, system_instruction: str, api_key: str,
     }
     last_exc = None
     for model in models:
-        try:
-            resp = httpx.post(f"{GEMINI_URL}/{model}:generateContent", json=payload,
-                              headers=_gemini_headers(api_key), timeout=60)
-            resp.raise_for_status()
-            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-            return json.loads(text.removeprefix("```json").removeprefix("```").removesuffix("```").strip())
-        except Exception as exc:
-            last_exc = exc
-            log.info("Gemini %s fehlgeschlagen: %s", model, exc)
+        for attempt in range(2):  # Zeitüberschreitung oder Überlast (5xx) sind meist nach kurzer Pause weg
+            try:
+                resp = httpx.post(f"{GEMINI_URL}/{model}:generateContent", json=payload,
+                                  headers=_gemini_headers(api_key), timeout=60)
+                resp.raise_for_status()
+                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return json.loads(text.removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+            except Exception as exc:
+                last_exc = exc
+                log.info("Gemini %s fehlgeschlagen: %s", model, exc)
+                transient = isinstance(exc, httpx.TimeoutException) or (
+                    isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500)
+                if not transient:
+                    break
+                time.sleep(3)
     raise RuntimeError(f"Gemini nicht erreichbar: {last_exc}")
 
 
