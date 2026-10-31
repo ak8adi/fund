@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import random
+import threading
+import time
 from abc import ABC, abstractmethod
+from email.utils import parsedate_to_datetime
+from urllib.parse import urlsplit
 
 import httpx
 try:
@@ -29,7 +33,42 @@ class AdapterError(Exception):
 
 
 class BlockedError(AdapterError):
-    """Plattform blockt die Anfrage (Captcha, 403, 429)."""
+    """Plattform blockt die Anfrage (Captcha, 403, 429). retry_after: Wartezeit in s laut Server, falls genannt."""
+
+    def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+# Mindestabstand zwischen zwei Anfragen an denselben Host, über alle Aufrufer (Prüflauf, KI, Weboberfläche).
+# Ricardo (Cloudflare-Ratenlimit) sperrt mit 429, wenn Anfragen dicht aufeinander folgen.
+HOST_MIN_GAP = {"www.ricardo.ch": 60.0}
+_last_request: dict[str, float] = {}
+_gap_lock = threading.Lock()
+
+
+def _wait_for_host(url: str) -> None:
+    host = urlsplit(url).hostname or ""
+    gap = HOST_MIN_GAP.get(host)
+    if not gap:
+        return
+    with _gap_lock:  # Reihenfolge einhalten, auch wenn mehrere Threads gleichzeitig abrufen
+        wait = _last_request.get(host, 0.0) + gap - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request[host] = time.monotonic()
+
+
+def _retry_after(value: str | None) -> int | None:
+    """Retry-After: Sekunden oder HTTP-Datum."""
+    if not value:
+        return None
+    if value.strip().isdigit():
+        return int(value.strip())
+    try:
+        return max(0, int(parsedate_to_datetime(value).timestamp() - time.time()))
+    except (TypeError, ValueError):
+        return None
 
 
 class GoneError(AdapterError):
@@ -76,6 +115,7 @@ def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> 
     """Eine einzige Seitenabfrage. fetcher='browser' nutzt Playwright (optional installiert)."""
     if fetcher == "browser":
         return _fetch_with_browser(url)
+    _wait_for_host(url)
 
     if CURL_AVAILABLE:
         try:
@@ -94,7 +134,9 @@ def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> 
             resp = client.get(url)
 
     if resp.status_code in (403, 429, 503):
-        raise BlockedError(f"HTTP {resp.status_code} – Plattform blockt vermutlich automatisierte Anfragen")
+        kind = "Bot-Schutz (Cloudflare-Challenge)" if resp.headers.get("cf-mitigated") else (
+            "zu viele Anfragen" if resp.status_code == 429 else "Plattform blockt vermutlich automatisierte Anfragen")
+        raise BlockedError(f"HTTP {resp.status_code} – {kind}", _retry_after(resp.headers.get("retry-after")))
     if resp.status_code in (404, 410):
         raise GoneError(f"HTTP {resp.status_code} für {url}")
     if resp.status_code >= 400:

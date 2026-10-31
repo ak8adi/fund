@@ -89,7 +89,8 @@
         {% if saved == 'schedule' %}<span class="ok small">gespeichert</span>{% elif saved == 'schedule-error' %}<span class="warn small">Ungültige Uhrzeit – Format HH:MM</span>{% endif %}</div>
       </form>
       <p class="muted small">Nächste Läufe: {% for t in next_runs %}{{ t | clock }}{% if not loop.last %}, {% endif %}{% else %}keine{% endfor %}</p>
-      <p class="muted small">Pro Suche und Quelle genau eine Anfrage (erste Seite, neueste zuerst), {{ cfg.request_delay[0] }}–{{ cfg.request_delay[1] }} s Pause dazwischen.</p>
+      <p class="muted small">Pro Suche und Quelle genau eine Anfrage (erste Seite, neueste zuerst; Ricardo nach Relevanz, ohne Inseratseiten und mit mind. 60 s Abstand), {{ cfg.request_delay[0] }}–{{ cfg.request_delay[1] }} s Pause dazwischen.
+      Nach einer Sperre ruht die Plattform 1 h, bei weiteren Sperren in Folge 2, 4 … bis 24 h (oder so lange, wie der Server verlangt).</p>
     </div>
 
     <h2>Letzte Läufe</h2>

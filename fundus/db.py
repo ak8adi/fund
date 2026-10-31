@@ -214,6 +214,9 @@ def init_db() -> None:
         p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
         if "blocked_at" not in p_cols:
             c.execute("ALTER TABLE platforms ADD COLUMN blocked_at TEXT")  # letzte Sperre (403/429/Captcha)
+        if "blocked_until" not in p_cols:  # Pause nach Sperre; block_count: Sperren in Folge (für längere Pausen)
+            c.execute("ALTER TABLE platforms ADD COLUMN blocked_until TEXT")
+            c.execute("ALTER TABLE platforms ADD COLUMN block_count INTEGER NOT NULL DEFAULT 0")
 
 
 # ---------- Suchen ----------
@@ -664,9 +667,23 @@ def set_platform_enabled(name: str, enabled: bool) -> None:
         c.execute("UPDATE platforms SET enabled = ? WHERE name = ?", (int(enabled), name))
 
 
-def mark_platform_blocked(name: str) -> None:
+BLOCK_PAUSE_FIRST = timedelta(hours=1)   # erste Sperre: kurz warten – ein Ratenlimit ist meist bald vorbei
+BLOCK_PAUSE_MAX = timedelta(hours=24)    # jede weitere Sperre in Folge verdoppelt die Pause bis hierhin
+
+
+def mark_platform_blocked(name: str, retry_after: int | None = None) -> datetime:
+    """Sperre vermerken und Pause festlegen: Retry-After des Servers, mindestens aber 1 h, 2 h, 4 h … 24 h
+    bei Sperren in Folge. Gibt das Ende der Pause zurück."""
     with connect() as c:
-        c.execute("UPDATE platforms SET blocked_at = ? WHERE name = ?", (now(), name))
+        row = c.execute("SELECT block_count FROM platforms WHERE name = ?", (name,)).fetchone()
+        count = (row["block_count"] if row else 0) + 1
+        pause = min(BLOCK_PAUSE_FIRST * 2 ** (count - 1), BLOCK_PAUSE_MAX)
+        if retry_after:
+            pause = max(pause, timedelta(seconds=retry_after))
+        until = datetime.now(timezone.utc) + pause
+        c.execute("UPDATE platforms SET blocked_at = ?, blocked_until = ?, block_count = ? WHERE name = ?",
+                  (now(), until.isoformat(timespec="seconds"), count, name))
+        return until
 
 
 def record_platform_result(name: str, count: int | None, error: str | None) -> None:
@@ -675,6 +692,8 @@ def record_platform_result(name: str, count: int | None, error: str | None) -> N
             "UPDATE platforms SET last_run = ?, last_count = ?, last_error = ? WHERE name = ?",
             (now(), count, error, name),
         )
+        if count is not None and error is None:  # hat wieder geliefert: nächste Sperre beginnt mit kurzer Pause
+            c.execute("UPDATE platforms SET block_count = 0 WHERE name = ?", (name,))
 
 
 # ---------- Läufe ----------

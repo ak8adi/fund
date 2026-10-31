@@ -46,7 +46,8 @@ DEFAULTS: dict[str, Any] = {
     # Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
     "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08, "USD": 0.88, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22},
     "platforms": {
-        "ricardo": {"url": "https://www.ricardo.ch/de/s/{query}/?sort=newest", "fetcher": "http"},
+        # Ricardo: ohne «?sort=…» – robots.txt erlaubt /de/s/…/, aber keine Suchseiten mit Parametern
+        "ricardo": {"url": "https://www.ricardo.ch/de/s/{query}/", "fetcher": "http"},
         "tutti": {"url": "https://www.tutti.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
         "anibis": {"url": "https://www.anibis.ch/de/q/suche?query={query}&sorting=newest", "fetcher": "http"},
         "kleinanzeigen": {"url": "https://www.kleinanzeigen.de/s-{query}/k0", "fetcher": "http"},

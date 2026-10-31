@@ -21,16 +21,17 @@ from .trust import assess, price_in_chf
 
 log = logging.getLogger(__name__)
 
-BLOCK_PAUSE = timedelta(hours=24)  # nach einer Sperre die Plattform so lange in Ruhe lassen
-RICARDO_DETAILS_PER_RUN = 3  # Ricardo sperrt bei vielen Einzelabrufen schnell
+# Ricardo: nur die Suchseite. Einzelne Inseratseiten lösen nach wenigen Abrufen das Cloudflare-Ratenlimit
+# aus (429) – und die Sperre gilt dann auch für die Suche. Beschreibung, Versand und Fotos dort darum nicht laden.
+NO_DETAIL_PAGES = ("ebay", "ricardo")
 
 
 def _paused_sources(names: list[str]) -> dict[str, datetime]:
-    """Quellen, die vor weniger als BLOCK_PAUSE gesperrt haben → Ende der Pause."""
+    """Quellen in der Pause nach einer Sperre → Ende der Pause (db.mark_platform_blocked)."""
     paused = {}
     for name, st in db.platform_states().items():
-        if name in names and st.get("blocked_at"):
-            until = datetime.fromisoformat(st["blocked_at"]) + BLOCK_PAUSE
+        if name in names and st.get("blocked_until"):
+            until = datetime.fromisoformat(st["blocked_until"])
             if until > datetime.now(timezone.utc):
                 paused[name] = until
     return paused
@@ -114,7 +115,6 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         log.info("%s pausiert nach Sperre bis %s", name, until.isoformat(timespec="minutes"))
     lo, hi = cfg.get("request_delay", [4, 11])
     first_request = True
-    ricardo_desc_count = 0
 
     for search in searches:
         collected: list[Listing] = []
@@ -137,7 +137,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             except AdapterError as exc:
                 if isinstance(exc, BlockedError):
                     blocked.add(src["name"])
-                    db.mark_platform_blocked(src["name"])
+                    db.mark_platform_blocked(src["name"], exc.retry_after)
                 errors += 1
                 source_errors[src["name"]] = str(exc)
                 log.warning("%s / %s: %s", search["query"], src["name"], exc)
@@ -173,15 +173,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         for hit in new_hits:
             if desc_count >= 15:
                 break
-            if hit["platform"] == "ebay":
-                continue # eBay hat oft keine oder nur umständliche iFrames für Descriptions, Fokus auf CH/DE Plattformen
-            if hit["platform"] in blocked:
-                continue
-
-            if hit["platform"] == "ricardo":
-                if ricardo_desc_count >= RICARDO_DETAILS_PER_RUN:
-                    continue
-                ricardo_desc_count += 1
+            if hit["platform"] in NO_DETAIL_PAGES or hit["platform"] in blocked:
+                continue  # eBay: Beschreibung nur im iFrame; Ricardo: siehe NO_DETAIL_PAGES
 
             url = hit["url"]
             key = hit["key"]
@@ -202,7 +195,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 log.info("Inserat nicht mehr verfügbar: %s", url)
             except BlockedError as exc:
                 blocked.add(hit["platform"])
-                db.mark_platform_blocked(hit["platform"])
+                db.mark_platform_blocked(hit["platform"], exc.retry_after)
                 log.warning("Konnte Beschreibung für %s nicht laden: %s", url, exc)
             except Exception as exc:
                 log.warning("Konnte Beschreibung für %s nicht laden: %s", url, exc)
@@ -218,8 +211,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     continue
                 if hit.get("ai_relevant") == 0 or hit.get("gone_at"):
                     continue  # Fehltreffer und verkaufte Inserate brauchen keine Beschreibung
-                if hit["platform"] in ("ebay", "ricardo") or hit["platform"] in blocked:
-                    continue  # Ricardo: Einzelabrufe nur für neue Treffer, sonst droht eine Sperre
+                if hit["platform"] in NO_DETAIL_PAGES or hit["platform"] in blocked:
+                    continue
 
                 # Titel-Vorabcheck für existierende Inserate
                 if excluded(search["exclude_words"], hit.get("title")):
@@ -242,7 +235,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     log.info("Inserat nicht mehr verfügbar: %s", hit["url"])
                 except BlockedError as exc:
                     blocked.add(hit["platform"])
-                    db.mark_platform_blocked(hit["platform"])
+                    db.mark_platform_blocked(hit["platform"], exc.retry_after)
                     log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
                 except Exception as exc:
                     log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
@@ -254,7 +247,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         for h in db.top_hits_without_ship_flag(search["id"], SHIP_FLAG_PLATFORMS):
             to_check.setdefault(h["key"], h)
         for hit in to_check.values():
-            if hit["platform"] in ("ebay", "ricardo") or hit["platform"] in blocked:
+            if hit["platform"] in NO_DETAIL_PAGES or hit["platform"] in blocked:
                 continue
             try:
                 time.sleep(random.uniform(2, 4))
@@ -265,9 +258,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             except GoneError:
                 db.mark_listing_gone(hit["key"])
                 log.info("Inserat nicht mehr verfügbar: %s", hit["url"])
-            except BlockedError:
+            except BlockedError as exc:
                 blocked.add(hit["platform"])
-                db.mark_platform_blocked(hit["platform"])
+                db.mark_platform_blocked(hit["platform"], exc.retry_after)
             except Exception as exc:
                 log.warning("Verfügbarkeit von %s nicht prüfbar: %s", hit["url"], exc)
 
