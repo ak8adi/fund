@@ -159,6 +159,13 @@ def lookup(query: str) -> dict | None:
     picked = [offers[i] for i in r.get("match") or [] if isinstance(i, int) and 0 <= i < len(offers)]
     picked = [o for o in picked if "used" not in o["condition"].lower() and "refurb" not in o["condition"].lower()]
     picked.sort(key=lambda o: o["price_chf"])
+    unique, seen = [], set()
+    for o in picked:  # gleiche Seite in Farbvarianten oder doppelt gefunden: nur einmal
+        sig = (o["shop"], o["name"].lower(), round(o["price_chf"]))
+        if sig not in seen:
+            seen.add(sig)
+            unique.append(o)
+    picked = unique
     size = r.get("size") if r.get("size") in ("S", "M", "L", "XL", "fracht") else None
     try:
         weight = float(r["weight_kg"]) if r.get("weight_kg") else None
@@ -170,7 +177,8 @@ def lookup(query: str) -> dict | None:
     best = picked[0]  # günstigstes passendes Angebot
     price = round(best["price_chf"])
     product = str(r.get("product") or query)[:60]
-    note = f"{product} · günstigster bei {best['shop']}" + (f" (von {len(picked)} Shops)" if len(picked) > 1 else "")
+    shops = len({o["shop"] for o in picked})
+    note = f"{product} · günstigster bei {best['shop']}" + (f" (von {shops} Shops)" if shops > 1 else "")
     keep = [{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")} for o in picked[:8]]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
 

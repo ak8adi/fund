@@ -164,3 +164,20 @@ def test_large_image_variants():
     assert image_url("https://img.kleinanzeigen.de/api/v1/prod-ads/images/7/x?rule=$_2.AUTO").endswith("rule=$_59.AUTO")
     assert "/t_1000x750/" in image_url("https://img.ricardostatic.ch/images/a/t_265x200/b")
     assert image_url("https://cache.willhaben.at/mmo/1_hoved.jpg") == "https://cache.willhaben.at/mmo/1.jpg"
+
+
+def test_newprice_cheapest_matching_offer(monkeypatch):
+    from fundus import ai, newprice
+    offers = [
+        {"shop": "a.ch", "name": "Thule Urban Glide 3", "price": 711, "currency": "CHF", "price_chf": 711.0, "url": "u1", "condition": ""},
+        {"shop": "b.ch", "name": "Thule Urban Glide 3 Single", "price": 655.25, "currency": "CHF", "price_chf": 655.25, "url": "u2", "condition": ""},
+        {"shop": "b.ch", "name": "Thule Urban Glide 3 Single", "price": 655.25, "currency": "CHF", "price_chf": 655.25, "url": "u3", "condition": ""},
+        {"shop": "c.ch", "name": "Thule Regenverdeck", "price": 49, "currency": "CHF", "price_chf": 49.0, "url": "u4", "condition": ""},
+    ]
+    monkeypatch.setattr(newprice, "get_config", lambda: {"ai": {"gemini_api_key": "x"}})
+    monkeypatch.setattr(newprice, "find_offers", lambda q, skip=None: offers if skip is None else [])
+    monkeypatch.setattr(ai, "_gemini_json", lambda *a, **k: {"match": [0, 1, 2], "product": "Thule Urban Glide 3", "size": "XL"})
+    r = newprice.lookup("thule urban glide 3")
+    assert r["price"] == 655  # günstigstes passendes, nicht das Zubehör für 49
+    assert r["note"] == "Thule Urban Glide 3 · günstigster bei b.ch (von 2 Shops)"
+    assert [o["url"] for o in r["offers"]] == ["u2", "u1"]
