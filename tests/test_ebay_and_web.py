@@ -116,3 +116,37 @@ def test_store_facts_set_estimate():
                                          "single_price": 250, "single_price_estimated": True})
     h = db.hits_for_search(sid)[0]
     assert h["single_price"] == 250 and h["single_estimated"] == 1 and h["ai_set_items"] == "2 Kites, Trust Bar"
+
+
+def test_scam_note_hides_hit(monkeypatch):
+    from fundus import ai
+    from fundus.models import Listing
+    from fundus.web import app as webapp
+
+    assert ai.flags_scam("versand möglich. kostet 24 euro.\n\nbetrugsmasche")
+    assert ai.flags_scam("Fake-Inserat") and not ai.flags_scam("kein Betrug, alles ok") and not ai.flags_scam("")
+
+    sid = db.save_search({"query": "thule urban glide 3"})
+    l = Listing(platform="kleinanzeigen", external_id="1", title="Thule Urban Glide 3", url="https://x/1", price=430,
+                currency="EUR")
+    db.upsert_listing(l, "ok", [])
+    db.add_hit(sid, l.key, False)
+    db.update_hit_ai(sid, l.key, True, "Gesuchter Wagen", "sehr gut")
+
+    # Die KI übersieht den Vermerk (wie beim Lite-Modell passiert) – der Vermerk gilt trotzdem
+    monkeypatch.setattr(ai, "_gemini_json", lambda *a, **k: [{"key": l.key, "relevant": True, "reason": "Gesuchter Wagen",
+                                                               "shipping": "ja", "shipping_cost": 24}])
+    monkeypatch.setattr(ai, "get_config", lambda: {"ai": {"gemini_api_key": "x"}})
+    with TestClient(webapp.app) as client:
+        client.post(f"/api/listing/{l.key}/update_chat", data={"search_id": sid, "seller_chat": "betrugsmasche"})
+    h = db.hits_for_search(sid)[0]
+    assert h["ai_relevant"] == 0 and h["ai_reason"].startswith(db.SCAM)
+
+    # Die KI erkennt Betrug selbst
+    l2 = Listing(platform="tutti", external_id="2", title="Thule Urban Glide 3", url="https://x/2", price=300,
+                 currency="CHF")
+    db.upsert_listing(l2, "ok", [])
+    db.add_hit(sid, l2.key, False)
+    ai._store_facts(db.get_search(sid), {"key": l2.key, "relevant": True, "scam": True, "reason": "Nur Vorauskasse"})
+    h2 = next(h for h in db.hits_for_search(sid) if h["key"] == l2.key)
+    assert h2["ai_relevant"] == 0 and h2["ai_reason"] == f"{db.SCAM} – Nur Vorauskasse"

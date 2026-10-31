@@ -421,6 +421,7 @@ def reset_hit_ai(search_id: int | None, key: str) -> None:
 
 
 REQ_FAILED = "Erfüllt deine Anforderung nicht"
+SCAM = "Betrugsverdacht"
 
 
 def reset_search_ai(search_id: int) -> None:

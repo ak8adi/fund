@@ -553,6 +553,9 @@ def api_generate_question(request: Request, key: str, search_id: int = Form(...)
 @app.post("/api/listing/{key:path}/update_chat", response_class=HTMLResponse)
 def api_update_chat(request: Request, key: str, search_id: int = Form(...), seller_chat: str = Form("")):
     db.update_listing_chat(key, seller_chat)
+    if ai.flags_scam(seller_chat):  # eigener Vermerk «Betrug»: sofort ausblenden, auch ohne KI
+        db.set_hit_relevant(search_id, key, False, db.SCAM)
+        scoring.rescore_search(search_id)
     ai.reevaluate_single_listing(key, search_id)
     hits = _enriched_hits_for_search(search_id) if "_enriched_hits_for_search" in globals() else db.hits_for_search(search_id)
     h = next((x for x in hits if x["key"] == key), None)

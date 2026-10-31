@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import httpx
 import time
 from datetime import datetime
@@ -48,6 +49,8 @@ FACTS_INSTRUCTION = """Antworte AUSSCHLIESSLICH mit gültigem JSON: ein Array mi
   (Angabe fehlt im Inserat); sonst null
 - req_note: (string oder null) die gefundene Angabe zu den Anforderungen, ganz kurz, z.B. "Länge 140 cm",
   "Länge nicht angegeben", "180 × 90 cm"
+- scam: (boolean) true bei klaren Hinweisen auf Betrug in Beschreibung oder seller_chat, z.B. Vorauskasse per
+  Freunde-Zahlung, Kontakt nur über WhatsApp/E-Mail, Kurierdienst-Masche oder ein Vermerk wie «Betrug»; sonst false
 Bewerte NICHT, ob der Preis gut ist – das rechnet das Programm selbst."""
 
 
@@ -93,12 +96,24 @@ def _gemini_json(prompt: str, system_instruction: str, api_key: str,
     raise RuntimeError(f"Gemini nicht erreichbar: {last_exc}")
 
 
+_SCAM_NOTE = re.compile(r"(?<!kein )(?<!keine )(?<!nicht )\b(betrug|betrüg|scam|fake|abzocke|fälschung)", re.I)
+
+
+def flags_scam(note: str | None) -> bool:
+    """Eigener Vermerk im Feld «Antwort des Verkäufers», z.B. «betrugsmasche» – gilt ohne Rückfrage an die KI."""
+    return bool(note and _SCAM_NOTE.search(note))
+
+
 def _store_facts(search: dict, r: dict) -> bool:
     key = r.get("key")
     if not key:
         return False
     relevant = bool(r.get("relevant", True))
     reason = r.get("reason")
+    listing = db.get_listing(key) or {}
+    if r.get("scam") is True or flags_scam(listing.get("seller_chat")):
+        # Ausblenden statt nur abwerten: bei Sortierung nach Preis stünde es sonst trotzdem zuoberst
+        relevant, reason = False, f"{db.SCAM} – {reason}" if reason else db.SCAM
     condition = r.get("condition") if r.get("condition") in CONDITIONS else "unbekannt"
     shipping = r.get("shipping") if r.get("shipping") in ("ja", "nein", "unbekannt") else "unbekannt"
     if relevant and shipping == "nein" and search.get("require_shipping"):
@@ -301,7 +316,8 @@ def reevaluate_single_listing(key: str, search_id: int) -> bool:
         "description": (h.get("description_full") or "")[:1000],
         "seller_chat": (h.get("seller_chat") or "")[:1500],
     }
-    prompt = _facts_prompt(search, [item]) + "\nDie Verkäufer-Antwort (seller_chat) hat Vorrang vor der Beschreibung."
+    prompt = _facts_prompt(search, [item]) + ("\nseller_chat ist die Antwort des Verkäufers oder eine Notiz von mir"
+                                              " – beides hat Vorrang vor der Beschreibung.")
     try:
         results = _gemini_json(prompt, FACTS_INSTRUCTION, api_key)
     except Exception as exc:

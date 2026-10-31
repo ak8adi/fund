@@ -75,7 +75,7 @@
           {% if h.draft_question %}<textarea class="draft" rows="3">{{ h.draft_question }}</textarea>{% endif %}
           <form hx-post="/api/listing/{{ h.key }}/update_chat" hx-target="closest article" hx-swap="outerHTML" style="display:grid;gap:6px;">
             <input type="hidden" name="search_id" value="{{ h.search_id }}">
-            <textarea name="seller_chat" rows="2" placeholder="Antwort des Verkäufers einfügen, z.B. «400 CHF inkl. Versand, keine Risse»">{% if h.seller_chat %}{{ h.seller_chat }}{% endif %}</textarea>
+            <textarea name="seller_chat" rows="2" placeholder="Antwort des Verkäufers oder eigene Notiz, z.B. «400 CHF inkl. Versand, keine Risse» oder «Betrug»">{% if h.seller_chat %}{{ h.seller_chat }}{% endif %}</textarea>
             <button type="submit" class="btn small ghost" style="justify-self:start;">Antwort speichern &amp; neu bewerten</button>
           </form>
         </div>
