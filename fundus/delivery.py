@@ -46,12 +46,13 @@ P4Y_EUR = {"S": 2.5, "M": 3.5, "L": 6.0, "XL": 10.0}           # Gebühr bei Abh
 INTL_FACTOR = {"S": 0.7, "M": 1.0, "L": 1.6, "XL": 3.0}        # auf shipping_estimate_chf des Landes
 
 PICKUP_PENALTY_PER_HOUR = 3   # Deal-Score-Abzug pro Stunde Fahrt (einfach), höchstens 15
+DRIVE_CHF_PER_MIN = 0.3       # Autokosten (Benzin, Abnützung) pro Fahrminute, hin und zurück gerechnet
 PICKUP_UNKNOWN_PENALTY = 10   # Abholung im Ausland ohne bekannte Fahrzeit
 
 
 @dataclass
 class Plan:
-    total: float                  # CHF bis zu mir, ohne Fahrtkosten
+    total: float                  # CHF bis zu mir, bei Abholung inkl. Autokosten
     label: str                    # kurz, für die Karte
     pickup_minutes: int | None = None
     penalty: int = 0
@@ -119,8 +120,11 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
             where += " (zu gross für Paket)"
         penalty = (min(15, round(minutes / 60 * PICKUP_PENALTY_PER_HOUR)) if minutes is not None
                    else 0 if country == home else PICKUP_UNKNOWN_PENALTY)
-        label = where + (f" · {fmt_minutes(minutes)} Fahrt" if minutes is not None else "") + tax_txt
-        return Plan(round(price + tax, 2), label, minutes, penalty)
+        # Die Fahrt kostet Geld: bei einem 15-€-Artikel 2½ h entfernt mehr als der Artikel selbst
+        car = 2 * minutes * float(delivery.get("drive_chf_per_min", DRIVE_CHF_PER_MIN)) if minutes else 0.0
+        label = where + (f" · {fmt_minutes(minutes)} Fahrt (Auto ≈ {_num(car)} CHF hin und zurück)"
+                         if minutes is not None else "") + tax_txt
+        return Plan(round(price + tax + car, 2), label, minutes, penalty)
 
     if country == home:
         ship = stated if stated is not None else post_chf(size, weight)
@@ -144,7 +148,7 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
         how += " (Sperrgut)"
     tax, tax_txt = vat(price + ship)
     if j_min is not None:
-        how += f" · {fmt_minutes(j_min)} Fahrt"
+        how += f" · {fmt_minutes(j_min)} Fahrt nach Jestetten"
     return Plan(round(price + ship + fee + tax, 2), how + tax_txt)
 
 

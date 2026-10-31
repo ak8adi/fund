@@ -75,6 +75,8 @@ def test_pickup_penalty_from_drive_time(monkeypatch):
     p = d.plan({"platform": "kleinanzeigen", "price": 100, "currency": "EUR", "ai_shipping": "nein",
                 "location": "80331 München"}, FX, HOME)
     assert p.penalty == 9 and "3 h 00 min Fahrt" in p.label
+    # Autokosten hin und zurück zählen zum Endpreis: 2 × 180 min × 0.3 CHF
+    assert p.total == round(100 * FX["EUR"] + 108, 2) and "Auto ≈ 108 CHF" in p.label
 
 
 def test_new_price_caps_value_and_fills_missing_market():
