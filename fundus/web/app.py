@@ -330,18 +330,15 @@ def update_search(
             newprice.refresh_in_background(sid)
 
     search = db.get_search(sid)
-    if search and old_search and (old_search.get("requirements") or "") != search["requirements"]:
-        # Neue Anforderungen: alle Treffer neu von der KI prüfen lassen
-        db.reset_search_ai(sid)
-        from ..ai import start_background_evaluation
-        start_background_evaluation(sid)
-    elif search:
+    if search:
         changed = _apply_search_changes(sid, old_search, search)
+        if old_search and (old_search.get("requirements") or "") != search["requirements"]:
+            db.reset_search_ai(sid)  # neue Anforderungen: passende Treffer neu von der KI prüfen lassen
+            changed = True
         if old_search and platforms and (not old_search["platforms"] or set(platforms) - set(old_search["platforms"])):
-            runner.run_in_background("neue Plattformen", [sid])
+            runner.run_in_background("neue Plattformen", [sid])  # bewertet danach auch mit der KI
         elif changed:
-            from ..ai import start_background_evaluation
-            start_background_evaluation(sid)
+            ai.start_background_evaluation(sid)
 
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
