@@ -78,7 +78,7 @@ die wertet das Programm über req selbst aus.
 
 def _gemini_json(prompt: str, system_instruction: str, api_key: str,
                  models: tuple[str, ...] = ("gemini-3.5-flash-lite", "gemini-3.7-flash"),
-                 images: list[tuple[str, bytes]] | None = None):
+                 images: list[tuple[str, bytes]] | None = None, timeout: float = 60):
     parts = [{"text": prompt}] + [{"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode()}}
                                   for mime, data in images or []]
     payload = {
@@ -91,7 +91,7 @@ def _gemini_json(prompt: str, system_instruction: str, api_key: str,
         for attempt in range(2):  # Zeitüberschreitung oder Überlast (5xx) sind meist nach kurzer Pause weg
             try:
                 resp = httpx.post(f"{GEMINI_URL}/{model}:generateContent", json=payload,
-                                  headers=_gemini_headers(api_key), timeout=60)
+                                  headers=_gemini_headers(api_key), timeout=timeout)
                 resp.raise_for_status()
                 text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
                 return json.loads(text.removeprefix("```json").removeprefix("```").removesuffix("```").strip())
@@ -369,7 +369,7 @@ def analyze_images(search_id: int) -> int:
             continue
         try:
             r = _gemini_json(_image_prompt(search, h), IMAGE_INSTRUCTION, api_key,
-                             models=("gemini-3.7-flash", "gemini-3.5-flash-lite"), images=images)
+                             images=images, timeout=120)  # Fotos: Lite ist schnell genug, Flash als Rückfall
         except Exception as exc:
             log.error("Bildanalyse fehlgeschlagen: %s", exc)
             break  # Gemini nicht erreichbar: beim nächsten Durchgang weiter

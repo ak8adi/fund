@@ -29,7 +29,7 @@ def test_image_analysis_updates_verdict(monkeypatch):
                        "req_note": "2019"}}
     calls = []
 
-    def fake_gemini(prompt, instr, key, models=(), images=None):
+    def fake_gemini(prompt, instr, key, models=(), images=None, timeout=60):
         calls.append(images)
         return answers[a.key if "Nr. A" in prompt else b.key]
 

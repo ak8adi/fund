@@ -36,7 +36,7 @@
       {% elif h.ai_req == 'nein' %}<span class="chip bad">✗ {{ h.ai_req_note or 'passt nicht' }}</span>{% endif %}
       {% if cond %}<span class="chip {{ cond_cls }}">{{ cond }}</span>{% endif %}
       {% if h.ai_year %}<span class="chip">{{ h.ai_year }}</span>{% endif %}
-      {% if h.img_note %}<span class="chip hint" title="Befund der KI aus den Fotos">📷 {{ h.img_note }}</span>{% endif %}
+      {% if h.img_note and 'nicht erkennbar' not in h.img_note and h.img_note != 'keine Fotos ladbar' %}<span class="chip hint" title="Befund der KI aus den Fotos">📷 {{ h.img_note }}</span>{% endif %}
       {% if h.trust_level in ('check', 'warn') %}<span class="chip {{ 'bad' if h.trust_level == 'warn' else 'hint' }}">{{ trust_labels[h.trust_level] }}</span>{% endif %}
     </div>
     {% if h.delivery and visible %}
