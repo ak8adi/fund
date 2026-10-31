@@ -66,13 +66,30 @@ def test_requirements_and_price_sort(monkeypatch):
         db.update_hit_ai(sid, "tutti:0", True, "x", "gut", req="ja", req_note="Länge 140 cm")
 
         client.post(f"/search/{sid}/sort", data={"by": "price"})
+        # Noch ungeprüfte Inserate stehen nach den geprüften, auch wenn sie billiger sind
         page = client.get(f"/search/{sid}").text
-        assert page.index("Tisch 1") < page.index("Tisch 2") < page.index("Tisch 0")
+        assert page.index("Tisch 0") < page.index("Tisch 1") < page.index("Tisch 2")
         assert "✓ Länge 140 cm" in page
 
-        # Geänderte Anforderungen: Bewertungen verworfen, KI startet neu
+        for k in ("tutti:1", "tutti:2"):
+            db.update_hit_ai(sid, k, True, "x", "gut")
+        page = client.get(f"/search/{sid}").text
+        assert page.index("Tisch 1") < page.index("Tisch 2") < page.index("Tisch 0")
+
+        # Geänderte Anforderungen: nur passende und an der Anforderung gescheiterte Inserate neu prüfen,
+        # Fehltreffer (Zubehör) bleiben ausgeblendet statt bei Preis-Sortierung zuoberst aufzutauchen
+        acc = Listing(platform="tutti", external_id="9", title="Tisch Adapter", url="https://x/9", price=5,
+                      currency="CHF")
+        db.upsert_listing(acc, "ok", [])
+        db.add_hit(sid, acc.key, False)
+        db.update_hit_ai(sid, acc.key, False, "Nur Zubehör")
+        db.update_hit_ai(sid, "tutti:1", False, f"{db.REQ_FAILED} (180 cm)", req="nein", req_note="180 cm")
+        db.update_hit_ai(sid, "tutti:2", False, "Anderes Modell (eckig)", req="nein")
         client.post(f"/search/{sid}", data={"query": "tisch", "requirements": "nur rund"})
-        assert db.hits_for_search(sid)[0]["ai_relevant"] is None and started == [sid]
+        by_key = {h["key"]: h for h in db.hits_for_search(sid)}
+        assert by_key["tutti:9"]["ai_relevant"] == 0 and by_key["tutti:9"]["ai_reason"] == "Nur Zubehör"
+        assert all(by_key[k]["ai_relevant"] is None for k in ("tutti:0", "tutti:1", "tutti:2"))
+        assert by_key["tutti:0"]["ai_req"] is None and started == [sid]
 
 
 def test_store_facts_requirement_not_met():

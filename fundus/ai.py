@@ -129,7 +129,7 @@ def _store_facts(search: dict, r: dict) -> bool:
         req = None
     note = str(r["req_note"])[:80] if req and r.get("req_note") else None
     if req == "nein" and relevant:
-        relevant, reason = False, f"Erfüllt deine Anforderung nicht ({note or 'laut Inserat'})"
+        relevant, reason = False, f"{db.REQ_FAILED} ({note or 'laut Inserat'})"
     db.update_hit_ai(search["id"], key, relevant, reason, condition, shipping, single, year, ship_cost, req, note,
                      set_items, estimated, size, weight)
     return True

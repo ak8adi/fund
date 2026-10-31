@@ -420,15 +420,24 @@ def reset_hit_ai(search_id: int | None, key: str) -> None:
             c.execute(sql + " AND search_id = ?", (key, search_id))
 
 
+REQ_FAILED = "Erfüllt deine Anforderung nicht"
+
+
 def reset_search_ai(search_id: int) -> None:
-    """Alle Bewertungen einer Suche verwerfen (z.B. nach geänderten Anforderungen). Von Hand Ausgeblendetes bleibt."""
+    """Bewertungen nach geänderten Anforderungen verwerfen – nur dort, wo die Anforderung etwas ändern kann.
+
+    Fehltreffer (Zubehör, anderes Modell, ausgeschlossene Wörter …) bleiben Fehltreffer: ob es das gesuchte Produkt
+    ist, hängt nicht von den Anforderungen ab. Sonst stünden sie bis zur neuen KI-Prüfung wieder in der Liste –
+    bei Sortierung nach Preis ganz oben. Von Hand Ein- oder Ausgeblendetes bleibt ebenfalls."""
     with connect() as c:
         c.execute("""UPDATE hits SET ai_relevant = NULL, ai_reason = NULL, ai_condition = NULL, ai_shipping = NULL,
                                      single_price = NULL, ai_year = NULL, ai_shipping_cost = NULL, total_chf = NULL,
                                      ai_score = NULL, ai_tier = NULL, score_reason = NULL, ai_req = NULL, ai_req_note = NULL,
                                      ai_set_items = NULL, single_estimated = NULL, ai_size = NULL, ai_weight = NULL,
                                      delivery = NULL
-                     WHERE search_id = ? AND hidden = 0""", (search_id,))
+                     WHERE search_id = ? AND hidden = 0 AND ai_reason IS NOT 'Manuell eingeblendet'
+                       AND (ai_relevant IS NULL OR ai_relevant = 1 OR ai_req = 'nein' OR ai_reason LIKE ? || '%')""",
+                  (search_id, REQ_FAILED))
 
 
 def set_hit_relevant(search_id: int, key: str, relevant: bool, reason: str) -> None:

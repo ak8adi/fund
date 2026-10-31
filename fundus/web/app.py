@@ -255,13 +255,15 @@ def create_search(
 
 
 def _sort_hits(hits: list[dict], search: dict) -> None:
-    """Deal-Score (Standard) oder stur nach Preis in CHF, günstigster zuerst; Inserate ohne Preis ans Ende."""
+    """Deal-Score (Standard) oder stur nach Preis in CHF, günstigster zuerst; Inserate ohne Preis ans Ende.
+    Noch nicht von der KI geprüfte Inserate kommen nach den geprüften – sonst stünde neues Zubehör für
+    ein paar Franken bis zur Prüfung zuoberst."""
     if search.get("sort_by") == "price":
         fx = fx_rates.rates(get_config())
         def chf(h):
             p = scoring.effective_price_chf(h, fx)
             return (p is None, p or 0)
-        hits.sort(key=lambda x: (bool(x.get("gone_at")), *chf(x)))
+        hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_relevant") is None, *chf(x)))
     else:
         hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_score") is None, -(x.get("ai_score") or 0)))
 
