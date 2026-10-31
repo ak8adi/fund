@@ -2,6 +2,11 @@
 {% block content %}
 <section class="grid-2">
   <div>
+    <a class="health" href="/settings" title="Plattform-Status – Details in den Einstellungen">
+      {% for p in health %}
+        <span class="h-{{ p.state }}" title="{{ p.label }}: {{ p.info }}"><i></i>{{ p.label }}{% if p.short %} <b>{{ p.short }}</b>{% endif %}</span>
+      {% endfor %}
+    </a>
     <h2>Suchaufträge</h2>
     {% if not searches %}
       <p class="muted">Noch keine Suche. Beim ersten Lauf wird nur der aktuelle Bestand eingelesen – gemeldet wird erst, was danach neu dazukommt.</p>

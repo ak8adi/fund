@@ -59,7 +59,17 @@ function copyForGemini(btn) {
   const hits = window.currentRelevantHits;
   const query = {{ search.query | tojson }};
 
+  const newPrice = {{ search.new_price | tojson }};
+  const offers = {{ (search.new_price_offers or []) | tojson }};
+  const requirements = {{ (search.requirements or '') | tojson }};
+
   let prompt = `Analysiere diese Inserate für meine Suche nach '${query}' und erstelle eine Tier-List mit Fokus auf die besten 30 %:\n\n`;
+  if (requirements) prompt += `Muss erfüllen: ${requirements}\n`;
+  if (newPrice) {
+    prompt += `Neupreis: ${Math.round(newPrice)} CHF{{ ' (von Hand eingetragen)' if search.new_price_manual else '' }}\n`;
+    for (const o of offers) prompt += `  - ${o.shop}: ${o.price} ${o.currency} (${o.name}) ${o.url}\n`;
+  }
+  if (requirements || newPrice) prompt += `\n---\n\n`;
 
   for (const h of hits) {
     prompt += `Titel: ${h.title}\n`;

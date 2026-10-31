@@ -240,6 +240,18 @@ form.stack .row { display: flex; gap: 1rem; }
 .best-group a:hover { color: var(--ink); }
 .empty { text-align: center; padding: 28px 16px; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); }
 
+/* Plattform-Status auf der Startseite: grün = liefert, gelb = 0 Treffer, rot = Fehler, grau = aus */
+.health { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 18px; font-size: 13px; color: var(--muted); text-decoration: none; }
+.health span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.health i { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
+.health b { color: var(--ink); font-weight: 600; }
+.health .h-ok i { background: var(--ok); }
+.health .h-zero i { background: var(--check); }
+.health .h-bad i { background: var(--warn); }
+.health .h-bad b { color: var(--warn); }
+.health .h-zero b { color: var(--check); }
+.health .h-off { opacity: .6; }
+
 /* Einstellungen */
 .sources { list-style: none; padding: 0; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .source { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }

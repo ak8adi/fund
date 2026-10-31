@@ -203,7 +203,31 @@ def index(request: Request):
         hits=db.recent_new_hits(40),
         best=db.best_hits(1),
         runs=db.last_runs(1),
+        health=_health(runner.available_sources(get_config())),
     ))
+
+
+def _health(sources: list[dict]) -> list[dict]:
+    """Plattform-Ampel für die Startseite: ok (liefert), zero (0 Treffer), bad (Fehler/Sperre), off."""
+    out, seen = [], set()
+    for s in sources:
+        if not s["ready"]:  # z.B. eBay ohne Schlüssel: einmal pro Plattform statt pro Marktplatz
+            if s["adapter"] not in seen:
+                seen.add(s["adapter"])
+                out.append({"label": s["label"].split(" ")[0], "state": "off", "short": "", "info": s["hint"]})
+            continue
+        err, count = s["last_error"], s["last_count"]
+        if not s["enabled"]:
+            st, short, info = "off", "aus", "ausgeschaltet"
+        elif err:
+            st, short, info = "bad", "pausiert" if err.startswith("Pausiert") else "Fehler", err
+        elif not s["last_run"]:
+            st, short, info = "off", "", "noch nicht abgefragt"
+        else:
+            st, short = ("ok", str(count)) if count else ("zero", "0")
+            info = f"{count or 0} Treffer im letzten Lauf · {ago(s['last_run'])}"
+        out.append({"label": s["label"], "state": st, "short": short, "info": info})
+    return out
 
 
 @app.post("/searches")
