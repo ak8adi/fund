@@ -4,7 +4,7 @@
 2. Jede Shopseite öffnen und Produktname, Preis, Währung aus den strukturierten Produktdaten lesen
    (JSON-LD/schema.org bzw. Meta-Tags – dieselben Angaben, die Shops für Google bereitstellen).
 3. Die KI prüft nur, welche Seiten genau das gesuchte Produkt neu anbieten (kein Zubehör, anderes Modell,
-   Gebrauchtware) – sie schätzt keinen Preis. Neupreis = Median der passenden Shops in CHF.
+   Gebrauchtware) – sie schätzt keinen Preis. Neupreis = günstigster passender Shop in CHF.
 Nichts gefunden → kein Neupreis (dann von Hand eintragen). Von Hand eingetragene Preise haben Vorrang.
 Nebenbei schätzt die KI die typische Versandgrösse des Produkts (delivery.SIZES).
 """
@@ -15,7 +15,6 @@ import html
 import json
 import logging
 import re
-import statistics
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -168,9 +167,10 @@ def lookup(query: str) -> dict | None:
     if not picked:
         return {"price": None, "note": "Kein Neupreis online gefunden – bei Bedarf von Hand eintragen",
                 "offers": [], "size": size, "weight": weight}
-    price = round(statistics.median(o["price_chf"] for o in picked))
+    best = picked[0]  # günstigstes passendes Angebot
+    price = round(best["price_chf"])
     product = str(r.get("product") or query)[:60]
-    note = f"{product} · Median aus {len(picked)} Shop{'s' if len(picked) > 1 else ''}"
+    note = f"{product} · günstigster bei {best['shop']}" + (f" (von {len(picked)} Shops)" if len(picked) > 1 else "")
     keep = [{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")} for o in picked[:8]]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
 
