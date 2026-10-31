@@ -199,6 +199,11 @@ def init_db() -> None:
         if "sort_by" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN sort_by TEXT NOT NULL DEFAULT 'score'")  # score | price
 
+        # willhaben-Links ohne /iad/ führten auf 404 und galten deshalb fälschlich als verkauft
+        c.execute("""UPDATE listings SET url = replace(url, 'willhaben.at/kaufen-und-verkaufen/', 'willhaben.at/iad/kaufen-und-verkaufen/'),
+                                         gone_at = NULL, checked_at = NULL
+                     WHERE platform = 'willhaben' AND url LIKE '%willhaben.at/kaufen-und-verkaufen/%'""")
+
         p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
         if "blocked_at" not in p_cols:
             c.execute("ALTER TABLE platforms ADD COLUMN blocked_at TEXT")  # letzte Sperre (403/429/Captcha)

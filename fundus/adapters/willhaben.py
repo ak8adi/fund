@@ -32,6 +32,8 @@ class WillhabenAdapter(ScrapedAdapter):
                 return url
             if not url.startswith("/"):
                 url = "/" + url
+            if not url.startswith("/iad/"):  # SEO_URL kommt ohne /iad – ohne das Präfix antwortet willhaben mit 404
+                url = "/iad" + url
             return f"{self.base_url}{url}"
         return None
 
