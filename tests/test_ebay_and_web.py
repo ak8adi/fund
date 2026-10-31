@@ -150,3 +150,28 @@ def test_scam_note_hides_hit(monkeypatch):
     ai._store_facts(db.get_search(sid), {"key": l2.key, "relevant": True, "scam": True, "reason": "Nur Vorauskasse"})
     h2 = next(h for h in db.hits_for_search(sid) if h["key"] == l2.key)
     assert h2["ai_relevant"] == 0 and h2["ai_reason"] == f"{db.SCAM} – Nur Vorauskasse"
+
+
+def test_search_edit_applies_exclude_words(monkeypatch):
+    from fundus import ai, runner
+    from fundus.models import Listing
+    from fundus.web import app as webapp
+
+    monkeypatch.setattr(runner, "run_in_background", lambda *a, **k: True)
+    started = []
+    monkeypatch.setattr(ai, "start_background_evaluation", lambda sid: started.append(sid))
+    assert webapp._num("1'200.-") == 1200 and webapp._num("CHF 80") == 80 and webapp._num("abc") is None
+    sid = db.save_search({"query": "sensor bar", "exclude": "dell"})
+    for i, title in enumerate(("Sensor Bar Modell 2024", "Sensor Bar Dell Edition")):
+        l = Listing(platform="tutti", external_id=str(i), title=title, url=f"https://x/{i}", price=100, currency="CHF")
+        db.upsert_listing(l, "ok", [])
+        db.add_hit(sid, l.key, False)
+        db.update_hit_ai(sid, l.key, i == 0, "x" if i == 0 else "Ausgeschlossener Begriff")
+    with TestClient(webapp.app) as client:
+        # Ausschlusswort entfernt → zuvor ausgeschlossener Treffer wird neu geprüft
+        r = client.post(f"/search/{sid}", data={"query": "sensor bar", "exclude": "", "min_price": "abc",
+                                                "allow_sets": "on"})
+        assert r.status_code == 200
+    by_key = {h["key"]: h for h in db.hits_for_search(sid)}
+    assert by_key["tutti:1"]["ai_relevant"] is None and by_key["tutti:0"]["ai_relevant"] == 1
+    assert started == [sid]

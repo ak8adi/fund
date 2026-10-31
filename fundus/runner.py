@@ -13,7 +13,7 @@ from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapt
 from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page
 from .config import get_config
-from .matching import matches_query
+from .matching import excluded, matches_query
 from .models import Listing
 from .notify import notify_hits
 from .trust import assess, price_in_chf
@@ -68,8 +68,7 @@ def is_running() -> bool:
 def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
     out = []
     for l in listings:
-        title = l.title.lower()
-        if any(w in title for w in search["exclude_words"]):
+        if excluded(search["exclude_words"], l.title):
             continue
         if not matches_query(search["query"], l.title):
             continue
@@ -204,8 +203,6 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             existing_hits = db.hits_for_search(search["id"])
             new_keys = {h["key"] for h in new_hits}
 
-            excl = [w.lower() for w in (search.get("exclude_words") or []) if w]
-
             for hit in existing_hits:
                 if desc_count >= 15:
                     break
@@ -217,10 +214,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     continue  # Ricardo: Einzelabrufe nur für neue Treffer, sonst droht eine Sperre
 
                 # Titel-Vorabcheck für existierende Inserate
-                if excl and hit.get("title"):
-                    if any(w in hit["title"].lower() for w in excl):
-                        db.update_hit_ai(search["id"], hit["key"], False, "Ausgeschlossener Begriff")
-                        continue
+                if excluded(search["exclude_words"], hit.get("title")):
+                    db.update_hit_ai(search["id"], hit["key"], False, "Ausgeschlossener Begriff")
+                    continue
 
                 try:
                     time.sleep(random.uniform(2, 4))

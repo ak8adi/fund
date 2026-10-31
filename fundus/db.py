@@ -211,10 +211,16 @@ def init_db() -> None:
 
 # ---------- Suchen ----------
 
+# Treffer, die zählen: nicht ausgeblendet, nicht als Fehltreffer erkannt, noch verfügbar
+RELEVANT = "h.hidden = 0 AND (h.ai_relevant IS NULL OR h.ai_relevant = 1) AND l.gone_at IS NULL"
+
+
 def list_searches(active_only: bool = False) -> list[dict]:
-    sql = """SELECT s.*,
-                    (SELECT COUNT(*) FROM hits h WHERE h.search_id = s.id AND h.hidden = 0) AS total,
-                    (SELECT COUNT(*) FROM hits h WHERE h.search_id = s.id AND h.is_new = 1 AND h.hidden = 0) AS unseen
+    sql = f"""SELECT s.*,
+                    (SELECT COUNT(*) FROM hits h JOIN listings l ON l.key = h.listing_key
+                      WHERE h.search_id = s.id AND {RELEVANT}) AS total,
+                    (SELECT COUNT(*) FROM hits h JOIN listings l ON l.key = h.listing_key
+                      WHERE h.search_id = s.id AND h.is_new = 1 AND {RELEVANT}) AS unseen
              FROM searches s"""
     if active_only:
         sql += " WHERE s.active = 1"
@@ -307,9 +313,11 @@ def set_search_notify(search_id: int, notify_new: bool, notify_weekly: bool) -> 
 def weekly_summary(days: int = 7) -> list[dict]:
     """Aktive Suchen mit Wochenübersicht: Treffer der letzten Tage und Gesamtzahl."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
-    sql = """SELECT s.id, s.query,
-                    (SELECT COUNT(*) FROM hits h WHERE h.search_id = s.id AND h.hidden = 0 AND h.first_seen >= ?) AS week,
-                    (SELECT COUNT(*) FROM hits h WHERE h.search_id = s.id AND h.hidden = 0) AS total
+    sql = f"""SELECT s.id, s.query,
+                    (SELECT COUNT(*) FROM hits h JOIN listings l ON l.key = h.listing_key
+                      WHERE h.search_id = s.id AND {RELEVANT} AND h.first_seen >= ?) AS week,
+                    (SELECT COUNT(*) FROM hits h JOIN listings l ON l.key = h.listing_key
+                      WHERE h.search_id = s.id AND {RELEVANT}) AS total
              FROM searches s WHERE s.active = 1 AND s.notify_weekly = 1 AND s.baseline_done = 1
              ORDER BY s.query"""
     with connect() as c:

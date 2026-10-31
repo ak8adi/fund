@@ -88,3 +88,13 @@ def test_prefilter_drops_titles_without_search_words(monkeypatch):
     FakeAdapter.inventory = [item(1, title="North Orbit Kite 9m"), item(2, title="Trapez Gr. M"), item(3, title="Kite 12m")]
     runner.run("test")
     assert {h["external_id"] for h in db.hits_for_search(sid)} == {"1"}
+
+
+def test_exclude_words_match_word_starts_in_title_only():
+    from fundus.matching import excluded
+    assert not excluded(["dell"], "CORE Sensor 4 Pro Bar Modell 2024")   # «Modell» ist kein Dell
+    assert excluded(["dell"], "Dell XPS 13")
+    assert excluded(["defekt"], "Kite defekter Bladder")
+    assert not excluded(["hp"], "Kiteshop Bar")
+    assert excluded(["double"], "Thule Urban Glide 3 Double")
+    assert not excluded([], "egal")

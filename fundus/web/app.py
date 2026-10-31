@@ -19,6 +19,7 @@ from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page
 from ..config import get_config, save_settings
+from ..matching import excluded
 from ..notify import format_price, image_url, send_test, send_weekly
 from ..scheduler import apply_schedule, next_runs, start_scheduler
 from ..trust import LEVELS
@@ -106,9 +107,14 @@ templates.env.globals["source_label"] = _source_label
 
 
 def _num(value: str | None) -> float | None:
-    if value is None or not value.strip():
+    """Zahl aus einem Formularfeld; «1'200», «1200.-», «CHF 80» werden verstanden, Unlesbares ergibt None."""
+    if value is None:
         return None
-    return float(value.replace("'", "").replace(",", "."))
+    cleaned = re.sub(r"[^\d.,]", "", value.replace("'", "")).replace(",", ".").rstrip(".")
+    try:
+        return float(cleaned) if cleaned else None
+    except ValueError:
+        return None
 
 
 def _ctx(request: Request, **kw) -> dict:
@@ -148,26 +154,8 @@ def edit_listing_description(request: Request, key: str, description: str = Form
     except Exception as e:
         log.error("Fehler beim Starten der KI-Neubewertung: %s", e)
 
-    # Re-fetch listing with new data
-    h = db.get_listing(key)
-    if not h:
-        return HTMLResponse("", status_code=404)
-
-    # Fetch hit info to inject into `h` like in `hits_for_search`
-    with db.connect() as c:
-        hit = c.execute("SELECT search_id, first_seen, is_new FROM hits WHERE listing_key = ?", (key,)).fetchone()
-        if hit:
-            h["search_id"] = hit["search_id"]
-            h["hit_seen"] = hit["first_seen"]
-            h["is_new"] = hit["is_new"]
-
-            search = db.get_search(hit["search_id"])
-            if search:
-                h["search_query"] = search["query"]
-                if search.get("platforms") and h["platform"] not in search["platforms"]:
-                    h["_inactive_platform"] = True
-
-    return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))
+    # Seite neu laden: der Treffer wird neu bewertet und rutscht an seinen neuen Platz
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 @app.get("/api/listing/{key}/description")
@@ -348,38 +336,43 @@ def update_search(
         from ..ai import start_background_evaluation
         start_background_evaluation(sid)
     elif search:
-        hits = db.hits_for_search(sid, include_hidden=False)
-
-        allow_sets_changed = old_search and (old_search["allow_sets"] != search["allow_sets"])
-
-        for h in hits:
-            # Re-evaluate due to allow_sets changing from False to True
-            if allow_sets_changed and search["allow_sets"] and h.get("ai_relevant") is False and h.get("ai_reason"):
-                reason = h["ai_reason"].lower()
-                if "set" in reason or "bundle" in reason:
-                    db.reset_hit_ai(sid, h["key"])
-                    continue
-
-            # Standard exclude words check
-            if h.get("ai_relevant") is not False:
-                txt = f"{h.get('title','')} {h.get('description_full','')}".lower()
-                if any(w in txt for w in search["exclude_words"]):
-                    db.set_hit_relevant(sid, h["key"], False, "Ausgeschlossener Begriff")
-                # Sets not allowed anymore
-                elif not search["allow_sets"] and h.get("ai_relevant") is not False:
-                    # Check if ai_reason mentions set/bundle, or if title does
-                    reason = (h.get("ai_reason") or "").lower()
-                    if "set" in reason or "bundle" in reason or "komplett" in txt or "set" in txt or "bundle" in txt or "+" in txt:
-                        db.reset_hit_ai(sid, h["key"])
-
+        changed = _apply_search_changes(sid, old_search, search)
         if old_search and platforms and (not old_search["platforms"] or set(platforms) - set(old_search["platforms"])):
             runner.run_in_background("neue Plattformen", [sid])
-
-        if allow_sets_changed:
+        elif changed:
             from ..ai import start_background_evaluation
             start_background_evaluation(sid)
 
     return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+def _apply_search_changes(sid: int, old: dict | None, search: dict) -> int:
+    """Geänderte Ausschlusswörter und Set-Einstellung auf bestehende Treffer anwenden.
+    Gibt die Zahl der Treffer zurück, die die KI neu prüfen muss."""
+    if not old:
+        return 0
+    sets_changed = old["allow_sets"] != search["allow_sets"]
+    words_changed = old["exclude_words"] != search["exclude_words"]
+    if not (sets_changed or words_changed):
+        return 0
+    reset = 0
+    for h in db.hits_for_search(sid, limit=5000):
+        is_excluded = excluded(search["exclude_words"], h.get("title"))  # wie im Prüflauf
+        reason = (h.get("ai_reason") or "").lower()
+        if is_excluded:
+            if h.get("ai_relevant") != 0:
+                db.set_hit_relevant(sid, h["key"], False, "Ausgeschlossener Begriff")
+        elif reason == "ausgeschlossener begriff":
+            db.reset_hit_ai(sid, h["key"])  # Wort entfernt: wieder prüfen
+            reset += 1
+        elif sets_changed and h.get("ai_relevant") == 0 and search["allow_sets"] and ("set" in reason or "bundle" in reason):
+            db.reset_hit_ai(sid, h["key"])  # Sets jetzt erlaubt
+            reset += 1
+        elif sets_changed and h.get("ai_relevant") == 1 and not search["allow_sets"] and h.get("ai_set_items"):
+            db.reset_hit_ai(sid, h["key"])  # Sets nicht mehr erlaubt: KI prüft, ob einzeln verkauft
+            reset += 1
+    scoring.rescore_search(sid)
+    return reset
 
 
 @app.post("/search/{sid}/newprice")
@@ -416,11 +409,7 @@ def run_one(sid: int):
 
 @app.post("/search/{sid}/ai")
 def run_ai(sid: int):
-    from ..ai import evaluate_listings
-    try:
-        evaluate_listings(sid)
-    except Exception as e:
-        log.error("AI Error: %s", e)
+    ai.start_background_evaluation(sid)  # im Hintergrund – die Seite zeigt den Fortschritt
     return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
@@ -543,8 +532,7 @@ def weekly_now():
 @app.post("/api/listing/{key:path}/generate_question", response_class=HTMLResponse)
 def api_generate_question(request: Request, key: str, search_id: int = Form(...)):
     ai.generate_seller_question(key, search_id)
-    hits = _enriched_hits_for_search(search_id) if "_enriched_hits_for_search" in globals() else db.hits_for_search(search_id)
-    h = next((x for x in hits if x["key"] == key), None)
+    h = next((x for x in db.hits_for_search(search_id, include_hidden=True, limit=5000) if x["key"] == key), None)
     if not h:
         return HTMLResponse("")
     h["search_id"] = search_id
@@ -557,12 +545,8 @@ def api_update_chat(request: Request, key: str, search_id: int = Form(...), sell
         db.set_hit_relevant(search_id, key, False, db.SCAM)
         scoring.rescore_search(search_id)
     ai.reevaluate_single_listing(key, search_id)
-    hits = _enriched_hits_for_search(search_id) if "_enriched_hits_for_search" in globals() else db.hits_for_search(search_id)
-    h = next((x for x in hits if x["key"] == key), None)
-    if not h:
-        return HTMLResponse("")
-    h["search_id"] = search_id
-    return templates.TemplateResponse(request, "_hit.html", _ctx(request, h=h))
+    # Neu laden statt nur die Karte zu ersetzen: Platz in der Liste, Ausblenden und Sortierung stimmen sofort
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
 from markupsafe import Markup as _Markup

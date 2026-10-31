@@ -12,7 +12,7 @@ from .adapters import all_adapters, adapter_for_source
 from .adapters.base import GoneError, fetch_html
 from .adapters.extract import extract_description_from_page
 from . import scoring
-from .matching import matches_query
+from .matching import excluded, matches_query
 from .notify import notify_top_hits
 
 log = logging.getLogger(__name__)
@@ -164,10 +164,9 @@ def evaluate_listings(search_id: int) -> int:
     # Günstige Vorprüfungen ohne Gemini
     done = 0
     to_evaluate = []
-    excl = search.get("exclude_words") or []
     for h in open_hits:
         txt = f"{h.get('title','')} {h.get('description_full') or ''}".lower()
-        if excl and any(w in txt for w in excl):
+        if excluded(search.get("exclude_words") or [], h.get("title")):
             db.update_hit_ai(search_id, h["key"], False, "Ausgeschlossener Begriff")
             done += 1
         elif not matches_query(search["query"], h.get("title", "")):
