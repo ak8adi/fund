@@ -1,4 +1,5 @@
-{% set txt = ((h.title or '') ~ ' ' ~ (h.description_full or '')) | lower %}
+{# Zustand ohne KI nur aus dem Titel raten – Beschreibungen sagen oft «keine Defekte» #}
+{% set txt = (h.title or '') | lower %}
 {% set ai_cond = {'neu': ('Neu', 'good'), 'neuwertig': ('Neuwertig', 'good'), 'sehr gut': ('Sehr gut', 'good'), 'gut': ('Gut', ''), 'gebraucht': ('Gebraucht', ''), 'defekt': ('Defekt', 'bad')} %}
 {% if h.ai_condition in ai_cond %}{% set cond, cond_cls = ai_cond[h.ai_condition] %}
 {% elif 'defekt' in txt or 'bastler' in txt %}{% set cond, cond_cls = 'Defekt', 'bad' %}

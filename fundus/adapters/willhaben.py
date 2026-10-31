@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 
 from ..models import Listing, Seller
-from .extract import extract_listings, parse_price, json_blobs, walk
+from .extract import parse_price
 from .scraped import ScrapedAdapter
 
 

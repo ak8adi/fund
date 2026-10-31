@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 from fundus.adapters.willhaben import WillhabenAdapter
 from fundus.adapters.extract import extract_description_from_page
 from fundus.config import get_config

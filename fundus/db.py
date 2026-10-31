@@ -106,20 +106,20 @@ def connect() -> Iterator[sqlite3.Connection]:
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
-        _ensure_chat_cols(conn)
         conn.commit()
     finally:
         conn.close()
 
 
 def _ensure_chat_cols(conn):
-    try: conn.execute('ALTER TABLE searches ADD COLUMN require_shipping INTEGER DEFAULT 0')
-    except Exception: pass
-    for col in ('seller_chat TEXT', 'draft_question TEXT'):
-        try:
-            conn.execute(f'ALTER TABLE listings ADD COLUMN {col}')
-        except Exception:
-            pass
+    """Spalten aus späteren Versionen – einmal beim Start (init_db), nicht bei jeder Verbindung."""
+    s_cols = {r["name"] for r in conn.execute("PRAGMA table_info(searches)")}
+    if "require_shipping" not in s_cols:
+        conn.execute("ALTER TABLE searches ADD COLUMN require_shipping INTEGER DEFAULT 0")
+    l_cols = {r["name"] for r in conn.execute("PRAGMA table_info(listings)")}
+    for col in ("seller_chat", "draft_question"):
+        if col not in l_cols:
+            conn.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
 
 HIT_AI_SELECT = ", ".join(f"h.{col}" for col in (
     "ai_relevant", "ai_reason", "ai_condition", "ai_shipping", "single_price", "ai_year", "ai_shipping_cost", "ai_score",
@@ -172,6 +172,7 @@ def init_db() -> None:
     with connect() as c:
         c.execute("PRAGMA journal_mode = WAL")
         c.executescript(SCHEMA)
+        _ensure_chat_cols(c)
         cols = {r["name"] for r in c.execute("PRAGMA table_info(searches)")}
         for col in ("notify_new", "notify_weekly", "allow_sets"):  # Migration bestehender Datenbanken
             if col not in cols:
@@ -475,8 +476,10 @@ def set_scores(search_id: int, market_price: float | None, scores: list[tuple]) 
 def get_ai_progress() -> tuple[int, int]:
     """(bewertet, gesamt) über alle sichtbaren Treffer."""
     with connect() as c:
-        row = c.execute(
-            "SELECT COUNT(*) AS total, SUM(ai_relevant IS NOT NULL) AS evaluated FROM hits WHERE hidden = 0"
+        row = c.execute(  # nur was die KI überhaupt prüft: aktive Suchen, noch verfügbare Inserate
+            """SELECT COUNT(*) AS total, SUM(h.ai_relevant IS NOT NULL) AS evaluated
+               FROM hits h JOIN listings l ON l.key = h.listing_key JOIN searches s ON s.id = h.search_id
+               WHERE h.hidden = 0 AND s.active = 1 AND l.gone_at IS NULL"""
         ).fetchone()
         return int(row["evaluated"] or 0), int(row["total"] or 0)
 

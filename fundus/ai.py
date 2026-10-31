@@ -188,7 +188,7 @@ def evaluate_listings(search_id: int) -> int:
     # der Prüflauf lädt dort nur neue Treffer (runner.py)
     adapters = all_adapters(cfg)
     for h in to_evaluate:
-        if h.get("description_full") or h["platform"] not in ("tutti", "kleinanzeigen", "willhaben"):
+        if h.get("description_full") or h["platform"] not in ("tutti", "anibis", "kleinanzeigen", "willhaben", "blocket"):
             continue
         try:
             time.sleep(random.uniform(1, 2))
@@ -283,19 +283,22 @@ def _call_gemini_text(prompt: str, system_instruction: str = "") -> str:
     return ""
 
 def generate_seller_question(key: str, search_id: int) -> str:
-    hits = db.hits_for_search(search_id)
+    hits = db.hits_for_search(search_id, include_hidden=True, limit=5000)
     h = next((x for x in hits if x["key"] == key), None)
     if not h:
         return ""
     search = db.get_search(search_id) or {}
+    req = (search.get("requirements") or "").strip()
+    req_line = f"Meine Anforderungen: {req} (Stand laut KI: {h.get('ai_req') or 'offen'}, {h.get('ai_req_note') or '–'})\n" if req else ""
     prompt = f"""Gesuchtes Produkt: {search.get('query', '')}
-Inserat-Titel: {h.get('title', '')}
+{req_line}Inserat-Titel: {h.get('title', '')}
 Preis: {h.get('price')} {h.get('currency')}
 Beschreibung: {(h.get('description_full') or '')[:1000]}
 Bisheriges KI-Fazit: {h.get('ai_reason') or ''}
 Bisheriger Chat: {h.get('seller_chat') or ''}
 
-Formuliere eine kurze, höfliche, direkte Nachricht an den Verkäufer (2-4 Sätze, ohne Platzhalter in eckigen Klammern), die die wichtigsten offenen Punkte klärt (z.B. Zustand/Mängel, Einzelkauf falls Set, Alter/Rechnung oder ein realistisches Preisangebot)."""
+Formuliere eine kurze, höfliche, direkte Nachricht an den Verkäufer (2-4 Sätze, ohne Platzhalter in eckigen Klammern), die die wichtigsten offenen Punkte klärt (z.B. unklare Anforderungen, Zustand/Mängel, Einzelkauf falls Set, Versand in die Schweiz bzw.
+nach Jestetten (DE), Alter/Rechnung oder ein realistisches Preisangebot). Schreibe in der Sprache des Inserats."""
     draft = _call_gemini_text(prompt, "Du bist ein erfahrener Gebrauchtwaren-Käufer. Antworte nur mit dem direkten Nachrichtentext.")
     if draft:
         db.update_listing_draft(key, draft)
