@@ -575,15 +575,16 @@ def price_chf_html(amount, currency: str | None = "CHF", approx: bool = False):
     elif cur in ("£", "GBP"): cur = "GBP"
     elif cur in ("CHF", "FR", "FR.", "SFR"): cur = "CHF"
 
-    if cur == "CHF":
-        chf_r = _round_chf_generous(val)
-        return _Markup(f"{'≈ ' if approx else ''}{chf_r} CHF")
+    def fmt(v: float) -> str:
+        return f"{v:,.0f}".replace(",", "'")
+
+    if cur == "CHF":  # Frankenpreise genau zeigen; gerundet wird nur Geschätztes
+        return _Markup(f"≈ {fmt(_round_chf_generous(val))} CHF" if approx else f"{fmt(val)} CHF")
 
     rates = fx_rates.rates(get_config())
     rate = rates.get(cur, 0.94)
     chf_r = _round_chf_generous(val * rate)
-    orig_r = int(round(val))
-    return _Markup(f'{"≈ " if approx else "~"}{chf_r} CHF <span class="orig-price">({orig_r} {cur})</span>')
+    return _Markup(f'{"≈ " if approx else "~"}{fmt(chf_r)} CHF <span class="orig-price">({fmt(val)} {cur})</span>')
 
 templates.env.globals['price'] = price_chf_html
 templates.env.filters['img'] = lambda url: image_url(url, large=False)

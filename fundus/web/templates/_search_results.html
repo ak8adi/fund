@@ -30,7 +30,8 @@
   {% endif %}
 >
   {% if top_hits %}
-    <h2 class="section-title">Beste Angebote{% if search.market_price %} <span class="muted small" style="text-transform:none;letter-spacing:0;font-weight:500;">· Marktpreis {{ price(search.market_price, 'CHF') }}, Median der passenden Treffer</span>{% endif %}</h2>
+    <h2 class="section-title">Beste Angebote</h2>
+    {% if search.market_price %}<p class="muted small" style="margin-top:-6px;">Marktpreis {{ price(search.market_price, 'CHF') }} – Median der passenden Treffer</p>{% endif %}
     <div class="hits wide">
       {% for h in top_hits %}{% include "_hit.html" %}{% endfor %}
     </div>
