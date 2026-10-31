@@ -175,3 +175,55 @@ def test_search_edit_applies_exclude_words(monkeypatch):
     by_key = {h["key"]: h for h in db.hits_for_search(sid)}
     assert by_key["tutti:1"]["ai_relevant"] is None and by_key["tutti:0"]["ai_relevant"] == 1
     assert started == [sid]
+
+
+def test_every_route_answers(monkeypatch):
+    """Rundgang durch alle Seiten und Formulare: keine Route darf mit einem Serverfehler antworten."""
+    from fundus import ai, newprice, notify, runner
+    from fundus.models import Listing
+    from fundus.web import app as webapp
+
+    monkeypatch.setattr(runner, "run_in_background", lambda *a, **k: True)
+    monkeypatch.setattr(newprice, "refresh_in_background", lambda sid: None)
+    monkeypatch.setattr(ai, "start_background_evaluation", lambda sid: None)
+    monkeypatch.setattr(ai, "generate_seller_question", lambda key, sid: None)
+    monkeypatch.setattr(ai, "reevaluate_single_listing", lambda key, sid: False)
+    monkeypatch.setattr(notify, "_publish", lambda cfg, payload: True)
+    monkeypatch.setattr(webapp, "send_test", lambda cfg: True)
+    with TestClient(webapp.app) as client:
+        r = client.post("/searches", data={"query": "core sensor 4", "new_price": "700", "max_price": "600",
+                                           "exclude": "dell", "requirements": "nur 52 cm"}, follow_redirects=False)
+        sid = int(r.headers["location"].rsplit("/", 1)[1])
+        l = Listing(platform="tutti", external_id="1", title="Core Sensor 4 Pro Bar", url="https://x/1", price=400,
+                    currency="CHF")
+        db.upsert_listing(l, "ok", [])
+        db.add_hit(sid, l.key, True)
+        db.update_hit_ai(sid, l.key, True, "passt", "gut", req="ja", req_note="52 cm")
+        db.update_listing_description(l.key, "Bar in gutem Zustand")
+        key = l.key
+
+        gets = ["/", f"/search/{sid}", f"/search/{sid}/results", "/status", "/settings", "/settings?saved=ntfy",
+                f"/api/listing/{key}/description"]
+        for url in gets:
+            assert client.get(url).status_code == 200, url
+        posts = [
+            (f"/search/{sid}/sort", {"by": "price"}), (f"/search/{sid}/sort", {"by": "score"}),
+            (f"/search/{sid}", {"query": "core sensor 4", "new_price": "", "exclude": "", "requirements": ""}),
+            (f"/search/{sid}/newprice", {}), (f"/search/{sid}/run", {}), (f"/search/{sid}/ai", {}),
+            (f"/api/listing/{key}/generate_question", {"search_id": sid}),
+            (f"/api/listing/{key}/update_chat", {"search_id": sid, "seller_chat": "inkl. Versand"}),
+            (f"/api/listing/{key}/edit_description", {"description": "Leinen neu"}),
+            (f"/search/{sid}/hide", {"key": key}), (f"/search/{sid}/restore", {"key": key}),
+            ("/run", {}), ("/platforms/tutti/toggle", {}), ("/platforms/tutti/toggle", {}),
+            ("/settings/ntfy", {"topic": "t", "server": "https://ntfy.sh"}), ("/ntfy/test", {}),
+            ("/settings/ebay", {"app_id": "", "cert_id": ""}), ("/settings/ai", {"gemini_api_key": ""}),
+            ("/settings/schedule", {"times": "07:40, 18:20", "jitter_minutes": "25"}),
+            ("/settings/schedule", {"times": "25:99", "jitter_minutes": "x"}),
+            ("/settings/notify", {"weekly_time": "08:00", "weekly_day": "mon", "on_new": "on", f"new_{sid}": "on"}),
+            ("/settings/notify", {"weekly_time": "nope"}), ("/ntfy/weekly", {}),
+            (f"/search/{sid}/toggle", {}), (f"/search/{sid}/delete", {}), ("/search/999/toggle", {}),
+        ]
+        for url, data in posts:
+            resp = client.post(url, data=data)
+            assert resp.status_code < 500, (url, resp.status_code)
+        assert client.get(f"/search/{sid}", follow_redirects=False).status_code == 303  # gelöscht → Startseite

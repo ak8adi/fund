@@ -21,7 +21,8 @@
 </div>
 <p class="muted small subline">
   {% if not search.baseline_done %}Bestand wird gerade eingelesen …{% else %}zuletzt geprüft {{ search.last_run_at | ago }}{% endif %}
-  · {{ hits | length }} Treffer
+  {% set n_match = hits | rejectattr('gone_at') | rejectattr('_inactive_platform') | rejectattr('ai_relevant', 'equalto', 0) | list | length %}
+  · {{ n_match }} passende Treffer{% if hits | length > n_match %} <span title="Zubehör, andere Modelle, verkauft">({{ hits | length - n_match }} aussortiert)</span>{% endif %}
   {% if search.max_price %} · bis {{ search.max_price | int }} CHF{% endif %}
 </p>
 {% if search.new_price %}
