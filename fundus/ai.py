@@ -10,7 +10,7 @@ from . import db
 from .config import get_config
 from .adapters import all_adapters, adapter_for_source
 from .adapters.base import GoneError, fetch_html
-from .adapters.extract import extract_description_from_page
+from .adapters.extract import extract_description_from_page, shipping_from_page
 from . import scoring
 from .matching import excluded, matches_query
 from .notify import notify_top_hits
@@ -122,8 +122,9 @@ def _store_facts(search: dict, r: dict) -> bool:
         relevant, reason = False, f"{db.SCAM} – {reason}" if reason else db.SCAM
     condition = r.get("condition") if r.get("condition") in CONDITIONS else "unbekannt"
     shipping = r.get("shipping") if r.get("shipping") in ("ja", "nein", "unbekannt") else "unbekannt"
+    shipping = listing.get("ship_flag") or shipping  # Angabe der Plattform schlägt die Schätzung aus dem Text
     if relevant and shipping == "nein" and search.get("require_shipping"):
-        relevant, reason = False, "Kein Versand (nur Abholung)"
+        relevant, reason = False, db.NO_SHIPPING
     try:
         single = float(r["single_price"]) if r.get("single_price") is not None else None
     except (TypeError, ValueError):
@@ -156,6 +157,32 @@ def _store_facts(search: dict, r: dict) -> bool:
     return True
 
 
+def apply_platform_shipping(key: str, flag: str | None, rescore: bool = True) -> set[int]:
+    """Versandangabe der Plattform übernehmen – gleich für alle Plattformen und alle Suchen mit dem Inserat.
+
+    Bewertete Treffer bekommen sie sofort (Lieferweg, Endpreis); bei «Nur mit Versand» und «nein» fliegt der
+    Treffer raus. Wurde er wegen «kein Versand» aussortiert und die Plattform sagt «ja», prüft die KI neu.
+    Gibt die betroffenen Suchen zurück."""
+    if flag not in ("ja", "nein") or not db.update_listing_shipping(key, flag):
+        return set()
+    changed = set()
+    for hit in db.hits_of_listing(key):
+        sid = hit["search_id"]
+        if hit["ai_relevant"] is None:
+            continue  # die KI-Auswertung übernimmt die Angabe (_store_facts)
+        if flag == "ja" and hit["ai_reason"] == db.NO_SHIPPING:
+            db.reset_hit_ai(sid, key)
+        else:
+            db.set_hit_shipping(sid, key, flag)
+            if flag == "nein" and hit["require_shipping"] and hit["ai_relevant"] == 1:
+                db.set_hit_relevant(sid, key, False, db.NO_SHIPPING)
+        changed.add(sid)
+    if rescore:
+        for sid in changed:
+            scoring.rescore_search(sid)
+    return changed
+
+
 def evaluate_listings(search_id: int) -> int:
     """Bewertet bis zu 20 offene Treffer einer Suche. Gibt die Zahl erledigter Treffer zurück (0 = fertig)."""
     cfg = get_config()
@@ -179,8 +206,9 @@ def evaluate_listings(search_id: int) -> int:
             # Treffer von vor dem Vorfilter (runner._filter)
             db.update_hit_ai(search_id, h["key"], False, "Suchwörter fehlen im Titel")
             done += 1
-        elif search.get("require_shipping") and any(t in txt for t in _NO_SHIP):
-            db.update_hit_ai(search_id, h["key"], False, "Kein Versand (nur Abholung)")
+        elif search.get("require_shipping") and (h.get("ship_flag") == "nein" or (
+                h.get("ship_flag") != "ja" and any(t in txt for t in _NO_SHIP))):
+            db.update_hit_ai(search_id, h["key"], False, db.NO_SHIPPING)
             done += 1
         else:
             to_evaluate.append(h)
@@ -204,6 +232,7 @@ def evaluate_listings(search_id: int) -> int:
             if desc:
                 db.update_listing_description(h["key"], desc)
                 h["description_full"] = desc
+            apply_platform_shipping(h["key"], shipping_from_page(page, h["platform"]), rescore=False)
         except GoneError:
             db.mark_listing_gone(h["key"])
         except Exception as exc:

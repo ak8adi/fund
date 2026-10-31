@@ -337,6 +337,25 @@ def extract_description_from_page(page: str, platform: str) -> str | None:
     return None
 
 
+def shipping_from_page(page: str, platform: str) -> str | None:
+    """Versandangabe der Plattform selbst (Feld im Inserat, nicht der Text): "ja", "nein" oder None.
+
+    Die Plattform-Angabe gilt vor der KI-Schätzung aus der Beschreibung – dort steht oft nichts dazu.
+    Ricardo blockt Einzelabrufe, Blocket und markt.de haben auf der Inseratseite kein eindeutiges Feld."""
+    if platform == "kleinanzeigen":
+        m = re.search(r'"Versand"\s*:\s*"(ja|nein)"', page)  # Tracking-Daten des Inserats
+        return m.group(1) if m else None
+    if platform in ("tutti", "anibis"):
+        m = re.search(r'>Versand verfügbar</span></dt>\s*<dd[^>]*>\s*<span[^>]*>\s*(Ja|Nein)\s*<', page)
+        return m.group(1).lower() if m else None
+    if platform == "willhaben":
+        m = re.search(r'>Übergabe</span></div>\s*<div[^>]*>([^<]+)<', page)
+        if m:
+            return "ja" if "Versand" in m.group(1) else "nein"
+        return "ja" if re.search(r'"payliveryEnabled"\s*:\s*true', page) else None
+    return None
+
+
 def _to_listing(d: dict, platform: str, base_url: str, url_builder) -> Listing | None:
     raw_id = _first(d, ID_KEYS) or _id_from_url(d)
     title = str(_first(d, TITLE_KEYS)).strip()

@@ -9,9 +9,10 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from . import db, fx as fx_rates, newprice, scoring
+from .ai import apply_platform_shipping
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
-from .adapters.extract import extract_description_from_page
+from .adapters.extract import extract_description_from_page, shipping_from_page
 from .config import get_config
 from .matching import excluded, matches_query
 from .models import Listing
@@ -63,6 +64,10 @@ def available_sources(cfg: dict) -> list[dict]:
 
 def is_running() -> bool:
     return _run_lock.locked()
+
+
+# Plattformen, deren Inseratseite die Versandangabe als Feld zeigt (extract.shipping_from_page)
+SHIP_FLAG_PLATFORMS = ("kleinanzeigen", "tutti", "anibis", "willhaben")
 
 
 def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
@@ -152,6 +157,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     "image": l.image, "platform": l.platform, "location": l.location,
                     "trust_level": t.level, "trust_label": t.label, "trust_reasons": t.reasons,
                 })
+        for l in collected:  # Versand laut Suchergebnis-Karte (Kleinanzeigen, Willhaben, Blocket)
+            apply_platform_shipping(l.key, l.shipping, rescore=False)
         db.mark_search_run(search["id"])
         if newprice.is_stale(search):  # Neupreis beim ersten Lauf, danach monatlich auffrischen
             newprice.refresh(search["id"])
@@ -188,6 +195,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
 
                 if desc:
                     db.update_listing_description(key, desc)
+                apply_platform_shipping(key, shipping_from_page(page, hit["platform"]))
                 desc_count += 1
             except GoneError:
                 db.mark_listing_gone(key)
@@ -227,6 +235,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
 
                     if desc:
                         db.update_listing_description(hit["key"], desc)
+                    apply_platform_shipping(hit["key"], shipping_from_page(page, hit["platform"]))
                     desc_count += 1
                 except GoneError:
                     db.mark_listing_gone(hit["key"])
@@ -240,14 +249,19 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
 
         # Die besten Treffer, die nicht mehr in den Suchergebnissen auftauchen, direkt prüfen:
         # Nur Seite 1 wird abgefragt, «nicht gesehen» heisst also nicht «verkauft».
-        for hit in db.top_hits_to_check(search["id"]):
+        # Dazu die besten Treffer ohne Versandangabe der Plattform: die Suchkarte zeigt «Nur Abholung» nicht immer.
+        to_check = {h["key"]: h for h in db.top_hits_to_check(search["id"])}
+        for h in db.top_hits_without_ship_flag(search["id"], SHIP_FLAG_PLATFORMS):
+            to_check.setdefault(h["key"], h)
+        for hit in to_check.values():
             if hit["platform"] in ("ebay", "ricardo") or hit["platform"] in blocked:
                 continue
             try:
                 time.sleep(random.uniform(2, 4))
                 adapter = adapter_for_source(adapters, hit["platform"])
-                fetch_html(hit["url"], adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http")
+                page = fetch_html(hit["url"], adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http")
                 db.mark_listing_checked(hit["key"])
+                apply_platform_shipping(hit["key"], shipping_from_page(page, hit["platform"]))
             except GoneError:
                 db.mark_listing_gone(hit["key"])
                 log.info("Inserat nicht mehr verfügbar: %s", hit["url"])

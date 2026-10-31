@@ -112,11 +112,12 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
             return value * vat_rate, f" · MWST {vat_rate * 100:.1f} % am Zoll"
         return 0.0, f" · ohne MWST (unter {vat_limit} CHF)"
 
-    if h.get("ai_shipping") == "nein" or size == "fracht":
+    shipping = h.get("ship_flag") or h.get("ai_shipping")  # Angabe der Plattform vor der KI-Schätzung
+    if shipping == "nein" or size == "fracht":
         minutes = drive_minutes(place, country, delivery) if place else None
         tax, tax_txt = vat(price)
         where = f"Abholung in {place}" if place else "Abholung"
-        if size == "fracht" and h.get("ai_shipping") != "nein":
+        if size == "fracht" and shipping != "nein":
             where += " (zu gross für Paket)"
         penalty = (min(15, round(minutes / 60 * PICKUP_PENALTY_PER_HOUR)) if minutes is not None
                    else 0 if country == home else PICKUP_UNKNOWN_PENALTY)

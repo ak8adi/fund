@@ -17,6 +17,9 @@ class BlocketAdapter(ScrapedAdapter):
     def parse(self, page: str, source: str = "blocket") -> list[Listing]:
         listings = []
         seen_ids = set()
+        # «Kan skickas» steht nur auf den Karten, nicht im JSON-LD; ohne Label: keine Angabe
+        ships = {m.group(1) for a in re.findall(r"<article\b.*?</article>", page, re.S) if "Kan skickas" in a
+                 for m in [re.search(r"/item/(\d+)", a)] if m}
 
         for blob in json_blobs(page):
             if isinstance(blob, dict) and blob.get("@type") == "ItemList":
@@ -55,7 +58,8 @@ class BlocketAdapter(ScrapedAdapter):
                             country="SE",
                             posted_at=datetime.now(timezone.utc),
                             source=source,
-                            seller=Seller()
+                            seller=Seller(),
+                            shipping="ja" if ext_id in ships else None,
                         ))
 
             if isinstance(blob, dict) and blob.get("@type") == "BreadcrumbList":
@@ -98,7 +102,8 @@ class BlocketAdapter(ScrapedAdapter):
                             country="SE",
                             posted_at=datetime.now(timezone.utc),
                             source=source,
-                            seller=Seller()
+                            seller=Seller(),
+                            shipping="ja" if ext_id in ships else None,
                         ))
 
         for l in listings:  # Ort steht nur in der Ergebnis-Karte, nicht in den Strukturdaten

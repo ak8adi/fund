@@ -31,6 +31,7 @@ class Listing:
     source: str | None = None             # Unterquelle, z.B. "EBAY_DE"
     seller: Seller = field(default_factory=Seller)
     description_full: str | None = None
+    shipping: str | None = None           # Versand laut Plattform: "ja", "nein" oder None (keine Angabe)
 
     @property
     def key(self) -> str:

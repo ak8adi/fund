@@ -185,6 +185,8 @@ def init_db() -> None:
             c.execute("ALTER TABLE listings ADD COLUMN gone_at TEXT")  # Inseratseite antwortet 404/410
         if "checked_at" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN checked_at TEXT")  # letzte Verfügbarkeitsprüfung
+        if "ship_flag" not in l_cols:
+            c.execute("ALTER TABLE listings ADD COLUMN ship_flag TEXT")  # Versand laut Plattform: ja/nein
         _migrate_ai_to_hits(c, l_cols)
         if "market_price" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN market_price REAL")
@@ -399,6 +401,36 @@ def top_hits_to_check(search_id: int, limit: int = 3) -> list[dict]:
         return [dict(r) for r in c.execute(sql, (search_id, limit))]
 
 
+def update_listing_shipping(key: str, flag: str) -> bool:
+    """Versandangabe der Plattform speichern. True, wenn sie neu oder anders ist."""
+    with connect() as c:
+        return c.execute("UPDATE listings SET ship_flag = ? WHERE key = ? AND ship_flag IS NOT ?",
+                         (flag, key, flag)).rowcount > 0
+
+
+def hits_of_listing(key: str) -> list[dict]:
+    with connect() as c:
+        return [dict(r) for r in c.execute(
+            """SELECT h.search_id, h.ai_relevant, h.ai_reason, s.require_shipping FROM hits h
+               JOIN searches s ON s.id = h.search_id WHERE h.listing_key = ?""", (key,))]
+
+
+def set_hit_shipping(search_id: int, key: str, flag: str) -> None:
+    with connect() as c:
+        c.execute("UPDATE hits SET ai_shipping = ? WHERE search_id = ? AND listing_key = ?", (flag, search_id, key))
+
+
+def top_hits_without_ship_flag(search_id: int, platforms: tuple[str, ...], limit: int = 5) -> list[dict]:
+    """Bestbewertete Treffer, deren Versandangabe der Plattform noch fehlt – die Karte zeigt sie nicht immer."""
+    marks = ",".join("?" * len(platforms))
+    sql = f"""SELECT l.key, l.url, l.platform FROM hits h JOIN listings l ON l.key = h.listing_key
+              WHERE h.search_id = ? AND h.hidden = 0 AND h.ai_relevant = 1 AND l.gone_at IS NULL
+                AND l.ship_flag IS NULL AND l.platform IN ({marks})
+              ORDER BY h.ai_score DESC LIMIT ?"""
+    with connect() as c:
+        return [dict(r) for r in c.execute(sql, (search_id, *platforms, limit))]
+
+
 def update_listing_description(key: str, description: str) -> None:
     with connect() as c:
         c.execute("UPDATE listings SET description_full = ? WHERE key = ?", (description, key))
@@ -436,6 +468,7 @@ def reset_hit_ai(search_id: int | None, key: str) -> None:
 
 REQ_FAILED = "Erfüllt deine Anforderung nicht"
 SCAM = "Betrugsverdacht"
+NO_SHIPPING = "Kein Versand (nur Abholung)"
 
 
 def reset_search_ai(search_id: int) -> None:

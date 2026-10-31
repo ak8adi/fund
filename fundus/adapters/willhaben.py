@@ -37,6 +37,16 @@ class WillhabenAdapter(ScrapedAdapter):
             return f"{self.base_url}{url}"
         return None
 
+    @staticmethod
+    def shipping(d: dict) -> str | None:
+        """Übergabe laut Inserat: Baum-Attribut 2537 = Versand, 2536 = Selbstabholung; p2penabled = PayLivery."""
+        vals = {a.get("name"): (a.get("values") or [""])[0] for a in d.get("attributes", {}).get("attribute", [])
+                if isinstance(a, dict)}
+        tree = set(re.findall(r"\d+", vals.get("categorytreeattributeids", "")))
+        if "2537" in tree or vals.get("p2penabled") == "true":
+            return "ja"
+        return "nein" if "2536" in tree else None
+
     def parse(self, page: str, source: str = "willhaben") -> list[Listing]:
         listings = []
         seen_ids = set()
@@ -171,7 +181,8 @@ class WillhabenAdapter(ScrapedAdapter):
                         country="AT",
                         posted_at=datetime.now(timezone.utc),
                         source=source,
-                        seller=Seller()
+                        seller=Seller(),
+                        shipping=self.shipping(d),
                     ))
             except Exception as e:
                 pass

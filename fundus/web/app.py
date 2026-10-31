@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from .. import ai, db, newprice, runner, scoring
 from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import GoneError, fetch_html
-from ..adapters.extract import extract_description_from_page
+from ..adapters.extract import extract_description_from_page, shipping_from_page
 from ..config import get_config, save_settings
 from ..matching import excluded
 from ..notify import format_price, image_url, send_test, send_weekly
@@ -172,6 +172,7 @@ def get_listing_description(key: str):
         if adapter:
             fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
             page = fetch_html(listing["url"], fetcher)
+            ai.apply_platform_shipping(key, shipping_from_page(page, listing["platform"]))
             desc = extract_description_from_page(page, listing["platform"])
             if desc:
                 db.update_listing_description(key, desc)

@@ -132,6 +132,8 @@ class KleinanzeigenAdapter(Adapter):
                     posted_at=posted_at,
                     source=source,
                     seller=seller,
+                    # Karten-Label; fehlt es, sagt erst die Inseratseite etwas (extract.shipping_from_page)
+                    shipping="nein" if "Nur Abholung" in li else "ja" if "Versand möglich" in li else None,
                 )
             )
 
