@@ -189,6 +189,8 @@ def init_db() -> None:
         if "ship_flag" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN ship_flag TEXT")  # Versand laut Plattform: ja/nein
         _migrate_ai_to_hits(c, l_cols)
+        if "manual_run_at" not in cols:
+            c.execute("ALTER TABLE searches ADD COLUMN manual_run_at TEXT")  # letzter manueller Start
         if "market_price" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN market_price REAL")
         if "requirements" not in cols:
@@ -339,9 +341,11 @@ def delete_search(search_id: int) -> None:
         c.execute("DELETE FROM searches WHERE id = ?", (search_id,))
 
 
-def mark_search_run(search_id: int) -> None:
+def mark_search_run(search_id: int, manual: bool = False) -> None:
     with connect() as c:
         c.execute("UPDATE searches SET last_run_at = ?, baseline_done = 1 WHERE id = ?", (now(), search_id))
+        if manual:
+            c.execute("UPDATE searches SET manual_run_at = ? WHERE id = ?", (now(), search_id))
 
 
 # ---------- Inserate & Treffer ----------

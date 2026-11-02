@@ -527,7 +527,7 @@ def save_ai(gemini_api_key: str = Form("")):
 
 
 @app.post("/settings/schedule")
-def save_schedule(times: str = Form(""), jitter_minutes: str = Form("0")):
+def save_schedule(times: str = Form(""), jitter_minutes: str = Form("0"), pause_after_manual_hours: str = Form("3")):
     parts = [t for t in re.split(r"[,;\s]+", times.strip()) if t]
     valid = []
     for t in parts:
@@ -537,7 +537,11 @@ def save_schedule(times: str = Form(""), jitter_minutes: str = Form("0")):
         valid.append(f"{int(m[1]):02d}:{m[2]}")
     jitter = int(jitter_minutes) if jitter_minutes.strip().isdigit() else 0
     valid = sorted(set(valid))
-    save_settings("schedule", {"times": valid, "jitter_minutes": min(jitter, 120)})
+    try:
+        pause = min(max(float(pause_after_manual_hours.replace(",", ".")), 0.0), 48.0)
+    except ValueError:
+        pause = 3.0
+    save_settings("schedule", {"times": valid, "jitter_minutes": min(jitter, 120), "pause_after_manual_hours": pause})
     apply_schedule(state["scheduler"], get_config())
     return RedirectResponse("/settings?saved=schedule", status_code=303)
 

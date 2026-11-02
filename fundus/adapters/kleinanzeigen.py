@@ -28,7 +28,8 @@ class KleinanzeigenAdapter(Adapter):
 
         listings = self.parse(page, source)
 
-        if not listings and "srchrslt-adtable" not in page:
+        # Leere Trefferliste («Es wurden leider keine Ergebnisse …») ist kein Fehler
+        if not listings and "srchrslt-adtable" not in page and "srchrslt-content" not in page:
             raise AdapterError(
                 "Seite geladen, aber keine Daten gefunden – Struktur geändert oder geblockt? "
                 f"Mit «fundus probe {self.name} \"{query}\"» untersuchen."

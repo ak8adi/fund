@@ -13,7 +13,8 @@ import yaml
 DEFAULTS: dict[str, Any] = {
     "data_dir": "./data",
     "web": {"host": "127.0.0.1", "port": 8100, "public_url": ""},
-    "schedule": {"times": ["07:40", "18:20"], "jitter_minutes": 25, "timezone": "Europe/Zurich"},
+    "schedule": {"times": ["07:40", "18:20"], "jitter_minutes": 25, "timezone": "Europe/Zurich",
+                 "pause_after_manual_hours": 3},
     "request_delay": [4, 11],
     "ntfy": {
         "server": "https://ntfy.sh", "topic": "", "token": "", "max_per_search": 5,

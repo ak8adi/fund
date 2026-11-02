@@ -88,6 +88,17 @@ def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
     return out
 
 
+AUTO_TRIGGERS = ("zeitplan", "nachgeholt")
+
+
+def recently_manual(search: dict, hours: float, now: datetime | None = None) -> bool:
+    """Wurde die Suche vor kurzem von Hand gestartet? Dann lässt der Zeitplan sie aus (keine Doppelsuche)."""
+    if not hours or not search.get("manual_run_at"):
+        return False
+    started = datetime.fromisoformat(search["manual_run_at"])
+    return (now or datetime.now(timezone.utc)) - started < timedelta(hours=hours)
+
+
 def run(trigger: str = "manuell", search_ids: list[int] | None = None) -> dict:
     if not _run_lock.acquire(blocking=False):
         return {"skipped": True}
@@ -104,6 +115,14 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
     sources = [s for s in available_sources(cfg) if s["enabled"] and s["ready"]]
     labels = {a.name: a.label for a in adapters}
     searches = [s for s in db.list_searches(active_only=True) if search_ids is None or s["id"] in search_ids]
+    if trigger in AUTO_TRIGGERS:
+        hours = float(cfg["schedule"].get("pause_after_manual_hours", 3) or 0)
+        skipped = [s for s in searches if recently_manual(s, hours)]
+        for s in skipped:
+            log.info("%s: vor weniger als %g h von Hand gestartet – Zeitplan lässt sie aus", s["query"], hours)
+        searches = [s for s in searches if s not in skipped]
+        if not searches:
+            return {"searches": 0, "new": 0, "errors": 0, "skipped_manual": len(skipped)}
 
     run_id = db.start_run(trigger)
     total_new, errors = 0, 0
@@ -159,7 +178,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 })
         for l in collected:  # Versand laut Suchergebnis-Karte (Kleinanzeigen, Willhaben, Blocket)
             apply_platform_shipping(l.key, l.shipping, rescore=False)
-        db.mark_search_run(search["id"])
+        db.mark_search_run(search["id"], manual=trigger not in AUTO_TRIGGERS)
         if newprice.is_stale(search):  # Neupreis beim ersten Lauf, danach monatlich auffrischen
             newprice.refresh(search["id"])
         scoring.rescore_search(search["id"])  # Preise können sich geändert haben
