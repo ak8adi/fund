@@ -35,3 +35,9 @@ def test_kleinanzeigen_no_results_is_not_an_error(monkeypatch):
     page = '<div id="srchrslt-content"><p>Es wurden leider keine Ergebnisse für «sessel micasa» gefunden.</p></div>'
     monkeypatch.setattr("fundus.adapters.kleinanzeigen.fetch_html", lambda url, fetcher: page)
     assert KleinanzeigenAdapter(get_config()).search("sessel micasa", "kleinanzeigen", None, None) == []
+
+
+def test_ricardo_card_image_uses_served_size():
+    from fundus.notify import image_url
+    url = "https://img.ricardostatic.ch/images/8e9c5d18/t_265x200/tisch"
+    assert image_url(url, large=False) == "https://img.ricardostatic.ch/images/8e9c5d18/t_1000x750/tisch"

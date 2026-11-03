@@ -43,7 +43,8 @@ def image_url(url: str | None, large: bool = True) -> str | None:
     if "img.kleinanzeigen.de" in url:
         return re.sub(r"rule=\$_\d+\.AUTO", "rule=$_59.AUTO", url)
     if "img.ricardostatic.ch" in url:
-        return re.sub(r"/t_\d+x\d+/", "/t_1000x750/" if large else "/t_400x300/", url)
+        # Bild-CDN (nicht ricardo.ch) liefert nur feste Grössen: t_265x200, t_1000x750, t_1800x1350
+        return re.sub(r"/t_\d+x\d+/", "/t_1000x750/", url)
     if "cache.willhaben.at" in url and large:
         return url.replace("_hoved.jpg", ".jpg")
     return url
