@@ -83,3 +83,20 @@ def test_overview_shows_cheapest_relevant_offer():
     with TestClient(webapp.app) as client:
         page = client.get("/").text
     assert "(200 EUR)" in page.split('class="searches"')[1].split("</ul>")[0]
+
+
+def test_price_sort_uses_final_price():
+    from fundus.web import app as webapp
+    sid = db.save_search({"query": "thule urban glide 3"})
+    db.set_search_sort(sid, "price")
+    cheap_far = _hit(sid, "1", 545)     # günstig, aber teure Lieferung
+    near = _hit(sid, "2", 600)          # teurer, aber fast ohne Lieferkosten
+    unknown = _hit(sid, "3", 580)       # ohne Lieferplan: Inseratpreis zählt
+    for l in (cheap_far, near, unknown):
+        db.update_hit_ai(sid, l.key, True, "Thule")
+    db.set_scores(sid, 650, [(60, "B", "", 695, "", cheap_far.key), (70, "A", "", 621, "", near.key),
+                             (65, "A", "", None, "", unknown.key)])
+    hits = db.hits_for_search(sid)
+    webapp._sort_hits(hits, db.get_search(sid))
+    assert [h["key"] for h in hits] == [unknown.key, near.key, cheap_far.key]
+    assert webapp._cheapest_by_search([db.get_search(sid)])[sid]["key"] == unknown.key

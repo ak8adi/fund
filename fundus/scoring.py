@@ -36,6 +36,11 @@ def effective_price_chf(h: dict, fx: dict) -> float | None:
     return price_in_chf(h.get("single_price") or h.get("price"), h.get("currency") or "CHF", fx)
 
 
+def pay_price_chf(h: dict, fx: dict) -> float | None:
+    """Was du bezahlst: Endpreis inkl. Versand, Gebühren und MWST, sonst der Preis in CHF (Abholung, ohne Preisplan)."""
+    return h.get("total_chf") or effective_price_chf(h, fx)
+
+
 def _chf(amount: float) -> str:
     return f"{amount:,.0f}".replace(",", "'")
 

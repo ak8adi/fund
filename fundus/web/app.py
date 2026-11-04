@@ -186,14 +186,14 @@ def get_listing_description(key: str):
 
 def _cheapest_by_search(searches: list[dict]) -> dict[int, dict]:
     """Günstigstes passendes Angebot jeder Suche – dieselbe Rechnung wie «nach Preis» in der Suche
-    (Einzelpreis vor Inseratpreis, in CHF umgerechnet). Früher stand hier der Endpreis des Angebots mit dem
+    (Endpreis bis zu dir, sonst Einzelpreis vor Inseratpreis in CHF). Früher stand hier der Endpreis des Angebots mit dem
     höchsten Deal-Score inkl. Versand, das war oft ein anderes Angebot als das günstigste."""
     fx = fx_rates.rates(get_config())
     out = {}
     for s in searches:
         priced = [(p, h) for h in db.hits_for_search(s["id"], limit=5000)
                   if h.get("ai_relevant") == 1 and not h.get("gone_at")
-                  and (p := scoring.effective_price_chf(h, fx)) is not None]
+                  and (p := scoring.pay_price_chf(h, fx)) is not None]
         if priced:
             p, h = min(priced, key=lambda x: x[0])
             out[s["id"]] = {**h, "chf": p}
@@ -262,13 +262,13 @@ def create_search(
 
 
 def _sort_hits(hits: list[dict], search: dict) -> None:
-    """Deal-Score (Standard) oder stur nach Preis in CHF, günstigster zuerst; Inserate ohne Preis ans Ende.
+    """Deal-Score (Standard) oder stur nach Endpreis in CHF, günstigster zuerst; Inserate ohne Preis ans Ende.
     Noch nicht von der KI geprüfte Inserate kommen nach den geprüften – sonst stünde neues Zubehör für
     ein paar Franken bis zur Prüfung zuoberst."""
     if search.get("sort_by") == "price":
         fx = fx_rates.rates(get_config())
         def chf(h):
-            p = scoring.effective_price_chf(h, fx)
+            p = scoring.pay_price_chf(h, fx)  # Endpreis «bis zu dir», wie auf der Karte
             return (p is None, p or 0)
         hits.sort(key=lambda x: (bool(x.get("gone_at")), x.get("ai_relevant") is None, *chf(x)))
     else:

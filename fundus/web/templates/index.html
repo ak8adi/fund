@@ -18,7 +18,7 @@
           <span class="q">{{ s.query }}</span>
           {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% endif %}
           {% set b = cheapest.get(s.id) %}
-          {% if b %}<span class="best" title="Günstigstes passendes Angebot: {{ b.title }}">{{ price(b.single_price or b.price, b.currency, b.single_price and b.single_estimated) }}{% if b.ai_tier %} <span class="tier tier-{{ b.ai_tier | lower }}" style="min-width:20px;height:20px;font-size:12px;">{{ b.ai_tier }}</span>{% endif %}</span>{% endif %}
+          {% if b %}<span class="best" title="Günstigstes passendes Angebot: {{ b.title }}{% if b.total_chf %} – {{ price(b.total_chf | round(0), 'CHF') }} bis zu dir{% endif %}">{{ price(b.single_price or b.price, b.currency, b.single_price and b.single_estimated) }}{% if b.ai_tier %} <span class="tier tier-{{ b.ai_tier | lower }}" style="min-width:20px;height:20px;font-size:12px;">{{ b.ai_tier }}</span>{% endif %}</span>{% endif %}
           <span class="muted small">
             {{ s.total }} Treffer
             {% if s.max_price %} · bis {{ s.max_price | int }} CHF{% endif %}
