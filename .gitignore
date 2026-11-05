@@ -6,3 +6,6 @@ data/
 config.yaml
 .DS_Store
 venv/
+
+# gebaute Mac-App (fundus einrichten.command)
+fundus.app/
