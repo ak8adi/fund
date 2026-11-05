@@ -1,10 +1,12 @@
 """Neupreis einer Suche: was kostet das Produkt heute neu – mit Shop und Link?
 
-1. Online suchen (DuckDuckGo, Region Schweiz): «<Suche> kaufen», Marktplätze ausgenommen.
+1. Online suchen (DuckDuckGo, Region Schweiz): «<Suche> kaufen», Marktplätze ausgenommen; dazu die Produkt- bzw.
+   Serienseite bei toppreise.ch (Preisvergleich Schweiz – führt auch Auslaufmodelle, solange ein Shop sie hat).
 2. Jede Shopseite öffnen und Produktname, Preis, Währung aus den strukturierten Produktdaten lesen
    (JSON-LD/schema.org bzw. Meta-Tags – dieselben Angaben, die Shops für Google bereitstellen).
 3. Die KI prüft nur, welche Seiten genau das gesuchte Produkt neu anbieten (kein Zubehör, anderes Modell,
    Gebrauchtware) – sie schätzt keinen Preis. Neupreis = günstigster passender Shop in CHF.
+Neupreis = günstigster passender Shop, ausser er liegt weit unter allen anderen (Fehlpreis, falsche Variante).
 Nichts gefunden → kein Neupreis (dann von Hand eintragen). Von Hand eingetragene Preise haben Vorrang.
 Nebenbei schätzt die KI die typische Versandgrösse des Produkts (delivery.SIZES).
 """
@@ -28,6 +30,8 @@ log = logging.getLogger(__name__)
 SEARCH_URL = "https://html.duckduckgo.com/html/?kl=ch-de&q={q}"
 MAX_AGE_DAYS = 30
 MAX_SHOPS = 10
+COMPARE_RE = re.compile(r"https://www\.toppreise\.ch/(?:preisvergleich|produktserie)/")
+OUTLIER = 0.75   # günstigster Shop unter 75 % des zweitgünstigsten: nicht als Neupreis nehmen
 SKIP_DOMAINS = ("ricardo.", "tutti.", "anibis.", "kleinanzeigen.", "ebay.", "willhaben.", "blocket.", "markt.de",
                 "youtube.", "facebook.", "instagram.", "reddit.", "pinterest.", "wikipedia.", "idealo.", "toppreise.",
                 "google.", "amazon.", "aliexpress.", "temu.")
@@ -36,26 +40,33 @@ PROMPT = """Ich suche gebraucht: «{query}». Unten Produktseiten aus Online-Sho
 Welche bieten GENAU dieses Produkt NEU an? Passend, wenn Marke, Modellname und Modellnummer übereinstimmen
 (Wortreihenfolge und Zusätze wie «Control Bar», Grössenangaben oder Jahrgang egal). Nicht passend: Zubehör, Ersatzteile, anderes Modell oder andere
 Produktart, Sets mit weiteren Produkten, Gebraucht-/Vorführware, Miete, Spezialversionen, die nicht gesucht sind
-(z.B. Foil-, Kinder-, Lite-Version). Verschiedene Grössen, Farben oder Modelljahre desselben Produkts passen.
+(z.B. Foil-, Kinder-, Lite-Version). Eine andere Generation ist ein anderes Modell: «Pro 3» ≠ «Pro 4», Chip M1 ≠ M2 ≠ M4,
+iPhone 13 ≠ 14. Nennt die Suche eine Ausstattung (z.B. 16GB), muss sie passen. Verschiedene Grössen, Farben oder
+Modelljahre DERSELBEN Generation passen. Zeilen von toppreise.ch sind Preisvergleiche (Preis = günstigster Shop).
+generic = true, wenn die Suche kein bestimmtes Produkt meint (z.B. «sessel», «tisch biedermeier», Antiquitäten) –
+dann gibt es keinen sinnvollen Neupreis.
 
 {rows}
 
-Antworte NUR mit JSON: {{"match": [Nr, ...], "product": "Modell, kurz", "size": "S"|"M"|"L"|"XL"|"fracht",
+Antworte NUR mit JSON: {{"match": [Nr, ...], "product": "Modell, kurz", "generic": bool, "size": "S"|"M"|"L"|"XL"|"fracht",
 "weight_kg": number}}
 size = Versandgrösse verpackt: S Päckchen bis 35×25×10 cm, M bis 60×30×15 cm, L bis 120×60×60 cm und 31 kg,
 XL sperrig bis 200 cm lang, fracht = Möbel o.ä., nicht als Paket versendbar."""
 
 
-def search_links(query: str, skip: list[str] | None = None) -> list[str]:
+def search_links(query: str, skip: list[str] | None = None, compare: bool = False) -> list[str]:
+    """Shopseiten aus der Websuche; compare=True: nur Produkt-/Serienseiten von toppreise.ch."""
     page = fetch_html(SEARCH_URL.format(q=quote_plus(query)), "http")
     out: list[str] = []
     for raw in re.findall(r'uddg=([^&"]+)', page):
-        url = unquote(raw)
+        url = unquote(raw).split("#")[0]
         host = urlparse(url).netloc.lower()
-        if not host or any(d in host for d in SKIP_DOMAINS) or url in out or url in (skip or []):
+        if not host or url in out or url in (skip or []):
+            continue
+        if compare != bool(COMPARE_RE.match(url)) or (not compare and any(d in host for d in SKIP_DOMAINS)):
             continue
         out.append(url)
-    return out[:MAX_SHOPS]
+    return out[:2 if compare else MAX_SHOPS]
 
 
 def _products(node):
@@ -117,11 +128,11 @@ def extract_offer(html: str) -> dict | None:
     return None
 
 
-def find_offers(query: str, skip: list[str] | None = None) -> list[dict]:
+def find_offers(query: str, skip: list[str] | None = None, compare: bool = False) -> list[dict]:
     """Shopangebote mit Preis in CHF (noch ungeprüft)."""
     rates = fx_rates.rates(get_config())
     offers = []
-    for url in search_links(query, skip):
+    for url in search_links(query, skip, compare):
         try:
             offer = extract_offer(fetch_html(url, "http"))
         except Exception as exc:
@@ -148,6 +159,10 @@ def lookup(query: str) -> dict | None:
     offers = find_offers(f"{query} kaufen")
     if len(offers) < 6:  # wenig Shopseiten: zweite Suche mit anderem Wortlaut
         offers += find_offers(f"{query} preis neu", [o["url"] for o in offers])
+    try:
+        offers += find_offers(f"{query} toppreise", [o["url"] for o in offers], compare=True)
+    except Exception as exc:
+        log.info("toppreise für «%s» nicht lesbar: %s", query, exc)
     rows = "\n".join(f"{i} | {o['shop']} | {o['name']} | {o['price']:g} {o['currency']} | {o['condition'] or '-'}"
                      for i, o in enumerate(offers)) or "(keine Shopseiten gefunden)"
     r = _gemini_json(PROMPT.format(query=query, rows=rows),
@@ -171,16 +186,27 @@ def lookup(query: str) -> dict | None:
         weight = float(r["weight_kg"]) if r.get("weight_kg") else None
     except (TypeError, ValueError):
         weight = None
-    if not picked:
-        return {"price": None, "note": "Kein Neupreis online gefunden – bei Bedarf von Hand eintragen",
+    if r.get("generic") is True:
+        return {"price": None, "note": "Kein bestimmtes Produkt – Neupreis nicht sinnvoll (bei Bedarf von Hand eintragen)",
                 "offers": [], "size": size, "weight": weight}
-    best = picked[0]  # günstigstes passendes Angebot
+    if not picked:
+        return {"price": None, "note": "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; "
+                                       "bei Bedarf von Hand eintragen", "offers": [], "size": size, "weight": weight}
+    best = choose_best(picked)
     price = round(best["price_chf"])
     product = str(r.get("product") or query)[:60]
     shops = len({o["shop"] for o in picked})
     note = f"{product} · günstigster bei {best['shop']}" + (f" (von {shops} Shops)" if shops > 1 else "")
     keep = [{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")} for o in picked[:8]]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
+
+
+def choose_best(picked: list[dict]) -> dict:
+    """Günstigstes passendes Angebot – ausser es liegt weit unter dem zweitgünstigsten (Fehlpreis, falsche Variante,
+    Aktion mit Haken): dann das zweitgünstigste. picked ist nach price_chf sortiert."""
+    if len(picked) >= 3 and picked[0]["price_chf"] < OUTLIER * picked[1]["price_chf"]:
+        return picked[1]
+    return picked[0]
 
 
 def refresh(search_id: int) -> bool:

@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import ai, db, newprice, runner, scoring
 from ..adapters import all_adapters, adapter_for_source
-from ..adapters.base import GoneError, fetch_html
+from ..adapters.base import BlockedError, GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page, shipping_from_page
 from ..config import get_config, save_settings
 from ..matching import excluded
@@ -87,7 +87,23 @@ def clock(value: datetime | None) -> str:
     return f"{WEEKDAYS[local.weekday()]} {local:%d.%m. %H:%M}"
 
 
+def left(value: str | datetime | None) -> str:
+    """Restlaufzeit: «noch 3 h», «noch 2 T.», «endet heute 18:00»."""
+    if not value:
+        return ""
+    dt = datetime.fromisoformat(value) if isinstance(value, str) else value
+    secs = (dt - datetime.now(timezone.utc)).total_seconds()
+    if secs <= 0:
+        return "abgelaufen"
+    if secs < 3600:
+        return f"noch {max(1, int(secs // 60))} min"
+    if secs < 86400:
+        return f"noch {int(secs // 3600)} h"
+    return f"noch {int(secs // 86400)} T."
+
+
 templates.env.filters["ago"] = ago
+templates.env.filters["left"] = left
 templates.env.filters["clock"] = clock
 templates.env.globals["price"] = format_price
 templates.env.globals["trust_labels"] = LEVELS
@@ -158,6 +174,46 @@ def edit_listing_description(request: Request, key: str, description: str = Form
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+GO_FRESH_MINUTES = 10  # so frisch geprüft muss ein Inserat beim Klick nicht nochmals abgefragt werden
+
+
+def _go_page(listing: dict, status: str) -> HTMLResponse:
+    text = {"gone": "ist nicht mehr verfügbar – verkauft, gelöscht oder abgelaufen.",
+            "reserved": "ist laut Plattform reserviert."}[status]
+    from html import escape
+    return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<link rel="stylesheet" href="/static/style.css?v=11"><title>fundus</title>
+<main class="wrap" style="max-width:560px;margin:12vh auto;padding:0 16px">
+<div class="card"><h2 style="margin-top:0">{escape(listing['title'])}</h2>
+<p>Dieses Inserat {text}</p>
+<p class="muted small">fundus hat es eben auf der Plattform geprüft und in der Suche markiert.</p>
+<p><a class="btn" href="javascript:history.back()">Zurück</a>
+<a class="btn small" style="margin-left:8px" href="{escape(listing['url'])}" rel="noopener">Trotzdem öffnen</a></p></div></main>""")
+
+
+@app.get("/go/{key:path}")
+def go(key: str):
+    """Klick auf ein Angebot: kurz prüfen, ob es noch zu haben ist (eine Abfrage, wie der Browser sie ohnehin macht),
+    dann weiterleiten. Ricardo nicht – dort keine Inseratseiten, das Laufzeitende steht schon in der Suche."""
+    listing = db.get_listing(key)
+    if not listing:
+        return RedirectResponse("/", status_code=303)
+    if listing.get("gone_at"):
+        return _go_page(listing, "gone")
+    fresh = listing.get("checked_at") and (datetime.now(timezone.utc) - datetime.fromisoformat(listing["checked_at"])).total_seconds() < GO_FRESH_MINUTES * 60
+    paused = db.platform_states().get(listing["platform"], {}).get("blocked_until")
+    paused = paused and datetime.fromisoformat(paused) > datetime.now(timezone.utc)
+    status = "reserved" if listing.get("reserved") else "ok"
+    if listing["platform"] != "ricardo" and not fresh and not paused:
+        try:
+            status = runner.check_listing(all_adapters(get_config()), listing)
+        except Exception as exc:  # Sperre, Zeitüberschreitung …: lieber direkt öffnen als blockieren
+            log.info("Klick-Prüfung für %s übersprungen: %s", key, exc)
+    if status in ("gone", "reserved"):
+        return _go_page(listing, status)
+    return RedirectResponse(listing["url"], status_code=302)
+
+
 @app.get("/api/listing/{key}/description")
 def get_listing_description(key: str):
     listing = db.get_listing(key)
@@ -165,9 +221,17 @@ def get_listing_description(key: str):
         return HTMLResponse("Nicht gefunden", status_code=404)
     if listing.get("description_full"):
         return HTMLResponse(listing["description_full"])
-    if listing["platform"] in ("ebay", "ricardo"):
-        return HTMLResponse("Für diese Plattform nicht unterstützt.")
+    if listing["platform"] == "ricardo":
+        paused = db.platform_states().get("ricardo", {}).get("blocked_until")
+        if paused and datetime.fromisoformat(paused) > datetime.now(timezone.utc):
+            return HTMLResponse("Ricardo pausiert gerade nach einer Sperre – Beschreibung später nochmals öffnen.")
     try:
+        if listing["platform"] == "ebay":
+            runner.check_listing(all_adapters(get_config()), listing)
+            listing = db.get_listing(key)
+            if listing.get("gone_at"):
+                return HTMLResponse("Inserat nicht mehr verfügbar (verkauft oder beendet).")
+            return HTMLResponse(listing.get("description_full") or "Keine Beschreibung hinterlegt.")
         adapter = adapter_for_source(all_adapters(get_config()), listing["platform"])
         if adapter:
             fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
@@ -180,6 +244,10 @@ def get_listing_description(key: str):
     except GoneError:
         db.mark_listing_gone(key)
         return HTMLResponse("Inserat nicht mehr verfügbar (verkauft oder gelöscht).")
+    except BlockedError as e:
+        if listing["platform"] != "ebay":
+            db.mark_platform_blocked(listing["platform"], e.retry_after)
+        return HTMLResponse("Plattform lässt gerade keine Abfrage zu – fundus pausiert sie eine Weile.")
     except Exception as e:
         log.error("Fehler beim Laden der Beschreibung: %s", e)
     return HTMLResponse("Konnte Beschreibung nicht laden.")
@@ -280,6 +348,7 @@ def show_search(request: Request, sid: int):
     search = db.get_search(sid)
     if not search:
         return RedirectResponse("/", status_code=303)
+    db.expire_ended_listings()  # abgelaufene Ricardo-/eBay-Inserate sofort als weg zeigen
     hits = db.hits_for_search(sid)
 
     for h in hits:
@@ -292,6 +361,17 @@ def show_search(request: Request, sid: int):
                                                                     img_progress={"done": img_done, "total": img_total}))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
+
+@app.get("/search/{sid}/entwuerfe", response_class=HTMLResponse)
+def drafts(request: Request, sid: int):
+    """Darstellungs-Entwürfe mit den echten Daten dieser Suche – zum Begutachten, ersetzt die Liste (noch) nicht."""
+    from .. import views
+    if not db.get_search(sid):
+        return RedirectResponse("/", status_code=303)
+    db.expire_ended_listings()
+    data = views.build(sid)
+    return templates.TemplateResponse(request, "entwuerfe.html", _ctx(request, search=db.get_search(sid), data=data))
+
 
 @app.get("/search/{sid}/results", response_class=HTMLResponse)
 

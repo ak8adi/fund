@@ -7,7 +7,7 @@
 {% else %}{% set cond, cond_cls = none, '' %}{% endif %}
 {% set visible = h.ai_relevant is none or h.ai_relevant %}
 <article class="hit{% if h.ai_tier %} tier-{{ h.ai_tier | lower }}{% endif %}{% if h.is_new %} new{% endif %}{% if h.gone_at %} gone{% endif %}">
-  <a class="thumb" href="{{ h.url }}" target="_blank" rel="noopener">
+  <a class="thumb" href="/go/{{ h.key | urlencode }}" target="_blank" rel="noopener">
     {% if h.image %}<img src="{{ h.image | img }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span>kein Foto</span>{% endif %}
   </a>
   <div class="body">
@@ -27,10 +27,13 @@
         </span>
       {% endif %}
     </div>
-    <a class="title" href="{{ h.url }}" target="_blank" rel="noopener">{{ h.title }}</a>
+    <a class="title" href="/go/{{ h.key | urlencode }}" target="_blank" rel="noopener">{{ h.title }}</a>
     <div class="chips">
       {% if h.is_new %}<span class="chip new">Neu</span>{% endif %}
-      {% if h.gone_at %}<span class="chip bad">Nicht mehr verfügbar</span>{% endif %}
+      {% if h.gone_at %}<span class="chip bad">{{ 'Abgelaufen' if h.ends_at and h.gone_at == h.ends_at else 'Nicht mehr verfügbar' }}</span>{% endif %}
+      {% if h.reserved and not h.gone_at %}<span class="chip hint" title="Laut Plattform reserviert – kann wieder frei werden">Reserviert</span>{% endif %}
+      {% if h.auction %}<span class="chip auction" title="Auktion{% if h.ends_at %} bis {{ h.ends_at | ago }}{% endif %}{% if h.price and h.bid_price and h.price != h.bid_price %} · Sofort kaufen für {{ price(h.price, h.currency) }}{% endif %}">🔨 Auktion{% if h.bid_price %} · {{ h.bids or 0 }} Gebot{{ '' if h.bids == 1 else 'e' }}, {{ price(h.bid_price, h.currency) }}{% endif %}{% if h.ends_at and not h.gone_at %} · {{ h.ends_at | left }}{% endif %}</span>
+      {% elif h.ends_at and not h.gone_at and h.platform == 'ricardo' %}<span class="chip muted-chip" title="Laufzeit des Inserats">{{ h.ends_at | left }}</span>{% endif %}
       {% if h.ai_req == 'ja' %}<span class="chip good" title="Erfüllt deine Anforderungen">✓ {{ h.ai_req_note or 'passt' }}</span>
       {% elif h.ai_req == 'unklar' %}<span class="chip hint" title="Im Inserat nicht angegeben – beim Verkäufer nachfragen">? {{ h.ai_req_note or 'Angabe fehlt' }}</span>
       {% elif h.ai_req == 'nein' %}<span class="chip bad">✗ {{ h.ai_req_note or 'passt nicht' }}</span>{% endif %}

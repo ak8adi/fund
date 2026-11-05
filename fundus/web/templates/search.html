@@ -11,6 +11,7 @@
         {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
           <form method="post" action="/search/{{ search.id }}/ai"><button>KI-Bewertung jetzt starten</button></form>
         {% endif %}
+        <a href="/search/{{ search.id }}/entwuerfe" class="item">Darstellungs-Entwürfe ansehen</a>
         <form method="post" action="/search/{{ search.id }}/newprice"><button>Neupreis neu suchen</button></form>
         <button type="button" onclick="copyForGemini(this)">Treffer für Gemini kopieren</button>
         <form method="post" action="/search/{{ search.id }}/toggle"><button>{{ 'Suche pausieren' if search.active else 'Suche fortsetzen' }}</button></form>

@@ -136,7 +136,8 @@ form.stack .row { display: flex; gap: 1rem; }
              border-radius: 10px; box-shadow: var(--shadow-hover); padding: 6px; display: grid; min-width: 220px; }
 .menu-list button, .menu-list .item { background: none; border: 0; font: inherit; color: var(--ink); text-align: left; padding: 8px 10px;
                                       border-radius: 7px; cursor: pointer; width: 100%; }
-.menu-list button:hover { background: var(--surface-2); }
+.menu-list button:hover, .menu-list a.item:hover { background: var(--surface-2); }
+.menu-list a.item { display: block; text-decoration: none; }
 .menu-list form { margin: 0; }
 .menu-list .danger { color: var(--warn); }
 .subline { margin: 6px 0 0; }
@@ -184,6 +185,8 @@ form.stack .row { display: flex; gap: 1rem; }
 .chip.good { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .chip.bad { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
 .chip.hint { background: color-mix(in srgb, var(--check) 16%, transparent); color: var(--check); }
+.chip.auction { background: color-mix(in srgb, var(--accent, #7a5cff) 16%, transparent); color: var(--accent, #7a5cff); font-weight: 600; }
+.chip.muted-chip { opacity: .75; }
 .chip.new { background: var(--new); color: #fff; }
 .meta-compact { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .why { font-size: 13px; color: var(--ink); line-height: 1.35; opacity: .85; }

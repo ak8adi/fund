@@ -6,8 +6,11 @@ Jedes eBay-Land ist eine eigene, einzeln abschaltbare Quelle (ebay:EBAY_DE usw.)
 from __future__ import annotations
 
 import base64
+import html as html_lib
+import re
 import threading
 import time
+from urllib.parse import quote
 
 import httpx
 
@@ -17,6 +20,7 @@ from .extract import parse_date
 
 TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+ITEM_URL = "https://api.ebay.com/buy/browse/v1/item/{item_id}"
 
 MARKETPLACES = {
     "EBAY_CH": ("eBay CH", "CHF", "CH"),
@@ -99,6 +103,33 @@ class EbayAdapter(Adapter):
             raise AdapterError(f"eBay {marketplace}: HTTP {resp.status_code} {resp.text[:200]}")
         return [self._to_listing(i, marketplace) for i in resp.json().get("itemSummaries", [])]
 
+    def item_details(self, item_id: str, marketplace: str = "EBAY_DE") -> dict:
+        """Beschreibung und Status eines Inserats über die API (zählt zum Tageskontingent, kein Scraping).
+        Rückgabe: {"description": str|None, "location": str|None, "gone": bool}."""
+        resp = httpx.get(
+            ITEM_URL.format(item_id=quote(item_id, safe="")),
+            params={"fieldgroups": "PRODUCT"},
+            headers={"Authorization": f"Bearer {self._get_token()}", "X-EBAY-C-MARKETPLACE-ID": marketplace},
+            timeout=25,
+        )
+        if resp.status_code == 404:
+            return {"description": None, "location": None, "gone": True}
+        if resp.status_code == 429:
+            raise BlockedError("eBay-Tageslimit erreicht")
+        if resp.status_code != 200:
+            raise AdapterError(f"eBay Inserat {item_id}: HTTP {resp.status_code}")
+        d = resp.json()
+        text = d.get("description") or d.get("shortDescription") or ""
+        text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
+        text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</li>", "\n", text)
+        text = html_lib.unescape(re.sub(r"<[^>]+>", " ", text))
+        text = re.sub(r"[ \t\xa0]+", " ", re.sub(r"\n\s*\n+", "\n\n", text)).strip()
+        loc = d.get("itemLocation") or {}
+        ended = d.get("itemEndDate") and parse_date(d["itemEndDate"]) and parse_date(d["itemEndDate"]).timestamp() < time.time()
+        return {"description": text[:6000] or None,
+                "location": " ".join(p for p in (loc.get("postalCode"), loc.get("city")) if p) or None,
+                "gone": bool(ended) or d.get("estimatedAvailabilities", [{}])[0].get("estimatedAvailabilityStatus") == "OUT_OF_STOCK"}
+
     @staticmethod
     def _to_listing(item: dict, marketplace: str) -> Listing:
         price = item.get("price") or item.get("currentBidPrice") or {}
@@ -121,6 +152,10 @@ class EbayAdapter(Adapter):
             country=loc.get("country"),
             posted_at=parse_date(item.get("itemCreationDate")),
             source=marketplace,
+            auction="AUCTION" in (item.get("buyingOptions") or []),
+            bids=item.get("bidCount"),
+            bid_price=float(item["currentBidPrice"]["value"]) if (item.get("currentBidPrice") or {}).get("value") else None,
+            ends_at=parse_date(item.get("itemEndDate")),
             seller=Seller(
                 name=seller.get("username"),
                 rating_pct=rating_pct,

@@ -274,6 +274,15 @@ def _richness(l: Listing) -> int:
     return sum(x is not None for x in (l.price, l.image, l.location, l.posted_at, l.seller.name))
 
 
+RESERVED_RE = re.compile(r'"(?:isReserved|reserved)"\s*:\s*true|class="[^"]*\b(?:is-reserved|reserved-badge|pvap-reserved)[^"]*"'
+                         r'|>\s*Reserviert\s*<', re.I)
+
+
+def reserved_from_page(page: str) -> bool:
+    """Plattform markiert das Inserat als reserviert (Badge oder Status im Seiten-JSON)."""
+    return bool(RESERVED_RE.search(page))
+
+
 def extract_description_from_page(page: str, platform: str) -> str | None:
     if platform == "kleinanzeigen":
         m = re.search(r'<p[^>]*id="viewad-description-text"[^>]*>(.*?)</p>', page, re.DOTALL)
@@ -406,7 +415,14 @@ def _to_listing(d: dict, platform: str, base_url: str, url_builder) -> Listing |
         url = base_url.rstrip("/") + url
     price, currency = parse_price(_first(d, PRICE_KEYS))
     currency = currency or d.get("currency") or d.get("priceCurrency") or "CHF"
-    return Listing(
+    location = _location(d if any(k in d for k in ("postcode", "postalCode", "zipCode", "zip")) else _first(d, LOCATION_KEYS))
+    ships = d.get("shipping") if isinstance(d.get("shipping"), list) else []
+    ships = [s for s in ships if isinstance(s, dict)]
+    if not location:  # Ricardo: Ort steckt in den Liefer-Optionen der Suchkarte
+        location = next((_location(s) for s in ships if s.get("city")), None)
+    auction = d.get("hasAuction") if isinstance(d.get("hasAuction"), bool) else None
+    bid_price, _ = parse_price(d.get("bidPrice")) if auction else (None, None)
+    listing = Listing(
         platform=platform,
         external_id=ext_id,
         title=html_lib.unescape(title)[:200],
@@ -414,7 +430,14 @@ def _to_listing(d: dict, platform: str, base_url: str, url_builder) -> Listing |
         price=price,
         currency=str(currency),
         image=_image(_first(d, IMAGE_KEYS)),
-        location=_location(d if any(k in d for k in ("postcode", "postalCode", "zipCode", "zip")) else _first(d, LOCATION_KEYS)),
+        location=location,
         posted_at=parse_date(_first(d, DATE_KEYS)),
         seller=parse_seller(d),
+        auction=auction,
+        bids=d.get("bidsCount") if auction and isinstance(d.get("bidsCount"), int) else None,
+        bid_price=bid_price,
+        ends_at=parse_date(d.get("endDate") or d.get("endTime")),
     )
+    if ships and all("key" in s for s in ships):  # Ricardo: nur «get_by_buyer» = Abholung
+        listing.shipping = "ja" if any(s["key"] != "get_by_buyer" for s in ships) else "nein"
+    return listing

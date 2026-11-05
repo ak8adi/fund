@@ -188,6 +188,10 @@ def init_db() -> None:
             c.execute("ALTER TABLE listings ADD COLUMN checked_at TEXT")  # letzte Verfügbarkeitsprüfung
         if "ship_flag" not in l_cols:
             c.execute("ALTER TABLE listings ADD COLUMN ship_flag TEXT")  # Versand laut Plattform: ja/nein
+        for col, typ in (("auction", "INTEGER"), ("bids", "INTEGER"), ("bid_price", "REAL"), ("ends_at", "TEXT"),
+                         ("reserved", "INTEGER")):
+            if col not in l_cols:  # Auktionen und Laufzeitende (Ricardo, eBay)
+                c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         _migrate_ai_to_hits(c, l_cols)
         if "manual_run_at" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN manual_run_at TEXT")  # letzter manueller Start
@@ -374,19 +378,23 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
         c.execute(
             """INSERT INTO listings (key, platform, external_id, title, url, price, first_price, currency, image,
                                      location, country, posted_at, source, seller, trust_level, trust_reasons,
-                                     description_full, first_seen, last_seen)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                     description_full, first_seen, last_seen, auction, bids, bid_price, ends_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(key) DO UPDATE SET
                    title=excluded.title, url=excluded.url, price=excluded.price, currency=excluded.currency,
                    image=COALESCE(excluded.image, listings.image), location=COALESCE(excluded.location, listings.location),
                    seller=excluded.seller, trust_level=excluded.trust_level, trust_reasons=excluded.trust_reasons,
                    description_full=COALESCE(excluded.description_full, listings.description_full),
+                   auction=COALESCE(excluded.auction, listings.auction), bids=COALESCE(excluded.bids, listings.bids),
+                   bid_price=COALESCE(excluded.bid_price, listings.bid_price),
+                   ends_at=COALESCE(excluded.ends_at, listings.ends_at),
                    last_seen=excluded.last_seen, gone_at=NULL""",
             (
                 l.key, l.platform, l.external_id, l.title, l.url, l.price, l.price, l.currency, l.image,
                 l.location, l.country, l.posted_at.isoformat() if l.posted_at else None, l.source,
                 json.dumps(seller), trust_level, json.dumps(trust_reasons, ensure_ascii=False),
-                l.description_full, ts, ts,
+                l.description_full, ts, ts, None if l.auction is None else int(l.auction), l.bids, l.bid_price,
+                l.ends_at.isoformat() if l.ends_at else None,
             ),
         )
 
@@ -395,21 +403,35 @@ def mark_listing_gone(key: str) -> None:
         c.execute("UPDATE listings SET gone_at = ?, checked_at = ? WHERE key = ?", (now(), now(), key))
 
 
+def expire_ended_listings() -> int:
+    """Inserate mit abgelaufener Laufzeit (Ricardo, eBay) als weg markieren – ganz ohne Anfrage an die Plattform.
+    Taucht ein Inserat danach wieder in den Suchergebnissen auf (verlängert), setzt upsert_listing es zurück."""
+    with connect() as c:
+        return c.execute("""UPDATE listings SET gone_at = ends_at
+                            WHERE gone_at IS NULL AND ends_at IS NOT NULL AND ends_at < ?""", (now(),)).rowcount
+
+
 def mark_listing_checked(key: str) -> None:
     with connect() as c:
         c.execute("UPDATE listings SET checked_at = ? WHERE key = ?", (now(), key))
 
 
-def top_hits_to_check(search_id: int, limit: int = 3) -> list[dict]:
-    """Bestbewertete Treffer, die in diesem Lauf nicht in den Suchergebnissen waren und
-    seit einem Tag nicht geprüft wurden."""
-    sql = """SELECT l.key, l.url, l.platform FROM hits h JOIN listings l ON l.key = h.listing_key
+def top_hits_to_check(search_id: int, limit: int = 8, recheck_hours: float = 6) -> list[dict]:
+    """Bestbewertete passende Treffer, die in diesem Lauf nicht in den Suchergebnissen waren
+    (nur Seite 1 wird abgefragt – «nicht gesehen» heisst nicht «verkauft») und seit recheck_hours nicht geprüft wurden.
+    Was in den Suchergebnissen steht, ist online; die Plattformen entfernen gelöschte Inserate dort sofort."""
+    sql = """SELECT l.key, l.url, l.platform, l.source, l.external_id, l.description_full FROM hits h JOIN listings l ON l.key = h.listing_key
              WHERE h.search_id = ? AND h.hidden = 0 AND h.ai_relevant = 1 AND l.gone_at IS NULL
-               AND l.last_seen < datetime('now', '-1 hour')
-               AND (l.checked_at IS NULL OR l.checked_at < datetime('now', '-1 day'))
+               AND l.last_seen < strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', '-30 minutes')
+               AND (l.checked_at IS NULL OR l.checked_at < strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', ?))
              ORDER BY h.ai_score DESC LIMIT ?"""
     with connect() as c:
-        return [dict(r) for r in c.execute(sql, (search_id, limit))]
+        return [dict(r) for r in c.execute(sql, (search_id, f"-{recheck_hours * 60:.0f} minutes", limit))]
+
+
+def set_listing_reserved(key: str, reserved: bool) -> None:
+    with connect() as c:
+        c.execute("UPDATE listings SET reserved = ?, checked_at = ? WHERE key = ?", (int(reserved), now(), key))
 
 
 def update_listing_shipping(key: str, flag: str) -> bool:

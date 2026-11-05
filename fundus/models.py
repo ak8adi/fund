@@ -32,6 +32,10 @@ class Listing:
     seller: Seller = field(default_factory=Seller)
     description_full: str | None = None
     shipping: str | None = None           # Versand laut Plattform: "ja", "nein" oder None (keine Angabe)
+    auction: bool | None = None           # Auktion (Ricardo, eBay); price ist dann der Sofortpreis, falls es einen gibt
+    bids: int | None = None               # Anzahl Gebote
+    bid_price: float | None = None        # aktuelles Gebot bzw. Startpreis
+    ends_at: datetime | None = None       # Ende der Laufzeit (Ricardo, eBay) – danach ist das Inserat weg
 
     @property
     def key(self) -> str:

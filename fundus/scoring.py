@@ -49,6 +49,20 @@ def tier_for(score: int) -> str:
     return "S" if score >= 80 else "A" if score >= 65 else "B" if score >= 45 else "C"
 
 
+def fair_value(h: dict, market: float, typical_year: float | None = None, new_price: float | None = None) -> float:
+    """Fairer Preis dieses Angebots in CHF: Marktpreis, angepasst an Zustand und Modelljahr, nie über neu."""
+    cond = h.get("ai_condition") or "unbekannt"
+    value = market * CONDITION_VALUE.get(cond, TYPICAL) / TYPICAL
+    year = h.get("ai_year")
+    if year and typical_year:
+        value *= (1 - YEARLY_LOSS) ** max(-6, min(6, typical_year - year))
+    elif typical_year:
+        value *= 1 - YEARLY_LOSS  # ohne Jahrgang vorsichtig rechnen: ältere Modelle nennen ihn seltener
+    if new_price:
+        value = min(value, new_price * CONDITION_VALUE.get(cond, TYPICAL))  # gebraucht nie mehr wert als neu
+    return value
+
+
 def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = None,
               delivery: dict | None = None, new_price: float | None = None,
               plan: deliv.Plan | None = None, market_estimated: bool = False) -> tuple[int, str, float]:
@@ -57,14 +71,8 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
     plan = plan or deliv.plan(h, fx, delivery or {})
     total = plan.total
     cond = h.get("ai_condition") or "unbekannt"
-    value = market * CONDITION_VALUE.get(cond, TYPICAL) / TYPICAL   # fairer Preis für diesen Zustand
     year = h.get("ai_year")
-    if year and typical_year:
-        value *= (1 - YEARLY_LOSS) ** max(-6, min(6, typical_year - year))
-    elif typical_year:
-        value *= 1 - YEARLY_LOSS  # ohne Jahrgang vorsichtig rechnen: ältere Modelle nennen ihn seltener
-    if new_price:
-        value = min(value, new_price * CONDITION_VALUE.get(cond, TYPICAL))  # gebraucht nie mehr wert als neu
+    value = fair_value(h, market, typical_year, new_price)
     score = 50 + SLOPE * math.log2(value / total) - plan.penalty
     diff = (1 - total / market) * 100
     parts = [f"Endpreis {abs(diff):.0f} % {'unter' if diff >= 0 else 'über'} "

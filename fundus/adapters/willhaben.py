@@ -38,6 +38,17 @@ class WillhabenAdapter(ScrapedAdapter):
         return None
 
     @staticmethod
+    def published(d: dict) -> datetime | None:
+        """Veröffentlichungsdatum aus der Suchkarte (PUBLISHED_String), sonst None."""
+        for a in d.get("attributes", {}).get("attribute", []):
+            if isinstance(a, dict) and a.get("name") == "PUBLISHED_String" and a.get("values"):
+                try:
+                    return datetime.fromisoformat(a["values"][0].replace("Z", "+00:00"))
+                except ValueError:
+                    return None
+        return None
+
+    @staticmethod
     def shipping(d: dict) -> str | None:
         """Übergabe laut Inserat: Baum-Attribut 2537 = Versand, 2536 = Selbstabholung; p2penabled = PayLivery."""
         vals = {a.get("name"): (a.get("values") or [""])[0] for a in d.get("attributes", {}).get("attribute", [])
@@ -179,7 +190,7 @@ class WillhabenAdapter(ScrapedAdapter):
                         image=image,
                         location=location,
                         country="AT",
-                        posted_at=datetime.now(timezone.utc),
+                        posted_at=self.published(d) or datetime.now(timezone.utc),
                         source=source,
                         seller=Seller(),
                         shipping=self.shipping(d),

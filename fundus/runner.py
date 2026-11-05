@@ -12,7 +12,7 @@ from . import db, fx as fx_rates, newprice, scoring
 from .ai import apply_platform_shipping
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
-from .adapters.extract import extract_description_from_page, shipping_from_page
+from .adapters.extract import extract_description_from_page, reserved_from_page, shipping_from_page
 from .config import get_config
 from .matching import excluded, matches_query
 from .models import Listing
@@ -68,7 +68,37 @@ def is_running() -> bool:
 
 
 # Plattformen, deren Inseratseite die Versandangabe als Feld zeigt (extract.shipping_from_page)
+EBAY_DETAILS_PER_SEARCH = 25   # API-Abrufe für Beschreibungen pro Suche und Lauf
 SHIP_FLAG_PLATFORMS = ("kleinanzeigen", "tutti", "anibis", "willhaben")
+
+
+def check_listing(adapters, hit: dict) -> str:
+    """Ist das Inserat noch zu haben? «ok», «reserved» oder «gone»; speichert das Ergebnis.
+    eBay über die API, Ricardo gar nicht (Laufzeitende reicht, keine Inseratseiten – siehe NO_DETAIL_PAGES).
+    BlockedError und andere Fehler gehen an den Aufrufer."""
+    adapter = adapter_for_source(adapters, hit["platform"])
+    if hit["platform"] == "ebay":
+        d = adapter.item_details(hit["external_id"], (hit.get("source") or "ebay:EBAY_DE").split(":")[-1])
+        if d["gone"]:
+            db.mark_listing_gone(hit["key"])
+            return "gone"
+        if d["description"]:
+            db.update_listing_description(hit["key"], d["description"])
+        db.mark_listing_checked(hit["key"])
+        return "ok"
+    try:
+        page = fetch_html(hit["url"], adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http")
+    except GoneError:
+        db.mark_listing_gone(hit["key"])
+        return "gone"
+    reserved = reserved_from_page(page)
+    db.set_listing_reserved(hit["key"], reserved)
+    apply_platform_shipping(hit["key"], shipping_from_page(page, hit["platform"]))
+    if not hit.get("description_full"):
+        desc = extract_description_from_page(page, hit["platform"])
+        if desc:
+            db.update_listing_description(hit["key"], desc)
+    return "reserved" if reserved else "ok"
 
 
 def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
@@ -125,6 +155,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             return {"searches": 0, "new": 0, "errors": 0, "skipped_manual": len(skipped)}
 
     run_id = db.start_run(trigger)
+    db.expire_ended_listings()
     total_new, errors = 0, 0
     source_counts: dict[str, int] = {}
     source_errors: dict[str, str] = {}
@@ -259,6 +290,19 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 except Exception as exc:
                     log.warning("Konnte Beschreibung für bestehenden Treffer %s nicht laden: %s", hit["url"], exc)
 
+        # eBay: Beschreibung und Ort über die API (Tageskontingent 5000, kein Scraping) – vor der KI-Bewertung
+        ebay_todo = [h for h in db.hits_for_search(search["id"])
+                     if h["platform"] == "ebay" and not h.get("description_full") and not h.get("gone_at")
+                     and h.get("ai_relevant") != 0][:EBAY_DETAILS_PER_SEARCH]
+        if ebay_todo and not any(b.startswith("ebay") for b in blocked):
+            try:
+                for hit in ebay_todo:
+                    check_listing(adapters, hit)
+            except BlockedError:
+                blocked.add("ebay")
+            except Exception as exc:
+                log.warning("eBay-Details nicht ladbar: %s", exc)
+
         # Die besten Treffer, die nicht mehr in den Suchergebnissen auftauchen, direkt prüfen:
         # Nur Seite 1 wird abgefragt, «nicht gesehen» heisst also nicht «verkauft».
         # Dazu die besten Treffer ohne Versandangabe der Plattform: die Suchkarte zeigt «Nur Abholung» nicht immer.
@@ -266,20 +310,18 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         for h in db.top_hits_without_ship_flag(search["id"], SHIP_FLAG_PLATFORMS):
             to_check.setdefault(h["key"], h)
         for hit in to_check.values():
-            if hit["platform"] in NO_DETAIL_PAGES or hit["platform"] in blocked:
+            if hit["platform"] == "ricardo" or hit["platform"] in blocked \
+                    or any(b.startswith(hit["platform"] + ":") for b in blocked):
                 continue
             try:
-                time.sleep(random.uniform(2, 4))
-                adapter = adapter_for_source(adapters, hit["platform"])
-                page = fetch_html(hit["url"], adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http")
-                db.mark_listing_checked(hit["key"])
-                apply_platform_shipping(hit["key"], shipping_from_page(page, hit["platform"]))
-            except GoneError:
-                db.mark_listing_gone(hit["key"])
-                log.info("Inserat nicht mehr verfügbar: %s", hit["url"])
+                if hit["platform"] != "ebay":
+                    time.sleep(random.uniform(2, 4))
+                if check_listing(adapters, hit) != "ok":
+                    log.info("Inserat nicht mehr zu haben: %s", hit["url"])
             except BlockedError as exc:
                 blocked.add(hit["platform"])
-                db.mark_platform_blocked(hit["platform"], exc.retry_after)
+                if hit["platform"] != "ebay":  # eBay-Tageslimit: Quellen heissen ebay:EBAY_xx, Suche läuft separat
+                    db.mark_platform_blocked(hit["platform"], exc.retry_after)
             except Exception as exc:
                 log.warning("Verfügbarkeit von %s nicht prüfbar: %s", hit["url"], exc)
 

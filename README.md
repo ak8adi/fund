@@ -90,9 +90,24 @@ die Plattform `fetcher: browser` setzen.
    Zustand und Jahrgang, gedeckelt durch den Neupreis. 50 = Marktpreis, 90 = halber Preis. Stufen S/A/B/C.
 5. **Meldung** per ntfy ab Score 65 (A), mit Bild, Endpreis, Lieferweg und Einschätzung.
 
-**Neupreis**: fundus sucht im Netz nach Shops, liest den Preis aus den Produktdaten der Shopseite, die KI prüft
-nur, ob es genau das Produkt ist. Als Neupreis gilt das günstigste passende Angebot (mit Link). Von Hand
-eingetragene Neupreise haben Vorrang.
+**Neupreis**: fundus sucht im Netz nach Shops und zusätzlich nach der Produkt- bzw. Serienseite bei toppreise.ch
+(führt auch Auslaufmodelle, solange ein Shop sie hat), liest den Preis aus den Produktdaten, die KI prüft nur, ob
+es genau das Produkt ist – eine andere Generation (M1/M4, «Pro 3»/«Pro 4») zählt nicht. Als Neupreis gilt das
+günstigste passende Angebot, ausser es liegt unter 75 % des zweitgünstigsten (Fehlpreis). Allgemeine Suchen
+(«sessel») bekommen keinen Neupreis. Von Hand eingetragene Neupreise haben Vorrang.
+
+**Noch zu haben?** Was in den Suchergebnissen steht, ist online. Die besten passenden Treffer, die im Lauf nicht
+mehr auftauchen, prüft fundus direkt (alle 6 h, bis 8 pro Suche); beim Klick auf ein Angebot (`/go/…`) prüft es
+das Inserat nochmals, wenn die letzte Prüfung älter als 10 Minuten ist, und zeigt «nicht mehr verfügbar» oder
+«reserviert», statt dich auf eine leere Seite zu schicken. Ricardo und eBay: Laufzeitende aus der Suche, nach
+Ablauf gilt das Inserat ohne weitere Anfrage als weg; eBay prüft zusätzlich über die API. Auktionen sind auf der
+Karte markiert (Gebote, aktuelles Gebot, Restzeit).
+
+**Ort und Beschreibung**: Ricardo liefert Ort, Versandart und Laufzeit in der Suchkarte, die Beschreibung lädt
+erst «Details» beim Anklicken (eine Anfrage, wie ein Besuch). eBay-Beschreibungen kommen über die API.
+
+**Entwürfe** (Menü ⋯ einer Suche): Darstellungs-Varianten mit den echten Daten der Suche – Shortlist der
+Pareto-Front, Preis-Wert-Karte, Preisleiter nach Zustand, Vergleichsmatrix, Lieferwege, Marktlage.
 
 **Notizfeld** pro Inserat: Antwort des Verkäufers oder eigene Notiz – die KI bewertet das Inserat danach neu.
 Steht «Betrug», «Fake» o.ä. darin, wird es sofort ausgeblendet.
