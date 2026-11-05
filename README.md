@@ -106,8 +106,10 @@ Karte markiert (Gebote, aktuelles Gebot, Restzeit).
 **Ort und Beschreibung**: Ricardo liefert Ort, Versandart und Laufzeit in der Suchkarte, die Beschreibung lädt
 erst «Details» beim Anklicken (eine Anfrage, wie ein Besuch). eBay-Beschreibungen kommen über die API.
 
-**Entwürfe** (Menü ⋯ einer Suche): Darstellungs-Varianten mit den echten Daten der Suche – Shortlist der
-Pareto-Front, Preis-Wert-Karte, Preisleiter nach Zustand, Vergleichsmatrix, Lieferwege, Marktlage.
+**Suchseite**: oben die besten Gebote (Pareto-Front: kein anderes Angebot ist zugleich günstiger und besser,
+nach Aussortieren von Lockangeboten, nicht erfüllten Anforderungen, fragwürdigen Verkäufern und Reservierten).
+Darunter zum Ausklappen: die klassische Liste, Preis-Wert-Karte, Vergleich der Finalisten, Preisleiter nach
+Zustand, Lieferwege und Marktlage (`views.py`, `_views.html`). Offene Ansichten merkt sich der Browser.
 
 **Notizfeld** pro Inserat: Antwort des Verkäufers oder eigene Notiz – die KI bewertet das Inserat danach neu.
 Steht «Betrug», «Fake» o.ä. darin, wird es sofort ausgeblendet.

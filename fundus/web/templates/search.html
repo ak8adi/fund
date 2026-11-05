@@ -11,7 +11,6 @@
         {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
           <form method="post" action="/search/{{ search.id }}/ai"><button>KI-Bewertung jetzt starten</button></form>
         {% endif %}
-        <a href="/search/{{ search.id }}/entwuerfe" class="item">Darstellungs-Entwürfe ansehen</a>
         <form method="post" action="/search/{{ search.id }}/newprice"><button>Neupreis neu suchen</button></form>
         <button type="button" onclick="copyForGemini(this)">Treffer für Gemini kopieren</button>
         <form method="post" action="/search/{{ search.id }}/toggle"><button>{{ 'Suche pausieren' if search.active else 'Suche fortsetzen' }}</button></form>
@@ -64,18 +63,20 @@
   {% elif search.image_prompt %}<p class="muted small">Für neue Angebote ausgeschaltet – «Bilder auswerten» schaltet es wieder ein.</p>{% endif %}
 </details>
 {% endif %}
-<form method="post" action="/search/{{ search.id }}/sort" class="sort-switch" aria-label="Sortierung">
-  <span class="muted small">Sortieren:</span>
-  <button name="by" value="score" class="{{ 'on' if search.sort_by != 'price' }}">Bestes Angebot</button>
-  <button name="by" value="price" class="{{ 'on' if search.sort_by == 'price' }}">Preis ↑</button>
-</form>
-
 <details class="card">
   <summary>Suche bearbeiten</summary>
   {% include "_search_form.html" %}
 </details>
 
+{% set list_html %}
+<form method="post" action="/search/{{ search.id }}/sort" class="sort-switch" aria-label="Sortierung">
+  <span class="muted small">Sortieren:</span>
+  <button name="by" value="score" class="{{ 'on' if search.sort_by != 'price' }}">Bestes Angebot</button>
+  <button name="by" value="price" class="{{ 'on' if search.sort_by == 'price' }}">Preis ↑</button>
+</form>
 {% include "_search_results.html" %}
+{% endset %}
+{% include "_views.html" %}
 
 <script>
 function copyForGemini(btn) {

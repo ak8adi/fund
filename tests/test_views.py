@@ -37,4 +37,5 @@ def test_drafts_page_renders():
     d = views.build(sid)
     assert d["counts"]["open"] == 4 and d["counts"]["front"] >= 1
     with TestClient(webapp.app) as client:
-        assert "Pareto-Front" in client.get(f"/search/{sid}/entwuerfe").text
+        page = client.get(f"/search/{sid}").text
+        assert "Beste Gebote" in page and "Alle Angebote als Liste" in page and "Preis-Wert-Karte" in page

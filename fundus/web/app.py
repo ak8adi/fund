@@ -357,20 +357,16 @@ def show_search(request: Request, sid: int):
 
     _sort_hits(hits, search)
     img_done, img_total = db.image_progress(sid, search["image_prompt"]) if search.get("image_prompt") else (0, 0)
-    resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits,
+    from .. import views
+    resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits, views=views.build(sid),
                                                                     img_progress={"done": img_done, "total": img_total}))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
 
-@app.get("/search/{sid}/entwuerfe", response_class=HTMLResponse)
-def drafts(request: Request, sid: int):
-    """Darstellungs-Entwürfe mit den echten Daten dieser Suche – zum Begutachten, ersetzt die Liste (noch) nicht."""
-    from .. import views
-    if not db.get_search(sid):
-        return RedirectResponse("/", status_code=303)
-    db.expire_ended_listings()
-    data = views.build(sid)
-    return templates.TemplateResponse(request, "entwuerfe.html", _ctx(request, search=db.get_search(sid), data=data))
+@app.get("/search/{sid}/entwuerfe")
+def drafts(sid: int):
+    """Frühere Entwurfsseite – die Ansichten sind jetzt Teil der Suchseite."""
+    return RedirectResponse(f"/search/{sid}", status_code=303)
 
 
 @app.get("/search/{sid}/results", response_class=HTMLResponse)
