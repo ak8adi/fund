@@ -20,6 +20,9 @@ def isolated(tmp_path, monkeypatch):
     from fundus import delivery
     monkeypatch.setattr(delivery, "ENABLED", False)  # keine Fahrzeit-Abfragen ins Netz
 
+    from fundus import runner
+    monkeypatch.setattr(runner, "watch_in_background", lambda sid, **k: False)  # keine Inseratseiten beim Öffnen
+
     db.init_db()
     yield
     config.get_config.cache_clear()

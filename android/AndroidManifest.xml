@@ -3,11 +3,13 @@
      Die Oberfläche kommt vom Mac – Änderungen dort brauchen keine neue APK. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ch.fundus.app"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="2"
+    android:versionName="1.1">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="fundus"
@@ -32,5 +34,11 @@
                 <data android:scheme="https" android:host="FUNDUS_HOST" />
             </intent-filter>
         </activity>
+        <!-- Meldungen nach jedem Scan: Wecker (eigene Absicht) und nach dem Neustart des Handys neu planen -->
+        <receiver android:name=".Melder" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

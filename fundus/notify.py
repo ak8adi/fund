@@ -157,12 +157,50 @@ def notify_top_hits(search_id: int) -> list[str]:
     search = db.get_search(search_id)
     if not search:
         return []
-    hits = db.pending_top_hits(search_id, int(cfg["ntfy"].get("notify_min_score", 65)))
+    from . import fx as fx_rates, scoring, views
+    rates = fx_rates.rates(cfg)
+    reference = search.get("market_price") or (search["new_price"] * scoring.USED_SHARE if search.get("new_price") else None)
+    hits = [h for h in db.pending_top_hits(search_id, int(cfg["ntfy"].get("notify_min_score", 65)))
+            if not views.ko_reason(h, scoring.pay_price_chf(h, rates), reference)]  # keine Lockangebote melden
     for h in hits:
         h["trust_label"] = LEVELS.get(h.get("trust_level"), "")
-    sent = notify_hits(cfg, search, hits, {a.name: a.label for a in all_adapters(cfg)})
+    if not hits:
+        return []
+    add_app_notice(cfg, search, hits)
+    if app_active():  # die App holt ihre Meldungen selbst ab – ntfy wäre doppelt
+        sent = [h["key"] for h in hits]
+    else:
+        sent = notify_hits(cfg, search, hits, {a.name: a.label for a in all_adapters(cfg)})
     db.mark_notified(search_id, sent)
     return sent
+
+
+APP_ACTIVE_DAYS = 7
+
+
+def app_active() -> bool:
+    """Hat die Android-App in den letzten Tagen nach Meldungen gefragt? Dann meldet sie, nicht ntfy."""
+    from datetime import datetime, timedelta, timezone
+    from . import db
+    seen = db.kv_get("app_seen")
+    return bool(seen) and datetime.now(timezone.utc) - datetime.fromisoformat(seen) < timedelta(days=APP_ACTIVE_DAYS)
+
+
+def add_app_notice(cfg: dict, search: dict, hits: list[dict]) -> None:
+    """Eine Sammelmeldung pro Suche und Auswertung für die App: die besten neuen Angebote mit Endpreis."""
+    from . import db
+    public = (cfg["web"].get("public_url") or "").rstrip("/")
+    n = len(hits)
+    title = f"{search['query']}: {n} neues Top-Angebot" if n == 1 else f"{search['query']}: {n} neue Top-Angebote"
+    lines = []
+    for h in hits[:3]:
+        total = _amount(round(h["total_chf"]), "CHF") if h.get("total_chf") else _amount(h.get("price"), h.get("currency"))
+        facts = " · ".join(x for x in ((h.get("ai_condition") or "") if h.get("ai_condition") != "unbekannt" else "",
+                                        h.get("location") or "") if x)
+        lines.append(f"{total} – {h['title'][:60]}" + (f" ({facts})" if facts else ""))
+    if n > 3:
+        lines.append(f"… und {n - 3} weitere")
+    db.add_app_notice(search["id"], title, "\n".join(lines), f"{public}/search/{search['id']}" if public else None)
 
 
 def send_test(cfg: dict) -> bool:

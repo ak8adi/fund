@@ -108,12 +108,13 @@ def check_listing(adapters, hit: dict) -> str:
     return "reserved" if reserved else "ok"
 
 
-def shortlist_to_check(search_id: int, rest: int = 6) -> list[dict]:
-    """Beste Gebote und die nächsten Angebote der Suchseite, deren letzte Prüfung älter als SHORTLIST_RECHECK_HOURS ist."""
+def shortlist_to_check(search_id: int, rest: int = 6, max_age: timedelta | None = None) -> list[dict]:
+    """Beste Gebote und die nächsten Angebote der Suchseite, deren letzte Prüfung älter als max_age
+    (Standard SHORTLIST_RECHECK_HOURS) ist."""
     from . import views
     offers = views.build(search_id)["offers"]
     keys = [o["key"] for o in offers if o["front"]] + [o["key"] for o in offers if not o["front"] and not o["ko"]][:rest]
-    limit = datetime.now(timezone.utc) - timedelta(hours=SHORTLIST_RECHECK_HOURS)
+    limit = datetime.now(timezone.utc) - (max_age or timedelta(hours=SHORTLIST_RECHECK_HOURS))
     out = []
     for key in keys:
         l = db.get_listing(key)
@@ -121,6 +122,103 @@ def shortlist_to_check(search_id: int, rest: int = 6) -> list[dict]:
                 not l.get("checked_at") or datetime.fromisoformat(l["checked_at"]) < limit):
             out.append(l)
     return out
+
+
+# ---------- Verfügbarkeits-Wächter: was oben auf der Suchseite steht, muss zu haben sein ----------
+
+_watch_lock = threading.Lock()
+_watching: set[int] = set()
+
+
+def _blocked_platforms() -> set[str]:
+    now = datetime.now(timezone.utc)
+    return {name for name, st in db.platform_states().items()
+            if st.get("blocked_until") and datetime.fromisoformat(st["blocked_until"]) > now}
+
+
+def _twins(search_id: int, listing: dict) -> list[dict]:
+    """Dasselbe Angebot unter anderer Nummer (neu eingestellt, Combo mehrfach inseriert): gleicher Titel und Preis."""
+    sig = (" ".join((listing.get("title") or "").lower().split()), listing.get("price"))
+    return [h for h in db.hits_for_search(search_id)
+            if h["key"] != listing["key"] and not h.get("gone_at") and h["platform"] != "ricardo"
+            and (" ".join((h.get("title") or "").lower().split()), h.get("price")) == sig]
+
+
+def watch_search(search_id: int, max_age: timedelta | None = None, rounds: int = 3) -> int:
+    """Prüft die Angebote oben auf der Suchseite (beste Gebote, knapp dahinter). Fällt eines weg, rückt das nächste
+    nach – darum mehrere Runden, bis alles Sichtbare geprüft ist. Doppelinserate eines verschwundenen Angebots werden
+    gleich mitgeprüft. Rückgabe: Anzahl weg/reserviert gefundener Inserate."""
+    adapters = all_adapters(get_config())
+    blocked = _blocked_platforms()
+    failed: set[str] = set()
+    changed = 0
+    for _ in range(rounds):
+        todo = [h for h in shortlist_to_check(search_id, max_age=max_age)
+                if h["platform"] not in blocked and h["key"] not in failed]
+        if not todo:
+            break
+        queue = list(todo)
+        while queue:
+            h = queue.pop(0)
+            try:
+                if h["platform"] != "ebay":
+                    time.sleep(random.uniform(1.5, 3))
+                status = check_listing(adapters, h)
+            except BlockedError as exc:
+                blocked.add(h["platform"])
+                if h["platform"] != "ebay":
+                    db.mark_platform_blocked(h["platform"], exc.retry_after)
+                continue
+            except Exception as exc:
+                failed.add(h["key"])
+                log.info("Verfügbarkeit von %s nicht prüfbar: %s", h["url"], exc)
+                continue
+            if status != "ok":
+                changed += 1
+                log.info("Wächter: %s ist %s", h["url"], "reserviert" if status == "reserved" else "weg")
+                queue += [t for t in _twins(search_id, h) if t["key"] not in failed and t["platform"] not in blocked
+                          and all(t["key"] != q["key"] for q in queue)]
+    if changed:
+        scoring.rescore_search(search_id)
+    return changed
+
+
+def watch_all() -> None:
+    """Zeitplan-Job (tagsüber alle 30 Min.): alle aktiven Suchen. Läuft gerade ein Scan, übernimmt der das."""
+    if is_running() or not _watch_lock.acquire(blocking=False):
+        return
+    try:
+        for s in db.list_searches(active_only=True):
+            if s["id"] in _watching:
+                continue
+            _watching.add(s["id"])
+            try:
+                watch_search(s["id"])
+            finally:
+                _watching.discard(s["id"])
+    finally:
+        _watch_lock.release()
+
+
+def watch_in_background(search_id: int, max_age: timedelta = timedelta(minutes=30)) -> bool:
+    """Beim Öffnen einer Suche: was länger als max_age ungeprüft oben steht, sofort im Hintergrund prüfen."""
+    if search_id in _watching:
+        return True
+    if not shortlist_to_check(search_id, max_age=max_age):
+        return False
+    _watching.add(search_id)
+
+    def work():
+        try:
+            watch_search(search_id, max_age=max_age)
+        finally:
+            _watching.discard(search_id)
+    threading.Thread(target=work, daemon=True).start()
+    return True
+
+
+def is_watching(search_id: int) -> bool:
+    return search_id in _watching
 
 
 def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:

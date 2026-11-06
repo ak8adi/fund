@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
+import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.WebResourceError;
@@ -47,6 +49,12 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new Client());
         setContentView(web);
         laden(startAdresse(getIntent()));
+
+        // Meldungen nach jedem Scan (Melder): einmalig um Erlaubnis fragen, Wecker stellen
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
+        }
+        Melder.starten(this);
     }
 
     /** Alles ausserhalb von fundus (Inserate, Shops) öffnet die passende App bzw. den Browser. */
@@ -116,10 +124,15 @@ public class MainActivity extends Activity {
     }
 
     private void adresseLesen() {
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open("adresse.txt"), "UTF-8"))) {
-            adresse = r.readLine().trim().replaceAll("/+$", "");
+        adresse = adresse(this);
+    }
+
+    /** Adresse von fundus auf dem Mac (assets/adresse.txt), ohne Schrägstrich am Ende; "" wenn sie fehlt. */
+    static String adresse(Context ctx) {
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(ctx.getAssets().open("adresse.txt"), "UTF-8"))) {
+            return r.readLine().trim().replaceAll("/+$", "");
         } catch (Exception e) {
-            adresse = "";
+            return "";
         }
     }
 

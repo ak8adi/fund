@@ -251,3 +251,21 @@ def test_gemini_retries_after_timeout(monkeypatch):
     monkeypatch.setattr(ai.time, "sleep", lambda s: None)
     assert ai._gemini_json("p", "s", "k") == {"ok": True}
     assert len(calls) == 2 and calls[0] == calls[1]  # gleiches Modell nochmals, nicht gleich aufgegeben
+
+
+def test_app_notices_flow(monkeypatch):
+    from fastapi.testclient import TestClient
+    from fundus import db, notify
+    from fundus.web import app as webapp
+    monkeypatch.setattr(notify, "_publish", lambda cfg, payload: (_ for _ in ()).throw(AssertionError("kein ntfy")))
+    with TestClient(webapp.app) as client:
+        first = client.get("/api/app/notices").json()      # erster Kontakt: nur Stand, nichts Altes
+        assert first["notices"] == [] and "next_check" in first
+        assert notify.app_active()
+        sid = db.save_search({"query": "trust bar"})
+        notify.add_app_notice({"web": {"public_url": "https://x.ts.net"}}, db.get_search(sid),
+                              [{"title": "Trust Bar", "total_chf": 139, "ai_condition": "gut", "location": "Wien"}])
+        r = client.get(f"/api/app/notices?after={first['last_id']}").json()
+        assert [n["title"] for n in r["notices"]] == ["trust bar: 1 neues Top-Angebot"]
+        assert "139 CHF – Trust Bar (gut · Wien)" in r["notices"][0]["body"]
+        assert client.get(f"/api/app/notices?after={r['last_id']}").json()["notices"] == []

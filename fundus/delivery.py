@@ -57,6 +57,7 @@ class Plan:
     pickup_minutes: int | None = None
     penalty: int = 0
     notes: list[str] = field(default_factory=list)
+    parts: list[tuple[str, float]] = field(default_factory=list)  # Aufschlüsselung des Endpreises in CHF
 
 
 def listing_country(h: dict) -> str | None:
@@ -125,14 +126,15 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
         car = 2 * minutes * float(delivery.get("drive_chf_per_min", DRIVE_CHF_PER_MIN)) if minutes else 0.0
         label = where + (f" · {fmt_minutes(minutes)} Fahrt (Auto ≈ {_num(car)} CHF hin und zurück)"
                          if minutes is not None else "") + tax_txt
-        return Plan(round(price + tax + car, 2), label, minutes, penalty)
+        return Plan(round(price + tax + car, 2), label, minutes, penalty,
+                    parts=[p for p in (("Preis", price), ("MWST", tax), ("Auto", car)) if p[1]])
 
     if country == home:
         ship = stated if stated is not None else post_chf(size, weight)
         how = f"Versand {_num(ship)} CHF laut Inserat" if stated is not None else f"Postversand ≈ {_num(ship)} CHF"
         if size == "XL" and stated is None:
             how += " (Sperrgut – fragen, ob verschickt wird)"
-        return Plan(round(price + ship, 2), how)
+        return Plan(round(price + ship, 2), how, parts=[("Preis", price), ("Versand", ship)])
 
     # Ausland: an Paket4you Jestetten, dort abholen
     fee = P4Y_EUR.get(size, 3.5) * eur
@@ -150,7 +152,8 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
     tax, tax_txt = vat(price + ship)
     if j_min is not None:
         how += f" · {fmt_minutes(j_min)} Fahrt nach Jestetten"
-    return Plan(round(price + ship + fee + tax, 2), how + tax_txt)
+    return Plan(round(price + ship + fee + tax, 2), how + tax_txt,
+                parts=[p for p in (("Preis", price), ("Versand", ship), ("Paket4you", fee), ("MWST", tax)) if p[1]])
 
 
 # ---------- Fahrzeit (OpenStreetMap: Nominatim zum Finden des Orts, OSRM für die Route) ----------

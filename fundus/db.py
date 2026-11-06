@@ -206,6 +206,10 @@ def init_db() -> None:
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
         c.execute("""CREATE TABLE IF NOT EXISTS geo (
                          query TEXT PRIMARY KEY, lat REAL, lon REAL, minutes INTEGER, checked_at TEXT NOT NULL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS app_notices (      -- Meldungen, die die Android-App abholt
+                         id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, search_id INTEGER,
+                         title TEXT NOT NULL, body TEXT NOT NULL, url TEXT)""")
+        c.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)")
         c.execute("""CREATE TABLE IF NOT EXISTS price_history (    -- jede Preisänderung eines Inserats
                          listing_key TEXT NOT NULL, price REAL NOT NULL, currency TEXT, seen_at TEXT NOT NULL)""")
         c.execute("CREATE INDEX IF NOT EXISTS price_history_key ON price_history(listing_key)")
@@ -614,10 +618,43 @@ def pending_top_hits(search_id: int, min_score: int, max_age_days: int = 3) -> l
     sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, h.search_id, {HIT_AI_SELECT}
               FROM hits h JOIN listings l ON l.key = h.listing_key
               WHERE h.search_id = ? AND h.notified = 0 AND h.hidden = 0 AND h.ai_relevant = 1
-                AND h.ai_score >= ? AND l.gone_at IS NULL AND h.first_seen >= datetime('now', ?)
+                AND h.ai_score >= ? AND l.gone_at IS NULL AND COALESCE(l.reserved, 0) = 0
+                AND h.first_seen >= strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', ?)
               ORDER BY h.ai_score DESC"""
     with connect() as c:
         return [_listing_row(r) for r in c.execute(sql, (search_id, min_score, f"-{max_age_days} days"))]
+
+
+def kv_get(key: str) -> str | None:
+    with connect() as c:
+        r = c.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
+        return r["value"] if r else None
+
+
+def kv_set(key: str, value: str) -> None:
+    with connect() as c:
+        c.execute("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                  (key, value))
+
+
+def add_app_notice(search_id: int | None, title: str, body: str, url: str | None) -> int:
+    with connect() as c:
+        return c.execute("INSERT INTO app_notices (created_at, search_id, title, body, url) VALUES (?,?,?,?,?)",
+                         (now(), search_id, title, body, url)).lastrowid
+
+
+def app_notices_after(after: int, limit: int = 20) -> list[dict]:
+    """Noch nicht abgeholte Meldungen (id > after), höchstens 3 Tage alt – ältere sind überholt."""
+    with connect() as c:
+        return [dict(r) for r in c.execute(
+            """SELECT * FROM app_notices WHERE id > ? AND created_at >= strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', '-3 days')
+               ORDER BY id LIMIT ?""", (after, limit))]
+
+
+def last_app_notice_id() -> int:
+    with connect() as c:
+        r = c.execute("SELECT MAX(id) AS m FROM app_notices").fetchone()
+        return r["m"] or 0
 
 
 def mark_notified(search_id: int, keys: list[str]) -> None:

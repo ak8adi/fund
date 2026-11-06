@@ -117,3 +117,39 @@ def test_reserved_markers():
     assert reserved_from_page('<div class="badge is-reserved">x</div>')
     assert not reserved_from_page('<span class="pvap-reserved-title is-hidden">Reserviert • </span>')
     assert not reserved_from_page("<p>Bitte nicht reservieren</p>")
+
+
+def test_watch_search_rechecks_promoted_and_twins(monkeypatch):
+    """Fällt ein bestes Gebot weg, rückt das nächste nach und wird in derselben Prüfung kontrolliert;
+    Doppelinserate eines verschwundenen Angebots werden mitgeprüft."""
+    from fundus import scoring
+    sid = db.save_search({"query": "sensor bar"})
+    keys = []
+    for i, p in enumerate((300, 320, 340, 360, 380, 400, 420, 440, 460)):
+        l = _listing(f"7{i}")
+        with db.connect() as c:
+            c.execute("UPDATE listings SET price = ?, title = ? WHERE key = ?", (p, f"Sensor Bar {p}", l.key))
+        db.add_hit(sid, l.key, False)
+        db.update_hit_ai(sid, l.key, True, "Bar", "gut")
+        keys.append(l.key)
+    twin = _listing("799")  # gleiches Angebot wie 70 unter anderer Nummer, steht nicht oben
+    with db.connect() as c:
+        c.execute("UPDATE listings SET price = 300, title = 'Sensor Bar 300' WHERE key = ?", (twin.key,))
+    db.add_hit(sid, twin.key, False)
+    db.update_hit_ai(sid, twin.key, False, "Doppelt")
+    scoring.rescore_search(sid)
+    gone = {keys[0], twin.key}
+    checked = []
+
+    def fake_check(adapters, h):
+        checked.append(h["key"])
+        if h["key"] in gone:
+            db.mark_listing_gone(h["key"])
+            return "gone"
+        db.mark_listing_checked(h["key"])
+        return "ok"
+    monkeypatch.setattr(runner, "check_listing", fake_check)
+    monkeypatch.setattr(runner.time, "sleep", lambda s: None)
+    assert runner.watch_search(sid) == 2
+    assert twin.key in checked and len(set(checked)) == len(checked)
+    assert runner.shortlist_to_check(sid) == []  # alles, was jetzt oben steht, ist geprüft

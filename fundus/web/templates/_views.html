@@ -61,6 +61,7 @@
     <h2>Beste Gebote</h2>
     <span class="funnel" id="vw-funnel"></span>
   </div>
+  {% if watching %}<p class="muted small sl" id="vw-watch" style="margin-top:-4px">Prüft gerade, ob die Angebote noch zu haben sind …</p>{% endif %}
   {% if ai_running %}<p class="muted small sl" style="margin-top:-4px">KI bewertet noch – die Auswahl wird nach dem Neuladen genauer.</p>{% endif %}
   <div class="short sl" id="vw-cards"></div>
   <div class="rows sl" id="vw-rows"></div>
@@ -301,5 +302,20 @@ document.getElementById('vw-lanes').innerHTML = [['pickup', 'Abholen'], ['ch', '
 })();
 
 draw();
+
+// Verfügbarkeitsprüfung beim Öffnen: warten, und nur neu laden, wenn sich oben etwas geändert hat
+{% if watching %}
+(function poll() {
+  const shown = front.map(o => o.key).concat(rest.slice(0, 6).map(o => o.key)).join('|');
+  setTimeout(async () => {
+    try {
+      const r = await fetch(`/search/${SID}/fresh`).then(r => r.json());
+      if (r.watching) return poll();
+      if (r.top.join('|') !== shown) location.reload();
+      else document.getElementById('vw-watch')?.remove();
+    } catch (e) {}
+  }, 2500);
+})();
+{% endif %}
 })();
 </script>

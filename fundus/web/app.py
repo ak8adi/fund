@@ -298,6 +298,27 @@ def feed(request: Request):
         request, hits=db.recent_new_hits(40), best=db.best_hits(1), runs=db.last_runs(1)))
 
 
+APP_CHECK_AFTER_RUN = 45   # Minuten nach Scan-Beginn: dann sind Suche und KI-Auswertung meist fertig
+
+
+@app.get("/api/app/notices")
+def app_notices(after: int = -1):
+    """Für die Android-App: neue Meldungen seit `after`, ob Scan/Auswertung noch laufen und wann sie wieder fragen soll.
+    after=-1 (erster Kontakt): keine alten Meldungen nachliefern, nur den Stand zurückgeben."""
+    from datetime import timedelta
+    from fastapi.responses import JSONResponse
+    db.kv_set("app_seen", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    busy = runner.is_running() or ai.AI_RUNNING
+    notices = [] if after < 0 or busy else db.app_notices_after(after)
+    last = notices[-1]["id"] if notices else (db.last_app_notice_id() if after < 0 else after)
+    jitter = int(get_config()["schedule"].get("jitter_minutes", 0))
+    upcoming = next_runs(state["scheduler"])
+    nxt = (upcoming[0] + timedelta(minutes=jitter + APP_CHECK_AFTER_RUN)) if upcoming else \
+        datetime.now(timezone.utc) + timedelta(hours=12)
+    return JSONResponse({"busy": busy, "last_id": last, "next_check": nxt.astimezone(timezone.utc).isoformat(timespec="seconds"),
+                         "notices": [{k: n[k] for k in ("id", "title", "body", "url")} for n in notices]})
+
+
 @app.get("/app.apk")
 def app_apk():
     """Android-App zum Installieren übers Tailnet (android/build-android.sh legt sie hier ab)."""
@@ -375,6 +396,7 @@ def show_search(request: Request, sid: int):
     if not search:
         return RedirectResponse("/", status_code=303)
     db.expire_ended_listings()  # abgelaufene Ricardo-/eBay-Inserate sofort als weg zeigen
+    watching = runner.watch_in_background(sid)  # Angebote oben, die länger als 30 Min. ungeprüft sind
     hits = db.hits_for_search(sid)
 
     for h in hits:
@@ -385,9 +407,20 @@ def show_search(request: Request, sid: int):
     img_done, img_total = db.image_progress(sid, search["image_prompt"]) if search.get("image_prompt") else (0, 0)
     from .. import views
     resp = templates.TemplateResponse(request, "search.html", _ctx(request, search=search, hits=hits, views=views.build(sid),
+                                                                    watching=watching,
                                                                     img_progress={"done": img_done, "total": img_total}))
     db.mark_seen(sid)  # nach dem Rendern: «neu»-Markierung ist jetzt angeschaut
     return resp
+
+@app.get("/search/{sid}/fresh")
+def search_fresh(sid: int):
+    """Für die Suchseite: läuft die Verfügbarkeitsprüfung noch, und welche Angebote stehen jetzt oben?"""
+    from fastapi.responses import JSONResponse
+    from .. import views
+    offers = views.build(sid)["offers"]
+    top = [o["key"] for o in offers if o["front"]] + [o["key"] for o in offers if not o["front"] and not o["ko"]][:6]
+    return JSONResponse({"watching": runner.is_watching(sid), "top": top})
+
 
 @app.get("/search/{sid}/entwuerfe")
 def drafts(sid: int):
