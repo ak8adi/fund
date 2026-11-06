@@ -166,6 +166,9 @@ def notify_top_hits(search_id: int) -> list[str]:
         h["trust_label"] = LEVELS.get(h.get("trust_level"), "")
     if not hits:
         return []
+    if not cfg["ntfy"].get("on_new", True) or not search.get("notify_new", 1):
+        db.mark_notified(search_id, [h["key"] for h in hits])  # Meldungen für neue Angebote ausgeschaltet
+        return []
     add_app_notice(cfg, search, hits)
     if app_active():  # die App holt ihre Meldungen selbst ab – ntfy wäre doppelt
         sent = [h["key"] for h in hits]

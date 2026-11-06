@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 
 from ..models import Listing, Seller
 from .extract import parse_price
 from .scraped import ScrapedAdapter
+
+log = logging.getLogger(__name__)
 
 
 class WillhabenAdapter(ScrapedAdapter):
@@ -128,7 +131,7 @@ class WillhabenAdapter(ScrapedAdapter):
                     price = None
                     if "price" in d:
                         try: price = float(d["price"])
-                        except: pass
+                        except (TypeError, ValueError): pass
                     else:
                         attrs = d.get("attributes", {}).get("attribute", [])
                         if isinstance(attrs, list):
@@ -137,10 +140,10 @@ class WillhabenAdapter(ScrapedAdapter):
                                     vals = attr.get("values")
                                     if isinstance(vals, list) and vals:
                                         try: price = float(vals[0])
-                                        except: pass
+                                        except (TypeError, ValueError): pass
                                     elif "value" in attr:
                                         try: price = float(attr["value"])
-                                        except: pass
+                                        except (TypeError, ValueError): pass
                                     if price is not None:
                                         break
 
@@ -195,8 +198,8 @@ class WillhabenAdapter(ScrapedAdapter):
                         seller=Seller(),
                         shipping=self.shipping(d),
                     ))
-            except Exception as e:
-                pass
+            except Exception as exc:  # Struktur geändert? Nicht still schlucken, sonst fällt es nie auf
+                log.warning("Willhaben: Suchergebnis nicht lesbar: %s", exc)
 
         if not listings:
             # Fallback for old behaviour if NEXT_DATA fails or is not present

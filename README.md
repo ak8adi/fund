@@ -114,22 +114,37 @@ Karte markiert (Gebote, aktuelles Gebot, Restzeit).
 **Ort und Beschreibung**: Ricardo liefert Ort, Versandart und Laufzeit in der Suchkarte, die Beschreibung lädt
 erst «Details» beim Anklicken (eine Anfrage, wie ein Besuch). eBay-Beschreibungen kommen über die API.
 
-**Suchseite**: oben die besten Gebote (Pareto-Front: kein anderes Angebot ist zugleich günstiger und besser,
-nach Aussortieren von Lockangeboten, nicht erfüllten Anforderungen, fragwürdigen Verkäufern und Reservierten).
-Darunter zum Ausklappen: die klassische Liste, Preis-Wert-Karte, Vergleich der Finalisten, Preisleiter nach
-Zustand, Lieferwege und Marktlage (`views.py`, `_views.html`). Offene Ansichten merkt sich der Browser.
+**Übersicht**: pro Suche eine Zeile zum Wischen – Suchkarte (Foto des besten Angebots, gebraucht ab / neu ab,
+Zahnrad links für die Einstellungen), dann die besten Gebote (neue zuerst, markiert), zuletzt eine kleine
+Analytics-Karte. Antippen der Suchkarte öffnet die Suche.
 
-**Notizfeld** pro Inserat: Antwort des Verkäufers oder eigene Notiz – die KI bewertet das Inserat danach neu.
-Steht «Betrug», «Fake» o.ä. darin, wird es sofort ausgeblendet.
+**Suchseite**: oben der Preis-Kopf – günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot,
+beide als Endpreis bis zu dir mit Aufschlüsselung –, darunter die Knöpfe *Analytics* und *Neu kaufen*. Dann die
+besten Gebote (Pareto-Front: kein anderes Angebot ist zugleich günstiger und besser, nach Aussortieren von
+Lockangeboten, nicht erfüllten Anforderungen, fragwürdigen Verkäufern und Reservierten), je mit Aufschlüsselung
+des Endpreises; ausklappbar der Vergleich der Finalisten und die Liste aller Angebote.
+*Analytics*: Marktlage der letzten 30 Tage, Lieferwege, Preis-Wert-Karte, Preisleiter, verpasste Angebote.
+*Neu kaufen*: alle passenden Shops mit Versand (aus den Shopdaten, sonst ≈ geschätzt), Import und Endpreis.
+Daten: `views.py`, Darstellung: `static/views.js` und `static/views.css`.
+
+**Verfügbarkeits-Wächter** (`runner.watch_search`): was oben auf einer Suchseite steht, prüft fundus tagsüber
+alle 30 Minuten und sofort beim Öffnen der Suche (wenn länger als 30 Min. ungeprüft); fällt ein Angebot weg,
+rückt das nächste nach und wird gleich mitgeprüft, ebenso Doppelinserate desselben Angebots. Verkaufte und
+reservierte Angebote fliessen weiter in Marktpreis und Statistik ein, stehen aber nie oben.
 
 ## Android-App
 
 `android/` ist nur eine Hülle (WebView) um fundus auf dem Mac – wie die Zeit-App. Sie lädt `web.public_url`
 (Tailscale Serve, nur im eigenen Tailnet, HTTPS). **Die Oberfläche kommt vom Mac: Änderungen an fundus brauchen
-keine neue APK.** Erkennt fundus die App (User-Agent `FundusApp`), zeigt es die App-Ansicht: Reiter unten (Suchen,
-Neu, Neue Suche, Einstellungen), Herunterziehen zum Aktualisieren, nach 5 Minuten im Hintergrund frisch laden.
-Inserate öffnet die App in der passenden App (Ricardo, Kleinanzeigen …) oder im Browser; fundus-Links aus
-Meldungen öffnen in der App.
+keine neue APK.** Erkennt fundus die App (User-Agent `FundusApp`), zeigt es die App-Ansicht: Reiter unten
+(Übersicht, Neue Suche, Einstellungen), Herunterziehen zum Aktualisieren, nach 5 Minuten im Hintergrund frisch
+laden. Inserate öffnet die App in der passenden App (Ricardo, Kleinanzeigen …) oder im Browser.
+Im Browser lässt sich die App-Ansicht zum Testen mit dem Cookie `fundus_app=1` einschalten.
+
+**Meldungen ohne fremden Dienst**: nach jeder KI-Auswertung legt fundus pro Suche eine Sammelmeldung mit den
+neuen Top-Angeboten ab (`app_notices`). Die App fragt kurz nach jedem geplanten Scan (`/api/app/notices`, der Mac
+nennt den Zeitpunkt), wartet, bis Scan und Auswertung fertig sind, und zeigt die Meldung; Antippen öffnet die
+Suche. Hat die App in den letzten 7 Tagen nachgefragt, bleibt ntfy still (sonst kämen Meldungen doppelt).
 
 Neu bauen nur bei Änderungen an `android/`: `android/build-android.sh` (JDK und Android SDK im Benutzerordner,
 Signierschlüssel bleibt in `~/Library/Application Support/fundus`). Installieren: auf dem Handy mit Tailscale

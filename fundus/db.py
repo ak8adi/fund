@@ -574,7 +574,7 @@ def hits_for_image_check(search_id: int, prompt: str, limit: int = 1000) -> list
 def image_progress(search_id: int, prompt: str) -> tuple[int, int]:
     """(geprüft, gesamt) der Bildanalyse einer Suche."""
     with connect() as c:
-        r = c.execute(f"""SELECT COUNT(*) AS total, SUM(h.img_done IS ?) AS done FROM hits h
+        r = c.execute("""SELECT COUNT(*) AS total, SUM(h.img_done IS ?) AS done FROM hits h
                           JOIN listings l ON l.key = h.listing_key
                           WHERE h.search_id = ? AND h.hidden = 0 AND l.gone_at IS NULL AND l.image IS NOT NULL
                             AND (h.ai_relevant = 1 OR h.img_done IS ?
@@ -674,30 +674,6 @@ def hits_for_search(search_id: int, include_hidden: bool = False, limit: int = 3
     sql += " ORDER BY h.first_seen DESC, l.posted_at DESC LIMIT ?"
     with connect() as c:
         return [_listing_row(r) for r in c.execute(sql, (search_id, limit))]
-
-
-def best_hits(per_search: int = 1) -> list[dict]:
-    """Die besten verfügbaren Angebote jeder aktiven Suche (höchster Deal-Score)."""
-    sql = f"""SELECT * FROM (
-                SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, s.query AS search_query, s.id AS search_id,
-                       {HIT_AI_SELECT},
-                       ROW_NUMBER() OVER (PARTITION BY h.search_id ORDER BY h.ai_score DESC) AS rank
-                FROM hits h JOIN listings l ON l.key = h.listing_key JOIN searches s ON s.id = h.search_id
-                WHERE s.active = 1 AND h.hidden = 0 AND h.ai_relevant = 1 AND h.ai_score IS NOT NULL
-                  AND l.gone_at IS NULL)
-             WHERE rank <= ? ORDER BY ai_score DESC"""
-    with connect() as c:
-        return [_listing_row(r) for r in c.execute(sql, (per_search,))]
-
-
-def recent_new_hits(limit: int = 30) -> list[dict]:
-    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, s.query AS search_query, s.id AS search_id,
-                    {HIT_AI_SELECT}
-             FROM hits h JOIN listings l ON l.key = h.listing_key JOIN searches s ON s.id = h.search_id
-             WHERE h.is_new = 1 AND h.hidden = 0 AND (h.ai_relevant IS NULL OR h.ai_relevant = 1) AND l.gone_at IS NULL
-             ORDER BY h.first_seen DESC LIMIT ?"""
-    with connect() as c:
-        return [_listing_row(r) for r in c.execute(sql, (limit,))]
 
 
 def _listing_row(r: sqlite3.Row) -> dict:

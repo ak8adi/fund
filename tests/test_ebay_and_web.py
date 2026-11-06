@@ -269,3 +269,26 @@ def test_app_notices_flow(monkeypatch):
         assert [n["title"] for n in r["notices"]] == ["trust bar: 1 neues Top-Angebot"]
         assert "139 CHF – Trust Bar (gut · Wien)" in r["notices"][0]["body"]
         assert client.get(f"/api/app/notices?after={r['last_id']}").json()["notices"] == []
+
+
+def test_notify_top_hits_routes_to_app(monkeypatch):
+    from datetime import datetime, timezone
+    from fundus import db, notify
+    from fundus.models import Listing
+    sent_ntfy = []
+    monkeypatch.setattr(notify, "notify_hits", lambda cfg, s, hits, labels: sent_ntfy.append(hits) or [h["key"] for h in hits])
+    sid = db.save_search({"query": "trust bar"})
+    with db.connect() as c:
+        c.execute("UPDATE searches SET market_price = 300 WHERE id = ?", (sid,))
+    for ext, price in (("1", 250), ("2", 20)):  # 20 CHF = Lockangebot (unter 35 % vom Marktpreis)
+        l = Listing(platform="tutti", external_id=ext, title=f"Trust Bar {ext}", url=f"https://x/{ext}", price=price)
+        db.upsert_listing(l, "ok", [])
+        db.add_hit(sid, l.key, True)
+        db.update_hit_ai(sid, l.key, True, "Bar", "gut")
+        db.set_scores(sid, 300, [(80, "S", "", price + 9, "", l.key)])
+    db.kv_set("app_seen", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    assert notify.notify_top_hits(sid) == ["tutti:1"]          # Lockangebot nicht gemeldet
+    assert sent_ntfy == []                                       # App aktiv: ntfy still
+    notices = db.app_notices_after(0)
+    assert len(notices) == 1 and "259 CHF" in notices[0]["body"]
+    assert notify.notify_top_hits(sid) == []                     # schon gemeldet

@@ -20,6 +20,7 @@ from ..adapters.base import BlockedError, GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page, shipping_from_page
 from ..config import get_config, save_settings
 from ..matching import excluded
+from .. import notify
 from ..notify import format_price, image_url, send_test, send_weekly
 from ..scheduler import apply_schedule, next_runs, start_scheduler
 from ..trust import LEVELS
@@ -401,12 +402,6 @@ def search_fresh(sid: int):
     return JSONResponse({"watching": runner.is_watching(sid), "top": top})
 
 
-@app.get("/search/{sid}/entwuerfe")
-def drafts(sid: int):
-    """Frühere Entwurfsseite – die Ansichten sind jetzt Teil der Suchseite."""
-    return RedirectResponse(f"/search/{sid}", status_code=303)
-
-
 @app.get("/search/{sid}/results", response_class=HTMLResponse)
 
 def search_results(request: Request, sid: int):
@@ -632,6 +627,8 @@ def settings(request: Request, test: str | None = None, saved: str | None = None
         test=test,
         saved=saved,
         runs=db.last_runs(8),
+        app_seen=db.kv_get("app_seen"),
+        app_active=notify.app_active(),
     ))
 
 

@@ -2,8 +2,13 @@ import re
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 
+from zoneinfo import ZoneInfo
+
 from ..models import Listing, Seller
 from .base import Adapter, AdapterError, fetch_html, BlockedError
+
+
+BERLIN = ZoneInfo("Europe/Berlin")
 
 
 class KleinanzeigenAdapter(Adapter):
@@ -98,7 +103,7 @@ class KleinanzeigenAdapter(Adapter):
                 member_since=None
             )
 
-            posted_at = datetime.now(timezone.utc)
+            posted_at = datetime.now(BERLIN)  # «Heute 14:30» ist deutsche Ortszeit
             m_date = re.search(r'<span>((?:Heute|Gestern|\d{1,2}\.\d{1,2}\.\d{4}).*?)</span>', li, re.DOTALL)
             if m_date:
                 date_str = m_date.group(1)
@@ -115,9 +120,10 @@ class KleinanzeigenAdapter(Adapter):
                     else:
                         m_time = re.search(r'(\d{1,2})\.(\d{1,2})\.(\d{4})', date_str)
                         if m_time:
-                            posted_at = datetime(year=int(m_time.group(3)), month=int(m_time.group(2)), day=int(m_time.group(1)), tzinfo=timezone.utc)
-                except Exception:
+                            posted_at = datetime(year=int(m_time.group(3)), month=int(m_time.group(2)), day=int(m_time.group(1)), tzinfo=BERLIN)
+                except ValueError:  # z.B. 31.02. – dann gilt «jetzt»
                     pass
+            posted_at = posted_at.astimezone(timezone.utc)
 
             listings.append(
                 Listing(

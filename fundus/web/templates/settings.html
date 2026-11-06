@@ -12,6 +12,9 @@
   </div>
   <div>
     <h2>Benachrichtigung</h2>
+    {% if app_active %}<p class="small" style="margin-top:-4px">📱 Meldungen kommen über die <b>fundus-App</b> – sie hat zuletzt {{ app_seen | ago }} nachgefragt.
+      ntfy bleibt deshalb still (sonst käme alles doppelt).</p>
+    {% else %}<p class="muted small" style="margin-top:-4px">Mit der fundus-App auf dem Handy kommen die Meldungen direkt aus der App; bis dahin über ntfy.</p>{% endif %}
     <div class="card">
       <form method="post" action="/settings/ntfy" class="stack">
         <label>Topic <input name="topic" value="{{ cfg.ntfy.topic }}" placeholder="z.B. fundus-fabio-8f3k2" autocomplete="off"></label>

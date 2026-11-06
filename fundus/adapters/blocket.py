@@ -44,7 +44,7 @@ class BlocketAdapter(ScrapedAdapter):
                         offers = d.get("offers")
                         if isinstance(offers, dict):
                             try: price = float(offers.get("price"))
-                            except: pass
+                            except (TypeError, ValueError): pass
 
                         listings.append(Listing(
                             platform=self.name,
@@ -88,7 +88,7 @@ class BlocketAdapter(ScrapedAdapter):
                         offers = d.get("offers")
                         if isinstance(offers, dict):
                             try: price = float(offers.get("price"))
-                            except: pass
+                            except (TypeError, ValueError): pass
 
                         listings.append(Listing(
                             platform=self.name,

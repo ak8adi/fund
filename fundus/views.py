@@ -1,4 +1,4 @@
-"""Daten für die Darstellungs-Entwürfe einer Suche (/search/{id}/entwuerfe).
+"""Auswertung einer Suche für Übersicht, Suchseite, Analytics und Neu kaufen (Darstellung: static/views.js).
 
 Idee: erst hart aussortieren (K.-o.), dann jedes Angebot auf zwei Achsen stellen –
 «was ich zahle» (Endpreis bis zu mir) und «was ich bekomme» (fairer Wert nach Zustand und Jahrgang).

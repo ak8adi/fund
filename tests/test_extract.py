@@ -184,7 +184,7 @@ def test_newprice_cheapest_matching_offer(monkeypatch):
     assert [o["url"] for o in r["offers"]] == ["u2", "u1"]
 
 
-def test_large_image_variants():
+def test_large_image_variants_ebay_blocket():
     from fundus.notify import image_url
     assert image_url("https://i.ebayimg.com/images/g/x/s-l225.jpg").endswith("/s-l1600.jpg")
     assert image_url("https://i.ebayimg.com/images/g/x/s-l225.jpg", large=False).endswith("/s-l500.jpg")
