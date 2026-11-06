@@ -38,4 +38,7 @@ def test_drafts_page_renders():
     assert d["counts"]["open"] == 4 and d["counts"]["front"] >= 1
     with TestClient(webapp.app) as client:
         page = client.get(f"/search/{sid}").text
-        assert "Beste Gebote" in page and "Alle Angebote als Liste" in page and "Preis-Wert-Karte" in page
+        assert "Beste Gebote" in page and "Alle Angebote als Liste" in page and "Gebraucht ab" in page
+        assert "Preis-Wert-Karte" in client.get(f"/search/{sid}/analytics").text
+        assert client.get(f"/search/{sid}/neu-kaufen").status_code == 200
+        assert "Was suchst du?" in client.get("/neue-suche").text

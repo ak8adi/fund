@@ -11,7 +11,7 @@ import statistics
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from . import db, fx as fx_rates, scoring
+from . import db, delivery as deliv, fx as fx_rates, scoring
 from .config import get_config
 from .notify import image_url
 
@@ -29,6 +29,20 @@ def _quartiles(values: list[float]) -> tuple[float, float, float] | None:
         return None
     q = statistics.quantiles(values, n=4)
     return q[0], statistics.median(values), q[2]
+
+
+def breakdown(h: dict, fx: dict, dcfg: dict, search: dict) -> str:
+    """Kurz, woraus sich der Endpreis zusammensetzt: «365 € ≈ 342 CHF + Versand 10 + MWST 28»."""
+    p = deliv.plan(h, fx, dcfg, search.get("product_size"), search.get("product_weight"))
+    if not p or not p.parts:
+        return ""
+    cur = h.get("currency") or "CHF"
+    amount = h.get("single_price") or h.get("price")
+    head = f"{amount:,.0f} {cur}".replace(",", "'")
+    if cur != "CHF":
+        head += f" ≈ {p.parts[0][1]:,.0f} CHF".replace(",", "'")
+    extras = [f"{name} {value:,.0f}".replace(",", "'") for name, value in p.parts[1:] if round(value)]
+    return " + ".join([head] + extras) if extras or cur != "CHF" else ""
 
 
 def ko_reason(h: dict, pay: float | None = None, reference: float | None = None) -> str | None:
@@ -83,6 +97,25 @@ def _missed(hits: list[dict], fx: dict, reference: float | None, year: float | N
     }
 
 
+def price_head(search: dict, offers: list[dict]) -> dict:
+    """Ganz oben in der Suche: günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot –
+    beide als Endpreis bis zu dir, mit Aufschlüsselung (Preis, Versand, Import)."""
+    from . import newprice
+    usable = [o for o in offers if not o["ko"]]
+    used = min(usable, key=lambda o: o["pay"]) if usable else None
+    options = newprice.buy_options(search) if search.get("new_price_offers") else []
+    in_stock = [o for o in options if o.get("available") is not False]
+    new = in_stock[0] if in_stock else None
+    return {
+        "used": used and {k: used[k] for k in ("key", "title", "pay", "breakdown", "img", "thumb", "platform", "cond")},
+        "new": new and {"shop": new["shop"], "name": new["name"], "url": new["url"], "price": round(new["price_chf"]),
+                        "ship": round(new["ship"]) if new.get("ship") is not None else None, "ship_known": new["ship_known"],
+                        "fees": new["fees"], "total": new["total"], "available": new.get("available")},
+        "new_count": len(in_stock), "soldout_count": len(options) - len(in_stock),
+        "saving": round(new["total"] - used["pay"]) if new and used else None,
+    }
+
+
 def build(search_id: int) -> dict:
     search = db.get_search(search_id) or {}
     fx = fx_rates.rates(get_config())
@@ -93,6 +126,7 @@ def build(search_id: int) -> dict:
     reference = market or (new_price * scoring.USED_SHARE if new_price else None)
     year = scoring.typical_year(hits)
     now = datetime.now(timezone.utc)
+    dcfg = get_config().get("delivery", {})
 
     offers = []
     for h in hits:
@@ -118,10 +152,12 @@ def build(search_id: int) -> dict:
             "reserved": bool(h.get("reserved")), "trust": h.get("trust_level"),
             "drop": bool(h.get("first_price") and h.get("price") and h["price"] < h["first_price"]),
             "reason": h.get("score_reason"), "ko": ko_reason(h, pay, reference), "front": False,
+            "breakdown": breakdown(h, fx, dcfg, search), "new": bool(h.get("is_new")),
         })
     pareto(offers)
     offers.sort(key=lambda o: (not o["front"], -(o["ratio"] or 0), o["pay"]))
     missed = _missed(hits, fx, reference, year, new_price, offers)
+    head = price_head(search, offers)
 
     # Zeitreihe: neue und verschwundene passende Angebote pro Tag (letzte 30 Tage)
     start = (now - timedelta(days=29)).date()
@@ -142,6 +178,7 @@ def build(search_id: int) -> dict:
                    "requirements": search.get("requirements")},
         "offers": offers,
         "missed": missed,
+        "head": head,
         "band": _quartiles(pays),
         "timeline": [{"day": d, "new": new_per_day.get(d, 0), "gone": gone_per_day.get(d, 0)} for d in days],
         "counts": {"all": len([h for h in hits if h.get("ai_relevant") == 1]), "open": len(offers),

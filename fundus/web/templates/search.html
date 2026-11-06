@@ -26,22 +26,10 @@
   · {{ n_match }} passende Treffer{% if hits | length > n_match %} <span title="Zubehör, andere Modelle, verkauft">({{ hits | length - n_match }} aussortiert)</span>{% endif %}
   {% if search.max_price %} · bis {{ search.max_price | int }} CHF{% endif %}
 </p>
+<div class="search-top">{% include "_pricehead.html" %}</div>
 <div class="search-info">
-{% if search.new_price %}
-<details class="newprice small">
-  <summary>Neupreis <strong>{{ price(search.new_price, 'CHF') }}</strong>
-    <span class="muted">· {{ search.new_price_note or '' }}{% if search.new_price_manual %} (von Hand){% endif %}</span></summary>
-  {% if search.new_price_offers %}
-  <ul class="shops">
-    {% for o in search.new_price_offers %}
-      <li><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.shop }}</a>
-        <span class="muted">{{ o.name }}</span>
-        {% if o.available is sameas false %}<span class="soldout">ausverkauft</span>{% endif %}
-        <strong>{{ price(o.price, o.currency) }}</strong></li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</details>
+{% if search.new_price %}<p class="small newprice muted">Neupreis-Referenz für die Bewertung: <strong>{{ price(search.new_price, 'CHF') }}</strong>
+  {% if search.new_price_manual %}(von Hand){% endif %} · <a href="/search/{{ search.id }}/neu-kaufen">Shops ansehen</a></p>
 {% elif search.new_price_at %}<p class="small newprice muted">{{ search.new_price_note or 'Kein Neupreis online gefunden' }}</p>
 {% else %}<p class="small newprice muted">Neupreis wird beim nächsten Prüflauf online gesucht …</p>{% endif %}
 {% set m = views.missed if views else none %}
@@ -88,7 +76,7 @@
   {% elif search.image_prompt %}<p class="muted small">Für neue Angebote ausgeschaltet – «Bilder auswerten» schaltet es wieder ein.</p>{% endif %}
 </details>
 {% endif %}
-<details class="card">
+<details class="card" id="bearbeiten">
   <summary>Suche bearbeiten</summary>
   {% include "_search_form.html" %}
 </details>

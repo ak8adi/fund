@@ -6,7 +6,9 @@
   <title>{% block title %}fundus{% endblock %}</title>
   <meta name="theme-color" content="#2f5d50">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%232f5d50' stroke-width='4'/%3E%3Cpath d='M21 21l7 7' stroke='%232f5d50' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/style.css?v=14">
+  <link rel="stylesheet" href="/static/views.css?v=3">
+  <script src="/static/views.js?v=1"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body class="{{ 'app' if is_app }}">
@@ -31,9 +33,8 @@
   {% if is_app %}
   {% set path = request.url.path %}
   <nav class="tabbar" aria-label="Hauptnavigation">
-    <a href="/" class="{{ 'here' if path == '/' or path.startswith('/search') }}"><span aria-hidden="true">⌕</span>Suchen</a>
-    <a href="/neu" class="{{ 'here' if path == '/neu' }}"><span aria-hidden="true">✦</span>Neu</a>
-    <a href="/#neue-suche"><span aria-hidden="true">＋</span>Neue Suche</a>
+    <a href="/" class="{{ 'here' if path == '/' or path.startswith('/search') }}"><span aria-hidden="true">⌕</span>Übersicht</a>
+    <a href="/neue-suche" class="{{ 'here' if path == '/neue-suche' }}"><span aria-hidden="true">＋</span>Neue Suche</a>
     <a href="/settings" class="{{ 'here' if path == '/settings' }}"><span aria-hidden="true">⚙︎</span>Einstellungen</a>
   </nav>
   <div id="ptr" aria-hidden="true">↻</div>

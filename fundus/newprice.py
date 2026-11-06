@@ -101,7 +101,29 @@ def _availability(value) -> bool | None:
     return None
 
 
-def _offer_price(offers, page_url: str | None = None) -> tuple[float, str, str, bool | None] | None:
+def _shipping(offer: dict) -> tuple[float, str] | None:
+    """Versandkosten aus schema.org shippingDetails – die Rate für die Schweiz, sonst die erste angegebene."""
+    details = offer.get("shippingDetails")
+    rates = []
+    for d in details if isinstance(details, list) else [details]:
+        if not isinstance(d, dict):
+            continue
+        rate = d.get("shippingRate")
+        dest = d.get("shippingDestination") or {}
+        country = (dest.get("addressCountry") if isinstance(dest, dict) else "") or ""
+        if isinstance(rate, dict) and rate.get("value") is not None:
+            try:
+                rates.append((country.upper() == "CH", float(str(rate["value"]).replace(",", ".")),
+                              str(rate.get("currency") or offer.get("priceCurrency") or "").upper()))
+            except ValueError:
+                continue
+    if not rates:
+        return None
+    rates.sort(key=lambda r: not r[0])
+    return rates[0][1], rates[0][2]
+
+
+def _offer_price(offers, page_url: str | None = None) -> tuple | None:
     """(Preis, Währung, Zustand, lieferbar) des Angebots, das die Seite zeigt: das mit der Seiten-URL, sonst das
     günstigste lieferbare, sonst das günstigste. «lowPrice» (ab-Preis über Varianten) nur als letzte Wahl."""
     found = []
@@ -121,13 +143,14 @@ def _offer_price(offers, page_url: str | None = None) -> tuple[float, str, str, 
             cond = str(o.get("itemCondition") or "").rsplit("/", 1)[-1]
             same_page = bool(page_url and o.get("url") and str(o["url"]).split("?")[0].rstrip("/") == page_url.split("?")[0].rstrip("/"))
             found.append({"value": value, "cur": str(o.get("priceCurrency") or "").upper(), "cond": cond,
-                          "avail": _availability(o.get("availability")), "same": same_page, "low": low})
+                          "avail": _availability(o.get("availability")), "same": same_page, "low": low,
+                          "ship": _shipping(o)})
     if not found:
         return None
     best = (next((f for f in found if f["same"]), None)
             or min((f for f in found if f["avail"] is not False and not f["low"]), key=lambda f: f["value"], default=None)
             or min(found, key=lambda f: (f["low"], f["value"])))
-    return best["value"], best["cur"], best["cond"], best["avail"]
+    return best["value"], best["cur"], best["cond"], best["avail"], best["ship"]
 
 
 def extract_offer(html: str, url: str | None = None) -> dict | None:
@@ -150,7 +173,10 @@ def extract_offer(html: str, url: str | None = None) -> dict | None:
         return None  # Liste mehrerer Produkte
     if products:
         name, offer = products[0]
-        return {"name": name, "price": offer[0], "currency": offer[1], "condition": offer[2], "available": offer[3]}
+        out = {"name": name, "price": offer[0], "currency": offer[1], "condition": offer[2], "available": offer[3]}
+        if offer[4]:
+            out["shipping"], out["shipping_currency"] = offer[4]
+        return out
     amount = re.search(r'<meta[^>]+(?:product:price:amount|og:price:amount)[^>]+content="([\d.,]+)"', html)
     currency = re.search(r'<meta[^>]+(?:product:price:currency|og:price:currency)[^>]+content="([A-Za-z]{3})"', html)
     title = re.search(r'<meta[^>]+og:title[^>]+content="([^"]+)"', html)
@@ -183,8 +209,11 @@ def find_offers(query: str, skip: list[str] | None = None, compare: bool = False
         cur = offer["currency"] or "CHF"
         if cur not in rates:
             continue
+        ship_cur = offer.get("shipping_currency") or cur
         offers.append({**offer, "currency": cur, "url": url, "shop": urlparse(url).netloc.removeprefix("www."),
-                       "price_chf": round(offer["price"] * rates[cur], 2)})
+                       "price_chf": round(offer["price"] * rates[cur], 2),
+                       "shipping_chf": round(offer["shipping"] * rates[ship_cur], 2)
+                       if offer.get("shipping") is not None and ship_cur in rates else None})
     return offers
 
 
@@ -194,8 +223,10 @@ def lookup(query: str) -> dict | None:
     if not api_key:
         return None
     offers = find_offers(f"{query} kaufen")
-    if len(offers) < 6:  # wenig Shopseiten: zweite Suche mit anderem Wortlaut
+    if len(offers) < 6:  # wenig Shopseiten: weitere Suchen mit anderem Wortlaut
         offers += find_offers(f"{query} preis neu", [o["url"] for o in offers])
+    if len(offers) < 8:
+        offers += find_offers(f"{query} online shop", [o["url"] for o in offers])
     try:
         offers += find_offers(f"{query} toppreise", [o["url"] for o in offers], compare=True)
     except Exception as exc:
@@ -245,7 +276,7 @@ def lookup(query: str) -> dict | None:
         note = f"{product} · nur ausverkauft gefunden, zuletzt {price} CHF bei {best['shop']}"
     ordered = in_stock + sold_out
     keep = [{**{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")},
-             "available": o.get("available")} for o in ordered[:8]]
+             "available": o.get("available"), "shipping_chf": o.get("shipping_chf")} for o in ordered[:12]]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
 
 
@@ -256,6 +287,40 @@ def plausible(offers: list[dict], all_matched: list[dict]) -> list[dict]:
         return offers
     median = statistics.median(o["price_chf"] for o in all_matched)
     return [o for o in offers if o["price_chf"] >= SUSPICIOUS * median]
+
+
+SHOP_COUNTRY = {"ch": "CH", "li": "CH", "de": "DE", "at": "AT", "it": "IT", "fr": "FR", "nl": "NL", "es": "ES",
+                "be": "BE", "dk": "DK", "se": "SE", "pl": "PL", "uk": "GB"}
+
+
+def shop_country(url: str, currency: str | None) -> str:
+    """Land des Shops aus der Domain, sonst aus der Währung (EUR-Shops liefern an die deutsche Grenzadresse)."""
+    tld = urlparse(url).netloc.rsplit(".", 1)[-1].lower()
+    return SHOP_COUNTRY.get(tld) or {"CHF": "CH", "GBP": "GB", "SEK": "SE"}.get((currency or "").upper(), "DE")
+
+
+def buy_options(search: dict) -> list[dict]:
+    """Neu kaufen: alle passenden Shopangebote mit Versand, Import und Endpreis bis zu dir (wie bei Gebrauchten),
+    lieferbare zuerst, dann nach Endpreis. Versand aus den Shopdaten, sonst geschätzt (≈)."""
+    from . import delivery as deliv
+    cfg = get_config()
+    rates = fx_rates.rates(cfg)
+    out = []
+    for o in search.get("new_price_offers") or []:
+        country = shop_country(o["url"], o.get("currency"))
+        pseudo = {"price": o["price"], "currency": o.get("currency") or "CHF", "country": country, "platform": "",
+                  "ai_shipping_cost": (o["shipping_chf"] / rates.get(o.get("currency") or "CHF", 1))
+                  if o.get("shipping_chf") is not None else None,
+                  "ai_size": search.get("product_size"), "ai_weight": search.get("product_weight"), "ai_shipping": "ja"}
+        p = deliv.plan(pseudo, rates, cfg.get("delivery", {}), search.get("product_size"), search.get("product_weight"))
+        if not p:
+            continue
+        parts = dict(p.parts)
+        out.append({**o, "country": country, "total": round(p.total), "route": p.label,
+                    "ship": parts.get("Versand"), "fees": round(parts.get("Paket4you", 0) + parts.get("MWST", 0)),
+                    "ship_known": o.get("shipping_chf") is not None})
+    out.sort(key=lambda o: (o.get("available") is False, o["total"]))
+    return out
 
 
 def choose_best(picked: list[dict]) -> dict:

@@ -78,11 +78,12 @@ def test_overview_shows_cheapest_relevant_offer():
     db.update_hit_ai(sid, accessory.key, False, "Zubehör")
     db.set_scores(sid, 450, [(90, "S", "", 410, "", best_score.key), (60, "B", "", 230, "", cheap_eur.key),
                              (None, None, None, None, None, accessory.key)])
-    cheapest = webapp._cheapest_by_search(db.list_searches())
-    assert cheapest[sid]["key"] == cheap_eur.key
+    from fundus import views
+    assert views.build(sid)["head"]["used"]["key"] == cheap_eur.key
     with TestClient(webapp.app) as client:
         page = client.get("/").text
-    assert "(200 EUR)" in page.split('class="searches"')[1].split("</ul>")[0]
+    row = page.split('class="ov-row')[1].split("</section>")[0]
+    assert "Gebraucht ab" in row and "200 CHF" in row and "(200 EUR ≈ 188 CHF + Versand 12)" in row and "Analytics" in row
 
 
 def test_price_sort_uses_final_price():
@@ -99,4 +100,5 @@ def test_price_sort_uses_final_price():
     hits = db.hits_for_search(sid)
     webapp._sort_hits(hits, db.get_search(sid))
     assert [h["key"] for h in hits] == [unknown.key, near.key, cheap_far.key]
-    assert webapp._cheapest_by_search([db.get_search(sid)])[sid]["key"] == unknown.key
+    from fundus import views
+    assert views.build(sid)["head"]["used"]["key"] == unknown.key

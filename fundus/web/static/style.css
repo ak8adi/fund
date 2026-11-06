@@ -323,11 +323,10 @@ details.newprice > summary::after { content: " ▾"; color: var(--muted); }
 .images-card textarea { width: 100%; resize: vertical; }
 
 /* ---------- Handy: das Wichtigste zuerst ---------- */
-.health-compact { display: none; }
+.health-line { display: block; margin: 2px 0 8px; font-size: 13px; color: var(--muted); text-decoration: none; }
+.health-line b { color: var(--check); font-weight: 600; }
+.search-head h2 .back { text-decoration: none; color: var(--muted); font-size: 22px; margin-right: 4px; vertical-align: -1px; }
 @media (max-width: 760px) {
-  .health { display: none; }
-  .health-compact { display: block; margin: 4px 0 14px; font-size: 13px; color: var(--muted); text-decoration: none; }
-  .health-compact b { color: var(--check); font-weight: 600; }
   /* Suchseite: beste Gebote direkt unter dem Titel, Neupreis/Verlauf/Einstellungen darunter */
   .search-page { display: flex; flex-direction: column; }
   .search-page .vw { display: contents; }
@@ -344,7 +343,7 @@ body.app { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 body.app .top { padding-top: calc(10px + env(safe-area-inset-top)); }
 body.app .top nav { display: none; }        /* Navigation steckt unten in der Reiterleiste */
 body.app .bell-off { display: none; }
-body.app .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+body.app .tabbar { display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
                    background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px);
                    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 body.app .tabbar a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px 9px; min-height: 56px;
@@ -356,6 +355,5 @@ body.app #ptr { display: grid; place-items: center; position: fixed; top: calc(8
                 color: var(--accent); font-size: 20px; opacity: 0; transform: translate(-50%, -50px); pointer-events: none; }
 body.app #ptr.spin { animation: ptr-spin .7s linear infinite; opacity: 1; transform: translate(-50%, 40px); }
 @keyframes ptr-spin { to { transform: translate(-50%, 40px) rotate(360deg); } }
-body.app .btn, body.app button, body.app summary { min-height: 40px; }
-body.app .feed-col { display: none; }     /* steht im Reiter «Neu» */
+body.app .btn, body.app button:not(.x), body.app summary { min-height: 40px; }
 body.app .hit .thumb, body.app .vw .card2 img { -webkit-touch-callout: none; }

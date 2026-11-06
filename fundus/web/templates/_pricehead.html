@@ -1,0 +1,33 @@
+{# Preis-Kopf einer Suche: günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot,
+   beide als Endpreis bis zu dir mit Aufschlüsselung. Erwartet: search, views (views.build). #}
+{% set hd = views.head %}
+<div class="ph">
+  {% if hd.used %}
+  <a class="tile used" href="/go/{{ hd.used.key | urlencode }}" target="_blank" rel="noopener" title="{{ hd.used.title }}">
+    <span class="lbl">Gebraucht ab</span>
+    <span class="val">{{ price(hd.used.pay, 'CHF') }}</span>
+    <span class="sub">{{ hd.used.breakdown or hd.used.title }}</span>
+  </a>
+  {% else %}
+  <div class="tile empty"><span class="lbl">Gebraucht</span><span class="val">noch nichts Passendes</span></div>
+  {% endif %}
+  {% if hd.new %}
+  <a class="tile new" href="{{ hd.new.url }}" target="_blank" rel="noopener" title="{{ hd.new.name }}">
+    <span class="lbl">Neu ab</span>
+    <span class="val">{{ price(hd.new.total, 'CHF') }}</span>
+    <span class="sub">{{ price(hd.new.price, 'CHF') }}{% if hd.new.ship is not none %} + Versand {{ '' if hd.new.ship_known else '≈' }}{{ hd.new.ship }}{% endif %}{% if hd.new.fees %} + Import {{ hd.new.fees }}{% endif %} · {{ hd.new.shop }}</span>
+  </a>
+  {% else %}
+  <a class="tile empty" href="/search/{{ search.id }}/neu-kaufen"><span class="lbl">Neu</span>
+    <span class="val">{{ 'nur ausverkauft gefunden' if hd.soldout_count else 'kein Shop gefunden' }}</span></a>
+  {% endif %}
+  {% if hd.saving is not none and hd.saving > 0 %}
+  <p class="cmp">Gebraucht sparst du <b>{{ price(hd.saving, 'CHF') }}</b> gegenüber neu (Endpreise inkl. Versand und Import).</p>
+  {% endif %}
+</div>
+<div class="big-btns{{ ' one' if page in ('analytics', 'buy') }}">
+  {% if page != 'analytics' %}<a class="analytics" href="/search/{{ search.id }}/analytics"><span class="ico" aria-hidden="true">◔</span>
+    <span>Analytics<small>Marktlage, Lieferwege, Preise</small></span></a>{% endif %}
+  {% if page != 'buy' %}<a class="buy" href="/search/{{ search.id }}/neu-kaufen"><span class="ico" aria-hidden="true">🛒</span>
+    <span>Neu kaufen<small>{{ hd.new_count }} Shop{{ '' if hd.new_count == 1 else 's' }} lieferbar{% if hd.soldout_count %} · {{ hd.soldout_count }} ausverkauft{% endif %}</small></span></a>{% endif %}
+</div>

@@ -193,7 +193,7 @@ def _go_page(listing: dict, status: str) -> HTMLResponse:
             "reserved": "ist laut Plattform reserviert."}[status]
     from html import escape
     return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<link rel="stylesheet" href="/static/style.css?v=13"><title>fundus</title>
+<link rel="stylesheet" href="/static/style.css?v=14"><title>fundus</title>
 <main class="wrap" style="max-width:560px;margin:12vh auto;padding:0 16px">
 <div class="card"><h2 style="margin-top:0">{escape(listing['title'])}</h2>
 <p>Dieses Inserat {text}</p>
@@ -263,39 +263,18 @@ def get_listing_description(key: str):
         log.error("Fehler beim Laden der Beschreibung: %s", e)
     return HTMLResponse("Konnte Beschreibung nicht laden.")
 
-def _cheapest_by_search(searches: list[dict]) -> dict[int, dict]:
-    """Günstigstes Angebot jeder Suche nach denselben Regeln wie die Suchseite (views.py): passend, verfügbar,
-    ohne K.-o. (Lockangebot, Anforderung nicht erfüllt, fragwürdiger Verkäufer, reserviert), nach Endpreis bis zu dir."""
-    from .. import views
-    out = {}
-    for s in searches:
-        offers = [o for o in views.build(s["id"])["offers"] if not o["ko"]]
-        if offers:
-            o = min(offers, key=lambda o: o["pay"])
-            out[s["id"]] = {"key": o["key"], "title": o["title"], "price": o["price"], "currency": o["currency"],
-                            "ai_tier": o["tier"], "total_chf": o["pay"], "chf": o["pay"]}
-    return out
-
-
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    searches = db.list_searches()
+    """Übersicht: pro Suche eine Zeile – Suchkarte, beste Gebote, Analytics (zum Wischen)."""
+    from .. import views
+    db.expire_ended_listings()
+    searches = sorted(db.list_searches(), key=lambda s: not s["active"])
     return templates.TemplateResponse(request, "index.html", _ctx(
         request,
-        searches=searches,
-        cheapest=_cheapest_by_search(searches),
-        hits=db.recent_new_hits(40),
-        best=db.best_hits(1),
+        rows=[(s, views.build(s["id"])) for s in searches],
         runs=db.last_runs(1),
         health=_health(runner.available_sources(get_config())),
     ))
-
-
-@app.get("/neu", response_class=HTMLResponse)
-def feed(request: Request):
-    """App-Reiter «Neu»: beste Angebote jetzt und neu gefundene über alle Suchen (auf dem Desktop rechte Spalte)."""
-    return templates.TemplateResponse(request, "feed.html", _ctx(
-        request, hits=db.recent_new_hits(40), best=db.best_hits(1), runs=db.last_runs(1)))
 
 
 APP_CHECK_AFTER_RUN = 45   # Minuten nach Scan-Beginn: dann sind Suche und KI-Auswertung meist fertig
@@ -529,9 +508,37 @@ def _apply_search_changes(sid: int, old: dict | None, search: dict) -> int:
 
 
 @app.post("/search/{sid}/newprice")
-def refresh_new_price(sid: int):
+def refresh_new_price(request: Request, sid: int):
     newprice.refresh_in_background(sid)
-    return RedirectResponse(f"/search/{sid}", status_code=303)
+    back = request.headers.get("referer", "")
+    return RedirectResponse(f"/search/{sid}/neu-kaufen" if back.endswith("/neu-kaufen") else f"/search/{sid}", status_code=303)
+
+
+@app.get("/search/{sid}/analytics", response_class=HTMLResponse)
+def analytics(request: Request, sid: int):
+    """Marktlage, Lieferwege, Preis-Wert-Karte, Preisleiter und verpasste Angebote einer Suche."""
+    from .. import views
+    search = db.get_search(sid)
+    if not search:
+        return RedirectResponse("/", status_code=303)
+    db.expire_ended_listings()
+    return templates.TemplateResponse(request, "analytics.html", _ctx(request, search=search, views=views.build(sid)))
+
+
+@app.get("/search/{sid}/neu-kaufen", response_class=HTMLResponse)
+def buy_new(request: Request, sid: int):
+    """Neu kaufen: passende Shopangebote mit Versand, Import und Endpreis bis zu dir."""
+    from .. import views
+    search = db.get_search(sid)
+    if not search:
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(request, "neukaufen.html", _ctx(
+        request, search=search, views=views.build(sid), options=newprice.buy_options(search)))
+
+
+@app.get("/neue-suche", response_class=HTMLResponse)
+def new_search_page(request: Request):
+    return templates.TemplateResponse(request, "neue_suche.html", _ctx(request))
 
 
 @app.post("/search/{sid}/sort")
