@@ -1,6 +1,6 @@
 /* fundus – ein Stylesheet, helle und dunkle Variante über dieselben Farb-Tokens */
 :root {
-  --bg: #f5f4f0;
+  --bg: #ffffff;
   --surface: #ffffff;
   --surface-2: #f0efea;
   --ink: #1c1c1a;
