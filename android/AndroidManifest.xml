@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- fundus als Android-App: nur eine Hülle (WebView) um die Seite auf dem Mac, erreichbar per Tailscale.
+     Die Oberfläche kommt vom Mac – Änderungen dort brauchen keine neue APK. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ch.fundus.app"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="fundus"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|uiMode|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Links auf fundus (z.B. aus ntfy-Meldungen) in der App öffnen; Host setzt build-android.sh -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="FUNDUS_HOST" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

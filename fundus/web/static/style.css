@@ -321,3 +321,41 @@ details.newprice > summary::after { content: " ▾"; color: var(--muted); }
 .shops li { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
 .shops li .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .images-card textarea { width: 100%; resize: vertical; }
+
+/* ---------- Handy: das Wichtigste zuerst ---------- */
+.health-compact { display: none; }
+@media (max-width: 760px) {
+  .health { display: none; }
+  .health-compact { display: block; margin: 4px 0 14px; font-size: 13px; color: var(--muted); text-decoration: none; }
+  .health-compact b { color: var(--check); font-weight: 600; }
+  /* Suchseite: beste Gebote direkt unter dem Titel, Neupreis/Verlauf/Einstellungen darunter */
+  .search-page { display: flex; flex-direction: column; }
+  .search-page .vw { display: contents; }
+  .search-page > .search-head, .search-page > .subline { order: 0; }
+  .search-page .sl { order: 1; }
+  .search-page > .search-info { order: 2; margin-top: 18px; }
+  .search-page details.view { order: 3; }
+  .search-page #vw-tip { display: none; }
+}
+
+/* ---------- App (Android-Hülle, android/) ---------- */
+.tabbar, #ptr { display: none; }
+body.app { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+body.app .top { padding-top: calc(10px + env(safe-area-inset-top)); }
+body.app .top nav { display: none; }        /* Navigation steckt unten in der Reiterleiste */
+body.app .bell-off { display: none; }
+body.app .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+                   background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px);
+                   border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+body.app .tabbar a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px 9px; min-height: 56px;
+                     text-decoration: none; color: var(--muted); font-size: 11px; font-weight: 600; }
+body.app .tabbar a span { font-size: 20px; line-height: 1.1; }
+body.app .tabbar a.here { color: var(--accent); }
+body.app #ptr { display: grid; place-items: center; position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; z-index: 20;
+                width: 36px; height: 36px; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-hover);
+                color: var(--accent); font-size: 20px; opacity: 0; transform: translate(-50%, -50px); pointer-events: none; }
+body.app #ptr.spin { animation: ptr-spin .7s linear infinite; opacity: 1; transform: translate(-50%, 40px); }
+@keyframes ptr-spin { to { transform: translate(-50%, 40px) rotate(360deg); } }
+body.app .btn, body.app button, body.app summary { min-height: 40px; }
+body.app .feed-col { display: none; }     /* steht im Reiter «Neu» */
+body.app .hit .thumb, body.app .vw .card2 img { -webkit-touch-callout: none; }

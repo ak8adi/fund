@@ -2,6 +2,8 @@
 {% block content %}
 <section class="grid-2">
   <div>
+    {% set bad = health | selectattr('state', 'in', ['bad', 'zero']) | list %}
+    <a class="health-compact" href="/settings">{{ health | length }} Plattformen{% if bad %} · <b>{{ bad | length }} mit Hinweis</b>{% else %} · alle liefern{% endif %} ›</a>
     <a class="health" href="/settings" title="Plattform-Status – Details in den Einstellungen">
       {% for p in health %}
         <span class="h-{{ p.state }}" title="{{ p.label }}: {{ p.info }}"><i></i>{{ p.label }}{% if p.short %} <b>{{ p.short }}</b>{% endif %}</span>
@@ -28,29 +30,13 @@
       </li>
       {% endfor %}
     </ul>
-    <details {% if not searches %}open{% endif %} class="card">
+    <details {% if not searches %}open{% endif %} class="card" id="neue-suche">
       <summary>Neue Suche</summary>
       {% include "_search_form.html" %}
     </details>
   </div>
-  <div>
-    {% if best %}
-    <h2>Beste Angebote jetzt</h2>
-    <p class="muted small">Pro Suche das Angebot mit dem besten Endpreis im Vergleich zum Marktpreis.</p>
-    <div class="hits">
-      {% for h in best %}
-        <div>
-          <p class="best-group"><a href="/search/{{ h.search_id }}">{{ h.search_query }} ›</a></p>
-          {% include "_hit.html" %}
-        </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <h2>Neu gefunden</h2>
-    {% if not hits %}<p class="empty">Nichts Neues seit deinem letzten Besuch.</p>{% endif %}
-    <div class="hits">
-      {% for h in hits %}{% include "_hit.html" %}{% endfor %}
-    </div>
+  <div class="feed-col">
+    {% include "_feed.html" %}
   </div>
 </section>
 {% endblock %}

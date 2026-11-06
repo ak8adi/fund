@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ search.query }} – fundus{% endblock %}
 {% block content %}
+<div class="search-page">
 <div class="search-head">
   <h2>{{ search.query }} {% if not search.active %}<span class="pill">pausiert</span>{% endif %}</h2>
   <div class="actions">
@@ -25,6 +26,7 @@
   · {{ n_match }} passende Treffer{% if hits | length > n_match %} <span title="Zubehör, andere Modelle, verkauft">({{ hits | length - n_match }} aussortiert)</span>{% endif %}
   {% if search.max_price %} · bis {{ search.max_price | int }} CHF{% endif %}
 </p>
+<div class="search-info">
 {% if search.new_price %}
 <details class="newprice small">
   <summary>Neupreis <strong>{{ price(search.new_price, 'CHF') }}</strong>
@@ -66,7 +68,7 @@
 {% endif %}
 {% if search.requirements %}<p class="small req-line">Muss erfüllen: {{ search.requirements }}</p>{% endif %}
 {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
-<details class="card images-card" {% if search.image_auto %}open{% endif %}>
+<details class="card images-card">
   <summary>Bilder auswerten (KI)
     {% if search.image_auto %}<span class="pill new">aktiv</span>{% endif %}
     {% if search.image_prompt and img_progress.total %}<span class="muted small">· {{ img_progress.done }}/{{ img_progress.total }} geprüft</span>{% endif %}
@@ -90,6 +92,7 @@
   <summary>Suche bearbeiten</summary>
   {% include "_search_form.html" %}
 </details>
+</div>
 
 {% set list_html %}
 <form method="post" action="/search/{{ search.id }}/sort" class="sort-switch" aria-label="Sortierung">
@@ -100,6 +103,7 @@
 {% include "_search_results.html" %}
 {% endset %}
 {% include "_views.html" %}
+</div>
 
 <script>
 function copyForGemini(btn) {

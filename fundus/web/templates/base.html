@@ -2,14 +2,14 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}fundus{% endblock %}</title>
   <meta name="theme-color" content="#2f5d50">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%232f5d50' stroke-width='4'/%3E%3Cpath d='M21 21l7 7' stroke='%232f5d50' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/style.css?v=12">
+  <link rel="stylesheet" href="/static/style.css?v=13">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
-<body>
+<body class="{{ 'app' if is_app }}">
   <header class="top">
     <a href="/" class="brand">fundus</a>
     <nav>
@@ -28,9 +28,46 @@
   <main class="intro">
     {% block content %}{% endblock %}
   </main>
+  {% if is_app %}
+  {% set path = request.url.path %}
+  <nav class="tabbar" aria-label="Hauptnavigation">
+    <a href="/" class="{{ 'here' if path == '/' or path.startswith('/search') }}"><span aria-hidden="true">⌕</span>Suchen</a>
+    <a href="/neu" class="{{ 'here' if path == '/neu' }}"><span aria-hidden="true">✦</span>Neu</a>
+    <a href="/#neue-suche"><span aria-hidden="true">＋</span>Neue Suche</a>
+    <a href="/settings" class="{{ 'here' if path == '/settings' }}"><span aria-hidden="true">⚙︎</span>Einstellungen</a>
+  </nav>
+  <div id="ptr" aria-hidden="true">↻</div>
+  {% endif %}
   <script>
     // Einblend-Animation nur beim ersten Laden, nicht bei jedem Auto-Refresh
     setTimeout(() => document.querySelector('main').classList.remove('intro'), 1200);
+    {% if is_app %}
+    // App: nach längerer Pause im Hintergrund frisch laden (Angebote können inzwischen weg sein)
+    let hiddenAt = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) location.reload();
+    });
+    // Herunterziehen zum Aktualisieren
+    (() => {
+      const ptr = document.getElementById('ptr'); let y0 = null, dy = 0;
+      addEventListener('touchstart', e => { y0 = scrollY <= 0 ? e.touches[0].clientY : null; dy = 0; }, {passive: true});
+      addEventListener('touchmove', e => {
+        if (y0 === null) return;
+        dy = Math.max(0, e.touches[0].clientY - y0);
+        ptr.style.transform = `translate(-50%, ${Math.min(dy, 90) - 50}px) rotate(${dy * 3}deg)`;
+        ptr.style.opacity = Math.min(1, dy / 80);
+      }, {passive: true});
+      addEventListener('touchend', () => {
+        if (y0 !== null && dy > 80) { ptr.classList.add('spin'); location.reload(); }
+        else { ptr.style.opacity = 0; ptr.style.transform = ''; }
+        y0 = null;
+      });
+    })();
+    {% endif %}
+    // Link auf einen ausklappbaren Bereich (z.B. /#neue-suche) öffnet ihn
+    const openHash = () => { const t = location.hash && document.querySelector(location.hash); if (t && t.tagName === 'DETAILS') { t.open = true; t.scrollIntoView({block: 'start'}); } };
+    openHash(); addEventListener('hashchange', openHash);
     // Menüs schliessen beim Klick daneben
     document.addEventListener('click', e => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
   </script>

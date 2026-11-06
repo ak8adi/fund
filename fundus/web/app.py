@@ -49,6 +49,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="fundus", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+APP_MARKER = "FundusApp"   # steht im User-Agent der Android-App (android/), schaltet die App-Ansicht ein
+
+
+@app.middleware("http")
+async def fresh_pages(request: Request, call_next):
+    """Seiten nie aus dem Cache: in der App (WebView) sähe man sonst alte Angebote. Bilder/CSS dürfen gecacht werden."""
+    resp = await call_next(request)
+    if resp.headers.get("content-type", "").startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 # ---------- Jinja-Helfer ----------
@@ -148,6 +158,7 @@ def _ctx(request: Request, **kw) -> dict:
         "adapters": [(a.name, a.label) for a in all_adapters(cfg)],
         "cfg": cfg,
         "ai_progress": {"evaluated": evaluated, "total": total},
+        "is_app": APP_MARKER in request.headers.get("user-agent", "") or request.cookies.get("fundus_app") == "1",
         **kw,
     }
 
@@ -182,7 +193,7 @@ def _go_page(listing: dict, status: str) -> HTMLResponse:
             "reserved": "ist laut Plattform reserviert."}[status]
     from html import escape
     return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<link rel="stylesheet" href="/static/style.css?v=12"><title>fundus</title>
+<link rel="stylesheet" href="/static/style.css?v=13"><title>fundus</title>
 <main class="wrap" style="max-width:560px;margin:12vh auto;padding:0 16px">
 <div class="card"><h2 style="margin-top:0">{escape(listing['title'])}</h2>
 <p>Dieses Inserat {text}</p>
@@ -253,18 +264,16 @@ def get_listing_description(key: str):
     return HTMLResponse("Konnte Beschreibung nicht laden.")
 
 def _cheapest_by_search(searches: list[dict]) -> dict[int, dict]:
-    """Günstigstes passendes Angebot jeder Suche – dieselbe Rechnung wie «nach Preis» in der Suche
-    (Endpreis bis zu dir, sonst Einzelpreis vor Inseratpreis in CHF). Früher stand hier der Endpreis des Angebots mit dem
-    höchsten Deal-Score inkl. Versand, das war oft ein anderes Angebot als das günstigste."""
-    fx = fx_rates.rates(get_config())
+    """Günstigstes Angebot jeder Suche nach denselben Regeln wie die Suchseite (views.py): passend, verfügbar,
+    ohne K.-o. (Lockangebot, Anforderung nicht erfüllt, fragwürdiger Verkäufer, reserviert), nach Endpreis bis zu dir."""
+    from .. import views
     out = {}
     for s in searches:
-        priced = [(p, h) for h in db.hits_for_search(s["id"], limit=5000)
-                  if h.get("ai_relevant") == 1 and not h.get("gone_at")
-                  and (p := scoring.pay_price_chf(h, fx)) is not None]
-        if priced:
-            p, h = min(priced, key=lambda x: x[0])
-            out[s["id"]] = {**h, "chf": p}
+        offers = [o for o in views.build(s["id"])["offers"] if not o["ko"]]
+        if offers:
+            o = min(offers, key=lambda o: o["pay"])
+            out[s["id"]] = {"key": o["key"], "title": o["title"], "price": o["price"], "currency": o["currency"],
+                            "ai_tier": o["tier"], "total_chf": o["pay"], "chf": o["pay"]}
     return out
 
 
@@ -280,6 +289,23 @@ def index(request: Request):
         runs=db.last_runs(1),
         health=_health(runner.available_sources(get_config())),
     ))
+
+
+@app.get("/neu", response_class=HTMLResponse)
+def feed(request: Request):
+    """App-Reiter «Neu»: beste Angebote jetzt und neu gefundene über alle Suchen (auf dem Desktop rechte Spalte)."""
+    return templates.TemplateResponse(request, "feed.html", _ctx(
+        request, hits=db.recent_new_hits(40), best=db.best_hits(1), runs=db.last_runs(1)))
+
+
+@app.get("/app.apk")
+def app_apk():
+    """Android-App zum Installieren übers Tailnet (android/build-android.sh legt sie hier ab)."""
+    from fastapi.responses import FileResponse
+    apk = HERE.parent.parent / "android" / "fundus.apk"
+    if not apk.exists():
+        return HTMLResponse("Noch keine App gebaut – auf dem Mac android/build-android.sh ausführen.", status_code=404)
+    return FileResponse(apk, media_type="application/vnd.android.package-archive", filename="fundus.apk")
 
 
 def _health(sources: list[dict]) -> list[dict]:

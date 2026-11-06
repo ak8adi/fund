@@ -9,3 +9,8 @@ venv/
 
 # gebaute Mac-App (fundus einrichten.command)
 fundus.app/
+
+# gebaute Android-App (android/build-android.sh)
+android/fundus.apk
+android/fundus.apk.idsig
+android/build/

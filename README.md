@@ -122,6 +122,19 @@ Zustand, Lieferwege und Marktlage (`views.py`, `_views.html`). Offene Ansichten 
 **Notizfeld** pro Inserat: Antwort des Verkäufers oder eigene Notiz – die KI bewertet das Inserat danach neu.
 Steht «Betrug», «Fake» o.ä. darin, wird es sofort ausgeblendet.
 
+## Android-App
+
+`android/` ist nur eine Hülle (WebView) um fundus auf dem Mac – wie die Zeit-App. Sie lädt `web.public_url`
+(Tailscale Serve, nur im eigenen Tailnet, HTTPS). **Die Oberfläche kommt vom Mac: Änderungen an fundus brauchen
+keine neue APK.** Erkennt fundus die App (User-Agent `FundusApp`), zeigt es die App-Ansicht: Reiter unten (Suchen,
+Neu, Neue Suche, Einstellungen), Herunterziehen zum Aktualisieren, nach 5 Minuten im Hintergrund frisch laden.
+Inserate öffnet die App in der passenden App (Ricardo, Kleinanzeigen …) oder im Browser; fundus-Links aus
+Meldungen öffnen in der App.
+
+Neu bauen nur bei Änderungen an `android/`: `android/build-android.sh` (JDK und Android SDK im Benutzerordner,
+Signierschlüssel bleibt in `~/Library/Application Support/fundus`). Installieren: auf dem Handy mit Tailscale
+`<public_url>/app.apk` öffnen.
+
 ## Vertrauens-Check
 
 Regelbasiert, ohne KI, mit Begründung in einer Zeile:
