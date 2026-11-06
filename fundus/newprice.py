@@ -34,6 +34,7 @@ MAX_SHOPS = 10
 COMPARE_RE = re.compile(r"https://www\.toppreise\.ch/(?:preisvergleich|produktserie)/")
 OUTLIER = 0.75   # günstigster Shop unter 75 % des zweitgünstigsten: nicht als Neupreis nehmen
 SUSPICIOUS = 0.5  # unter 50 % des Medians aller passenden Shops: Fake-Shop oder Fehlpreis, weglassen
+REFURB_QUERIES = ("{query} refurbished kaufen", "{query} refurbished mediamarkt")  # MediaMarkt: grösster CH-Anbieter
 SKIP_DOMAINS = ("ricardo.", "tutti.", "anibis.", "kleinanzeigen.", "ebay.", "willhaben.", "blocket.", "markt.de",
                 "youtube.", "facebook.", "instagram.", "reddit.", "pinterest.", "wikipedia.", "idealo.", "toppreise.",
                 "google.", "amazon.", "aliexpress.", "temu.")
@@ -230,10 +231,11 @@ def lookup(query: str) -> dict | None:
         offers += find_offers(f"{query} preis neu", [o["url"] for o in offers])
     if len(offers) < 8:
         offers += find_offers(f"{query} online shop", [o["url"] for o in offers])
-    try:  # erneuerte Geräte von Händlern (z.B. MediaMarkt «Refurbished») als Vergleich
-        offers += find_offers(f"{query} refurbished kaufen", [o["url"] for o in offers])
-    except Exception as exc:
-        log.info("Refurbished-Suche für «%s» fehlgeschlagen: %s", query, exc)
+    for wording in REFURB_QUERIES:  # erneuerte Geräte von Händlern als Vergleich (allgemeine Suchen liefern oft nur Listen)
+        try:
+            offers += find_offers(wording.format(query=query), [o["url"] for o in offers])
+        except Exception as exc:
+            log.info("Refurbished-Suche «%s» fehlgeschlagen: %s", wording.format(query=query), exc)
     try:
         offers += find_offers(f"{query} toppreise", [o["url"] for o in offers], compare=True)
     except Exception as exc:
@@ -261,7 +263,8 @@ def lookup(query: str) -> dict | None:
     refurb_words = ("refurb", "erneuert", "generalüberholt", "renewed", "used")
     picked = [o for o in chosen("match") if not any(w in (o["condition"] + " " + o["name"]).lower() for w in refurb_words)]
     refurb = [o for o in chosen("match") + chosen("refurb") if o not in picked]
-    refurb = [o for o in plausible(refurb, refurb + picked) if o.get("available") is not False][:4]
+    # nur unter sich vergleichen: Neupreise eines Auslaufmodells sind oft Restbestand zum Höchstpreis
+    refurb = [o for o in plausible(refurb, refurb) if o.get("available") is not False][:4]
     size = r.get("size") if r.get("size") in ("S", "M", "L", "XL", "fracht") else None
     try:
         weight = float(r["weight_kg"]) if r.get("weight_kg") else None
