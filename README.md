@@ -79,8 +79,10 @@ die Plattform `fetcher: browser` setzen.
 
 ## Was mit jedem Inserat passiert
 
-1. **Vorfilter** ohne KI: alle Suchwörter im Titel (Modellnummern zwingend), keine Ausschlusswörter im Titel
-   (es zählen Wortanfänge: «dell» trifft «Dell XPS», nicht «Modell»), Preis innerhalb min/max.
+1. **Vorfilter** ohne KI, sortiert nur klar Falsches aus: nennt der Titel eine *andere* Modellnummer oder Grösse
+   (M2 statt M1, 14 statt 16, 8GB statt 16GB, «Pro 3» statt «Pro 4»), fliegt er raus; fehlt die Nummer nur
+   («MacBook Pro 16 inch 2021»), entscheidet die KI mit der Beschreibung. Dazu keine Ausschlusswörter im Titel
+   (Wortanfänge: «dell» trifft «Dell XPS», nicht «Modell») und Preis innerhalb min/max.
 2. **KI-Fakten** (Gemini, Stapel à 20): ist es das gesuchte Produkt oder Zubehör, Zustand, Jahrgang, Versand,
    Set-Inhalt und Einzelpreis, Versandgrösse, deine Anforderungen (Freitext, z.B. «nur 3-rädrig») und
    Hinweise auf Betrug. Die KI bewertet keine Preise.
@@ -111,12 +113,20 @@ und das beste aktuelle zum Vergleich. Ricardo und eBay: Laufzeitende aus der Suc
 Ablauf gilt das Inserat ohne weitere Anfrage als weg; eBay prüft zusätzlich über die API. Auktionen sind auf der
 Karte markiert (Gebote, aktuelles Gebot, Restzeit).
 
-**Ort und Beschreibung**: Ricardo liefert Ort, Versandart und Laufzeit in der Suchkarte, die Beschreibung lädt
-erst «Details» beim Anklicken (eine Anfrage, wie ein Besuch). eBay-Beschreibungen kommen über die API.
+**Ort und Beschreibung**: Ricardo liefert Ort, Versandart, Laufzeit und Auktionsdaten in der Suchkarte.
+Ricardo-Inseratseiten ruft fundus nie einzeln ab – Ricardo sperrt schon einzelne solche Abrufe (429) und damit
+die ganze Suche. Verkauft/beendet erkennt fundus ohne Einzelabruf: liefert die Suche die vollständige
+Trefferliste (`totalArticlesCount`), ist ein fehlendes Angebot weg; taucht eines 20 h nicht mehr auf, steht es
+nicht mehr oben. eBay-Beschreibungen kommen über die API.
 
-**Übersicht**: pro Suche eine Zeile zum Wischen – Suchkarte (Foto des besten Angebots, gebraucht ab / neu ab,
-Zahnrad links für die Einstellungen), dann die besten Angebote (neue zuerst, markiert), zuletzt eine kleine
-Analytics-Karte. Antippen der Suchkarte öffnet die Suche.
+**Übersicht**: pro Suche eine kompakte Zeile zum Wischen – vorne eine schmale Infokarte (Name, Zahnrad für die
+Einstellungen, gebraucht ab / neu ab, Ersparnis), dann kleine Karten der besten Angebote (neue zuerst, mit Ort und
+Plattform), zuletzt eine kleine Analytics-Karte. Antippen der Infokarte öffnet die Suche.
+
+**Wo darf das Angebot sein?** (pro Suche): *Versand* – verschickbare Angebote von überall; *In der Nähe* – Umkreis
+in km um einen Ort, optional zusätzlich entlang der Autostrecke zu einem Ziel (± km Umweg, `area.py`, Luftlinie,
+Orte und Route über OpenStreetMap). Beides zusammen: verschickbare von überall und alles in der Nähe (z.B. Abholung
+in Winterthur). Was ausserhalb liegt, steht nicht oben, nicht in der Übersicht und wird nicht gemeldet.
 
 **Suchseite**: oben der Preis-Kopf – günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot,
 beide als Endpreis bis zu dir mit Aufschlüsselung –, darunter die Knöpfe *Analytics* und *Neu kaufen*. Dann die
@@ -143,8 +153,8 @@ Im Browser lässt sich die App-Ansicht zum Testen mit dem Cookie `fundus_app=1` 
 
 **Meldungen ohne fremden Dienst**: nach jeder KI-Auswertung legt fundus pro Suche eine Sammelmeldung mit den
 neuen Top-Angeboten ab (`app_notices`). Die App fragt kurz nach jedem geplanten Scan (`/api/app/notices`, der Mac
-nennt den Zeitpunkt), wartet, bis Scan und Auswertung fertig sind, und zeigt die Meldung; Antippen öffnet die
-Suche. Hat die App in den letzten 7 Tagen nachgefragt, bleibt ntfy still (sonst kämen Meldungen doppelt).
+nennt den Zeitpunkt) und nach einem Scan von Hand, wartet, bis alle Suchen und die ganze KI-Auswertung fertig
+sind, und zeigt **eine** Meldung für den ganzen Durchgang; Antippen öffnet fundus. Hat die App in den letzten 7 Tagen nachgefragt, bleibt ntfy still (sonst kämen Meldungen doppelt).
 
 Neu bauen nur bei Änderungen an `android/`: `android/build-android.sh` (JDK und Android SDK im Benutzerordner,
 Signierschlüssel bleibt in `~/Library/Application Support/fundus`). Installieren: auf dem Handy mit Tailscale

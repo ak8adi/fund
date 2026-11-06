@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -194,7 +194,7 @@ def _go_page(listing: dict, status: str) -> HTMLResponse:
             "reserved": "ist laut Plattform reserviert."}[status]
     from html import escape
     return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<link rel="stylesheet" href="/static/style.css?v=14"><title>fundus</title>
+<link rel="stylesheet" href="/static/style.css?v=16"><title>fundus</title>
 <main class="wrap" style="max-width:560px;margin:12vh auto;padding:0 16px">
 <div class="card"><h2 style="margin-top:0">{escape(listing['title'])}</h2>
 <p>Dieses Inserat {text}</p>
@@ -233,10 +233,9 @@ def get_listing_description(key: str):
         return HTMLResponse("Nicht gefunden", status_code=404)
     if listing.get("description_full"):
         return HTMLResponse(listing["description_full"])
-    if listing["platform"] == "ricardo":
-        paused = db.platform_states().get("ricardo", {}).get("blocked_until")
-        if paused and datetime.fromisoformat(paused) > datetime.now(timezone.utc):
-            return HTMLResponse("Ricardo pausiert gerade nach einer Sperre – Beschreibung später nochmals öffnen.")
+    if listing["platform"] == "ricardo":  # Ricardo sperrt Einzelabrufe sofort (429) – und damit die ganze Suche
+        return HTMLResponse("Ricardo-Beschreibungen lädt fundus nicht einzeln (Ricardo sperrt solche Abrufe). "
+                            "Das Inserat zeigt sie – oben auf das Angebot tippen.")
     try:
         if listing["platform"] == "ebay":
             runner.check_listing(all_adapters(get_config()), listing)
@@ -285,18 +284,51 @@ APP_CHECK_AFTER_RUN = 45   # Minuten nach Scan-Beginn: dann sind Suche und KI-Au
 def app_notices(after: int = -1):
     """Für die Android-App: neue Meldungen seit `after`, ob Scan/Auswertung noch laufen und wann sie wieder fragen soll.
     after=-1 (erster Kontakt): keine alten Meldungen nachliefern, nur den Stand zurückgeben."""
-    from datetime import timedelta
     from fastapi.responses import JSONResponse
     db.kv_set("app_seen", datetime.now(timezone.utc).isoformat(timespec="seconds"))
-    busy = runner.is_running() or ai.AI_RUNNING
-    notices = [] if after < 0 or busy else db.app_notices_after(after)
+    busy = _busy()
+    notices = [] if after < 0 or busy else db.app_notices_after(after, limit=100)
     last = notices[-1]["id"] if notices else (db.last_app_notice_id() if after < 0 else after)
+    public = (get_config()["web"].get("public_url") or "").rstrip("/")
+    digest = _digest(notices, public)
     jitter = int(get_config()["schedule"].get("jitter_minutes", 0))
     upcoming = next_runs(state["scheduler"])
     nxt = (upcoming[0] + timedelta(minutes=jitter + APP_CHECK_AFTER_RUN)) if upcoming else \
         datetime.now(timezone.utc) + timedelta(hours=12)
     return JSONResponse({"busy": busy, "last_id": last, "next_check": nxt.astimezone(timezone.utc).isoformat(timespec="seconds"),
-                         "notices": [{k: n[k] for k in ("id", "title", "body", "url")} for n in notices]})
+                         "notices": [digest] if digest else []})
+
+
+AI_SETTLE_HOURS = 2   # so lange nach einem Scan auf ausstehende KI-Bewertungen warten
+
+
+def _busy() -> bool:
+    """Läuft noch ein Scan oder die KI – oder warten nach dem letzten Scan noch Angebote auf die KI?
+    (Die App meldet erst, wenn wirklich alles fertig ist; fällt Gemini aus, höchstens AI_SETTLE_HOURS warten.)"""
+    if runner.is_running() or ai.AI_RUNNING:
+        return True
+    runs = db.last_runs(1)
+    if not runs or not runs[0].get("finished_at") or not get_config().get("ai", {}).get("gemini_api_key"):
+        return False
+    if datetime.now(timezone.utc) - datetime.fromisoformat(runs[0]["finished_at"]) > timedelta(hours=AI_SETTLE_HOURS):
+        return False
+    evaluated, total = db.get_ai_progress()
+    return evaluated < total
+
+
+def _digest(notices: list[dict], public: str) -> dict | None:
+    """Eine Meldung pro Durchgang: alle Suchen mit neuen Top-Angeboten zusammengefasst."""
+    if not notices:
+        return None
+    if len(notices) == 1:
+        n = notices[0]
+        return {"id": n["id"], "title": n["title"], "body": n["body"], "url": n["url"] or f"{public}/"}
+    by_search: dict = {}
+    for n in notices:  # pro Suche nur die neueste Sammelmeldung
+        by_search[n["search_id"]] = n
+    lines = [f"{n['title']} · {n['body'].splitlines()[0]}" for n in by_search.values()]
+    return {"id": notices[-1]["id"], "url": f"{public}/",
+            "title": f"fundus: neue Top-Angebote in {len(by_search)} Suchen", "body": "\n".join(lines)}
 
 
 @app.get("/app.apk")

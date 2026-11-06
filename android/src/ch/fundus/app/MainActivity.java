@@ -3,13 +3,14 @@ package ch.fundus.app;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -35,7 +36,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle zustand) {
         super.onCreate(zustand);
         adresseLesen();
-        farbenSetzen();
+        leistenFaerben(Color.WHITE);   // bis die Seite ihre Farbe meldet
 
         web = new WebView(this);
         WebSettings s = web.getSettings();
@@ -45,7 +46,8 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);   // Seiten schickt fundus mit no-cache, Bilder dürfen aus dem Cache
         s.setUserAgentString(s.getUserAgentString() + " FundusApp/1");  // schaltet auf dem Mac die App-Ansicht ein
-        web.setBackgroundColor(nachtModus() ? Color.rgb(21, 22, 20) : Color.WHITE);
+        web.setBackgroundColor(Color.WHITE);
+        web.addJavascriptInterface(new Bruecke(), "FundusAndroid");  // nur eigene Seiten laden hier (siehe Client)
         web.setWebViewClient(new Client());
         setContentView(web);
         laden(startAdresse(getIntent()));
@@ -100,10 +102,9 @@ public class MainActivity extends Activity {
 
     private void nichtErreichbar() {
         fehlerSeite = true;
-        boolean nacht = nachtModus();
         String html = "<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'>"
             + "<body style='font:17px system-ui,sans-serif;text-align:center;padding:90px 24px;margin:0;"
-            + "background:" + (nacht ? "#151614;color:#ecebe7" : "#fff;color:#1c1c1a") + "'>"
+            + "background:#fff;color:#1c1c1a'>"
             + "<div style='font-size:30px;font-weight:800;letter-spacing:-.03em'>fundus</div>"
             + "<p style='color:#8e8b83'>Mac nicht erreichbar.<br>Ist Tailscale eingeschaltet und der Mac wach?</p>"
             + "<a href='fundus://neu' style='display:inline-block;margin-top:12px;padding:13px 26px;border-radius:10px;"
@@ -136,18 +137,38 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean nachtModus() {
-        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+    /** Die Seite meldet ihre Hintergrundfarbe – Status- und Navigationsleiste übernehmen sie (wie bei anderen Apps). */
+    private class Bruecke {
+        @JavascriptInterface
+        public void leisten(String cssFarbe) {
+            int farbe = cssFarbeLesen(cssFarbe);
+            runOnUiThread(() -> leistenFaerben(farbe));
+        }
+
+        /** Scan von Hand gestartet: in ein paar Minuten nachfragen, dann bis alles ausgewertet ist (Melder). */
+        @JavascriptInterface
+        public void nachScan() {
+            Melder.wecken(getApplicationContext(), System.currentTimeMillis() + 4 * 60_000L);
+        }
     }
 
-    private void farbenSetzen() {
-        boolean nacht = nachtModus();
-        int farbe = nacht ? Color.rgb(21, 22, 20) : Color.WHITE;
+    static int cssFarbeLesen(String css) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\D+(\\d+)\\D+(\\d+)").matcher(css == null ? "" : css);
+        return m.find() ? Color.rgb(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3))) : Color.WHITE;
+    }
+
+    private void leistenFaerben(int farbe) {
+        boolean hell = Color.luminance(farbe) > 0.5f;
+        getWindow().setBackgroundDrawable(new ColorDrawable(farbe));
         getWindow().setStatusBarColor(farbe);
         getWindow().setNavigationBarColor(farbe);
-        if (!nacht) {
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        if (Build.VERSION.SDK_INT >= 29) {   // kein grauer Schleier über den Leisten
+            getWindow().setStatusBarContrastEnforced(false);
+            getWindow().setNavigationBarContrastEnforced(false);
         }
+        if (Build.VERSION.SDK_INT >= 28) getWindow().setNavigationBarDividerColor(farbe);
+        if (web != null) web.setBackgroundColor(farbe);
+        getWindow().getDecorView().setSystemUiVisibility(hell
+            ? View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR : 0);
     }
 }

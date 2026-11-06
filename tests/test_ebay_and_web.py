@@ -292,3 +292,19 @@ def test_notify_top_hits_routes_to_app(monkeypatch):
     notices = db.app_notices_after(0)
     assert len(notices) == 1 and "259 CHF" in notices[0]["body"]
     assert notify.notify_top_hits(sid) == []                     # schon gemeldet
+
+
+def test_app_gets_one_digest_per_pass():
+    from fastapi.testclient import TestClient
+    from fundus import db, notify
+    from fundus.web import app as webapp
+    cfg = {"web": {"public_url": "https://x.ts.net"}}
+    with TestClient(webapp.app) as client:
+        start = client.get("/api/app/notices").json()["last_id"]
+        for q, total in (("trust bar", 139), ("sensor pro 4", 361)):
+            sid = db.save_search({"query": q})
+            notify.add_app_notice(cfg, db.get_search(sid), [{"title": q, "total_chf": total}])
+        r = client.get(f"/api/app/notices?after={start}").json()
+        assert len(r["notices"]) == 1
+        d = r["notices"][0]
+        assert d["title"] == "fundus: neue Top-Angebote in 2 Suchen" and "139 CHF" in d["body"] and "361 CHF" in d["body"]
