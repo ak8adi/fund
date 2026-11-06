@@ -39,6 +39,16 @@ class TrustResult:
         return LEVELS[self.level]
 
 
+def listing_price(h: dict) -> float | None:
+    """Preis, mit dem fundus rechnet: Einzelpreis aus einem Set, bei Auktionen das aktuelle Gebot (der Sofortpreis
+    ist nur die Obergrenze), sonst der Inseratpreis – in der Währung des Inserats."""
+    if h.get("single_price"):
+        return h["single_price"]
+    if h.get("auction") and h.get("bid_price"):
+        return h["bid_price"]
+    return h.get("price")
+
+
 def price_in_chf(price: float | None, currency: str, fx: dict) -> float | None:
     if price is None or price <= 0:
         return None

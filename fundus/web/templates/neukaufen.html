@@ -9,9 +9,13 @@
       <form method="post" action="/search/{{ search.id }}/newprice" class="inline"><button class="btn small">Shops neu suchen</button></form>
     </div>
   </div>
-  {% include "_pricehead.html" %}
+  {% set hd = views.head %}
+  {% if hd.used and hd.new %}
+  <p class="small">Günstigstes gebraucht <b>{{ price(hd.used.pay, 'CHF') }}</b> – {% if hd.saving > 0 %}<b>{{ hd.saving_pct }} % günstiger</b> als{% else %}nicht günstiger als{% endif %}
+    das günstigste lieferbare Neuangebot ({{ price(hd.new.total, 'CHF') }}){% if hd.refurb %}, erneuert ab {{ price(hd.refurb.total, 'CHF') }}{% endif %}.</p>
+  {% endif %}
   <p class="muted small">{{ search.new_price_note or '' }}{% if search.new_price_at %} · gesucht {{ search.new_price_at | ago }}{% endif %}.
-    Endpreis bis zu dir: Versand laut Shop, sonst geschätzt (≈); Shops aus dem Ausland über die Grenzadresse inkl. Gebühr und MWST –
+    Endpreis bis zu dir: Versand laut Shop, sonst geschätzt (≈); Shops aus dem Ausland über die Grenzadresse inkl. Gebühr (ohne MWST, Einfuhr mit dem Auto) –
     gleich gerechnet wie die Gebrauchtangebote.</p>
   {% if options %}
   <div class="buy-list">
@@ -21,10 +25,12 @@
       <span class="tot">{{ price(o.total, 'CHF') }}<small>bis zu dir</small></span>
       <span class="name">{{ o.name }}</span>
       <span class="tags">
+        {% if o.kind == 'erneuert' %}<span class="refurb">erneuert</span>{% endif %}
         {% if o.available is sameas true %}<span class="ok">lieferbar</span>{% elif o.available is sameas false %}<span class="no">ausverkauft</span>{% else %}<span>Lieferbarkeit unbekannt</span>{% endif %}
         <span>{{ price(o.price, o.currency) }}{% if o.currency != 'CHF' %} ≈ {{ price(o.price_chf, 'CHF') }}{% endif %}</span>
         {% if o.ship is not none %}<span>Versand {{ '' if o.ship_known else '≈ ' }}{{ o.ship | round | int }} CHF</span>{% endif %}
-        {% if o.fees %}<span>Import {{ o.fees }} CHF</span>{% endif %}
+        {% if o.fees %}<span>Gebühr {{ o.fees }} CHF</span>{% endif %}
+        {% if hd.used and o.total %}<span>gebraucht {{ ((o.total - hd.used.pay) / o.total * 100) | round | int }} % günstiger</span>{% endif %}
         <span>{{ o.country }}</span>
       </span>
     </a>

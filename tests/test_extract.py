@@ -122,6 +122,15 @@ def test_matches_query():
     assert not matches_query("core sensor pro 3", "APPLE MacBook Pro Touch Bar 2019 Core i7")
     assert not matches_query("duotone trust bar", "Trust Company - The Lonely Position (CD)")
     assert not matches_query("kinderwagen", "Sandalen")
+    # Ricardo, November 2026: Chip fehlt im Titel – die KI entscheidet; andere Grösse/Chip/Generation fliegt raus
+    assert matches_query("MacBook Pro 16 M1", "MacBook Pro 16 inch 2021")
+    assert matches_query("MacBook Pro 16 M1", "16” M1 MAX 32GB 1TB")
+    assert not matches_query("MacBook Pro 16 M1", "MacBook Pro 14 M1 Pro 1TB ***in super Zustand inkl. OVP")
+    assert not matches_query("MacBook Pro 16 M1", "Apple MacBook Pro 16 M2 Pro 2023")
+    assert not matches_query("MacBook Pro 16 M1", "MacBook Pro 13\"")
+    assert not matches_query("core sensor pro 4", "Core Sensor 3 Pro Bar")
+    assert matches_query("MacBook Air 15 16GB", "MacBook Air 15 M3 16 GB 512")
+    assert not matches_query("MacBook Air 15 16GB", "MacBook Air 15 M3 8GB 256GB")
 
 
 def test_redirect_to_expired_notice_counts_as_gone(monkeypatch):

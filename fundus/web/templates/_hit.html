@@ -43,10 +43,12 @@
       {% if h.trust_level in ('check', 'warn') %}<span class="chip {{ 'bad' if h.trust_level == 'warn' else 'hint' }}">{{ trust_labels[h.trust_level] }}</span>{% endif %}
     </div>
     {% if h.delivery and visible %}
-      <div class="deliv" title="Beste Lieferart, Endpreis inkl. Versand, Gebühren und ggf. MWST">{{ h.delivery }}{% if h.total_chf %} → <strong>{{ price(h.total_chf | round(0), 'CHF') }}</strong> bis zu dir{% endif %}</div>
+      <div class="deliv" title="Beste Lieferart, Endpreis inkl. Versand und Gebühren">{{ h.delivery }}{% if h.total_chf %} → <strong>{{ price(h.total_chf | round(0), 'CHF') }}</strong> bis zu dir{% endif %}</div>
     {% endif %}
     {% if h._inactive_platform %}
       <div class="why muted">Plattform ist für diese Suche ausgeschaltet.</div>
+    {% elif h._outside %}
+      <div class="why muted">{{ h._outside | capitalize }} ({{ search.near_km | int }} km um {{ search.near_place or 'Wohnort' }}{% if search.route_to %} / Strecke nach {{ search.route_to }}{% endif %}).</div>
     {% elif h.score_reason %}
       <div class="why">{{ h.score_reason }}</div>
     {% elif not visible and h.ai_reason %}

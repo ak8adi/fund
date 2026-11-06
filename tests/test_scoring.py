@@ -50,15 +50,14 @@ def test_market_only_from_relevant_hits_and_per_search():
 
 def test_delivery_routes():
     from fundus import delivery as d
-    cfg = {**HOME, "import_vat": 0.081, "vat_free_limit_chf": 150}
-    # DE, gross genug für MWST: DHL 10 kg + Paket4you L + 8,1 % auf Ware und Versand
+    cfg = HOME
+    # DE: DHL 10 kg + Paket4you L – Einfuhr mit dem Auto, ohne MWST
     de = {"platform": "kleinanzeigen", "price": 400, "currency": "EUR", "ai_size": "L", "ai_weight": 8}
     p = d.plan(de, FX, cfg)
-    goods = 400 * 0.94 + 10.49 * 0.94
-    assert p.total == round(goods * 1.081 + 6 * 0.94, 2) and "Paket4you" in p.label and "MWST" in p.label
-    # DE, klein und günstig: keine MWST
+    assert p.total == round((400 + 10.49 + 6) * 0.94, 2) and "Paket4you" in p.label and "MWST" not in p.label
+    assert [name for name, _ in p.parts] == ["Preis", "Versand", "Paket4you"]
     small = d.plan({**de, "price": 50, "ai_size": "S", "ai_weight": 1}, FX, cfg)
-    assert "ohne MWST" in small.label and small.total == round((50 + 4.19 + 2.5) * 0.94, 2)
+    assert small.total == round((50 + 4.19 + 2.5) * 0.94, 2)
     # CH: PostPac, Sperrgut, Abholung, Möbel
     ch = {"platform": "tutti", "price": 400, "currency": "CHF"}
     assert d.plan({**ch, "ai_size": "M", "ai_weight": 3}, FX, cfg).total == 412

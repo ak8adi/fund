@@ -84,8 +84,8 @@ die Plattform `fetcher: browser` setzen.
 2. **KI-Fakten** (Gemini, Stapel à 20): ist es das gesuchte Produkt oder Zubehör, Zustand, Jahrgang, Versand,
    Set-Inhalt und Einzelpreis, Versandgrösse, deine Anforderungen (Freitext, z.B. «nur 3-rädrig») und
    Hinweise auf Betrug. Die KI bewertet keine Preise.
-3. **Lieferweg** (`delivery.py`): Postversand in der Schweiz, DHL an Paket4you in Jestetten inkl. Gebühr und
-   MWST über 150 CHF, oder Abholung mit Fahrzeit ab Winterthur (OpenStreetMap). Ergibt den Endpreis bis zu dir.
+3. **Lieferweg** (`delivery.py`): Postversand in der Schweiz, DHL an Paket4you in Jestetten inkl. Gebühr
+   (Einfuhr mit dem Auto, ohne MWST), oder Abholung mit Fahrzeit ab Winterthur (OpenStreetMap). Ergibt den Endpreis bis zu dir.
 4. **Deal-Score** (`scoring.py`): Endpreis gegen den Marktpreis (Median der passenden Treffer), angepasst an
    Zustand und Jahrgang, gedeckelt durch den Neupreis. 50 = Marktpreis, 90 = halber Preis. Stufen S/A/B/C.
 5. **Meldung** per ntfy ab Score 65 (A), mit Bild, Endpreis, Lieferweg und Einschätzung.
@@ -102,7 +102,7 @@ mehr auftauchen, prüft fundus direkt (alle 6 h, bis 8 pro Suche); beim Klick au
 das Inserat nochmals, wenn die letzte Prüfung älter als 10 Minuten ist, und zeigt «nicht mehr verfügbar» oder
 «reserviert», statt dich auf eine leere Seite zu schicken. Kleinanzeigen zeigt «Reserviert»/«Gelöscht» nur auf
 der mobilen Seite im HTML (Desktop fügt es per Skript ein) – fundus prüft dort deshalb die mobile Seite. Alles, was
-oben auf der Suchseite steht (beste Gebote, knapp dahinter), wird bei jedem Lauf geprüft, wenn die letzte Prüfung
+oben auf der Suchseite steht (beste Angebote, knapp dahinter), wird bei jedem Lauf geprüft, wenn die letzte Prüfung
 älter als 2 h ist.
 
 **Schon weg**: verschwundene passende Angebote bleiben gespeichert (dazu jede Preisänderung in `price_history`).
@@ -115,12 +115,12 @@ Karte markiert (Gebote, aktuelles Gebot, Restzeit).
 erst «Details» beim Anklicken (eine Anfrage, wie ein Besuch). eBay-Beschreibungen kommen über die API.
 
 **Übersicht**: pro Suche eine Zeile zum Wischen – Suchkarte (Foto des besten Angebots, gebraucht ab / neu ab,
-Zahnrad links für die Einstellungen), dann die besten Gebote (neue zuerst, markiert), zuletzt eine kleine
+Zahnrad links für die Einstellungen), dann die besten Angebote (neue zuerst, markiert), zuletzt eine kleine
 Analytics-Karte. Antippen der Suchkarte öffnet die Suche.
 
 **Suchseite**: oben der Preis-Kopf – günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot,
 beide als Endpreis bis zu dir mit Aufschlüsselung –, darunter die Knöpfe *Analytics* und *Neu kaufen*. Dann die
-besten Gebote (Pareto-Front: kein anderes Angebot ist zugleich günstiger und besser, nach Aussortieren von
+besten Angebote (Pareto-Front: kein anderes Angebot ist zugleich günstiger und besser, nach Aussortieren von
 Lockangeboten, nicht erfüllten Anforderungen, fragwürdigen Verkäufern und Reservierten), je mit Aufschlüsselung
 des Endpreises; ausklappbar der Vergleich der Finalisten und die Liste aller Angebote.
 *Analytics*: Marktlage der letzten 30 Tage, Lieferwege, Preis-Wert-Karte, Preisleiter, verpasste Angebote.

@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from ..models import Listing
 from .base import Adapter, AdapterError, fetch_html
-from .extract import extract_listings, json_blobs
+from .extract import extract_listings, json_blobs, walk
 
 
 class ScrapedAdapter(Adapter):
@@ -43,11 +43,23 @@ class RicardoAdapter(ScrapedAdapter):
     base_url = "https://www.ricardo.ch"
     require_price = True
 
+    complete = False   # hat die letzte Suche ALLE Treffer geliefert (nicht nur Seite 1)?
+
     def build_url(self, d: dict, ext_id: str) -> str | None:
         url = d.get("url") or d.get("href")
         if isinstance(url, str) and "/a/" in url:
             return url
         return f"{self.base_url}/de/a/{ext_id}/" if ext_id.isdigit() else None
+
+    def parse(self, page: str) -> list[Listing]:
+        self.complete = False
+        for blob in json_blobs(page):
+            for d in walk(blob):
+                if isinstance(d, dict) and isinstance(d.get("articles"), list) and isinstance(d.get("totalArticlesCount"), int):
+                    # Ganze Ergebnisliste auf einer Seite: was hier fehlt, ist verkauft oder beendet (siehe runner)
+                    self.complete = d["totalArticlesCount"] <= len(d["articles"])
+                    break
+        return super().parse(page)
 
 
 class _SmgAdapter(ScrapedAdapter):

@@ -157,11 +157,12 @@ def notify_top_hits(search_id: int) -> list[str]:
     search = db.get_search(search_id)
     if not search:
         return []
-    from . import fx as fx_rates, scoring, views
+    from . import area, fx as fx_rates, scoring, views
     rates = fx_rates.rates(cfg)
     reference = search.get("market_price") or (search["new_price"] * scoring.USED_SHARE if search.get("new_price") else None)
-    hits = [h for h in db.pending_top_hits(search_id, int(cfg["ntfy"].get("notify_min_score", 65)))
-            if not views.ko_reason(h, scoring.pay_price_chf(h, rates), reference)]  # keine Lockangebote melden
+    region = area.for_search(search)
+    hits = [h for h in db.pending_top_hits(search_id, int(cfg["ntfy"].get("notify_min_score", 65)))  # keine Lockangebote,
+            if not views.ko_reason(h, scoring.pay_price_chf(h, rates), reference, None, search, region)]  # nur im Gebiet
     for h in hits:
         h["trust_label"] = LEVELS.get(h.get("trust_level"), "")
     if not hits:

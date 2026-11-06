@@ -1,9 +1,10 @@
-{# Preis-Kopf einer Suche: günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot,
-   beide als Endpreis bis zu dir mit Aufschlüsselung. Erwartet: search, views (views.build). #}
+{# Preis-Kopf der Suchseite: günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot,
+   beide als Endpreis bis zu dir. Antippen führt zur jeweiligen Übersicht (beste Angebote bzw. Neu kaufen).
+   Erwartet: search, views (views.build). #}
 {% set hd = views.head %}
 <div class="ph">
   {% if hd.used %}
-  <a class="tile used" href="/go/{{ hd.used.key | urlencode }}" target="_blank" rel="noopener" title="{{ hd.used.title }}">
+  <a class="tile used" href="#beste-gebote">
     <span class="lbl">Gebraucht ab</span>
     <span class="val">{{ price(hd.used.pay, 'CHF') }}</span>
     <span class="sub">{{ hd.used.breakdown or hd.used.title }}</span>
@@ -11,23 +12,21 @@
   {% else %}
   <div class="tile empty"><span class="lbl">Gebraucht</span><span class="val">noch nichts Passendes</span></div>
   {% endif %}
-  {% if hd.new %}
-  <a class="tile new" href="{{ hd.new.url }}" target="_blank" rel="noopener" title="{{ hd.new.name }}">
+  <a class="tile new{{ ' empty' if not hd.new }}" href="/search/{{ search.id }}/neu-kaufen">
     <span class="lbl">Neu ab</span>
+    {% if hd.new %}
     <span class="val">{{ price(hd.new.total, 'CHF') }}</span>
-    <span class="sub">{{ price(hd.new.price, 'CHF') }}{% if hd.new.ship is not none %} + Versand {{ '' if hd.new.ship_known else '≈' }}{{ hd.new.ship }}{% endif %}{% if hd.new.fees %} + Import {{ hd.new.fees }}{% endif %} · {{ hd.new.shop }}</span>
+    <span class="sub">{{ price(hd.new.price, 'CHF') }}{% if hd.new.ship is not none %} + Versand {{ '' if hd.new.ship_known else '≈' }}{{ hd.new.ship }}{% endif %}{% if hd.new.fees %} + Gebühr {{ hd.new.fees }}{% endif %} · {{ hd.new.shop }}</span>
+    {% else %}
+    <span class="val">{{ 'nur ausverkauft' if hd.soldout_count else 'kein Shop gefunden' }}</span>
+    {% endif %}
+    {% if hd.refurb %}<span class="sub">erneuert ab <b>{{ price(hd.refurb.total, 'CHF') }}</b> · {{ hd.refurb.shop }}</span>{% endif %}
   </a>
-  {% else %}
-  <a class="tile empty" href="/search/{{ search.id }}/neu-kaufen"><span class="lbl">Neu</span>
-    <span class="val">{{ 'nur ausverkauft gefunden' if hd.soldout_count else 'kein Shop gefunden' }}</span></a>
-  {% endif %}
-  {% if hd.saving is not none and hd.saving > 0 %}
-  <p class="cmp">Gebraucht sparst du <b>{{ price(hd.saving, 'CHF') }}</b> gegenüber neu (Endpreise inkl. Versand und Import).</p>
+  {% if hd.saving_pct is not none %}
+  <p class="cmp">{% if hd.saving > 0 %}Gebraucht <b>{{ hd.saving_pct }} % günstiger</b> als neu ({{ price(hd.saving, 'CHF') }} gespart){% else %}Neu ist gerade nicht teurer als gebraucht{% endif %} – Endpreise inkl. Versand.</p>
   {% endif %}
 </div>
-<div class="big-btns{{ ' one' if page in ('analytics', 'buy') }}">
-  {% if page != 'analytics' %}<a class="analytics" href="/search/{{ search.id }}/analytics"><span class="ico" aria-hidden="true">◔</span>
-    <span>Analytics<small>Marktlage, Lieferwege, Preise</small></span></a>{% endif %}
-  {% if page != 'buy' %}<a class="buy" href="/search/{{ search.id }}/neu-kaufen"><span class="ico" aria-hidden="true">🛒</span>
-    <span>Neu kaufen<small>{{ hd.new_count }} Shop{{ '' if hd.new_count == 1 else 's' }} lieferbar{% if hd.soldout_count %} · {{ hd.soldout_count }} ausverkauft{% endif %}</small></span></a>{% endif %}
+<div class="big-btns one">
+  <a class="analytics" href="/search/{{ search.id }}/analytics"><span class="ico" aria-hidden="true">◔</span>
+    <span>Analytics<small>Marktlage, Lieferwege, Preis-Wert-Karte, Preisleiter</small></span></a>
 </div>

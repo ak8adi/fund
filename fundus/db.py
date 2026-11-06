@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS hits (
     ai_score      INTEGER,                      -- Deal-Score 0–100
     ai_tier       TEXT,                         -- S, A, B, C
     score_reason  TEXT,
-    total_chf     REAL,                         -- Endpreis inkl. Versand und Einfuhr-MWST (delivery.py)
+    total_chf     REAL,                         -- Endpreis inkl. Versand und Gebühren (delivery.py)
     PRIMARY KEY (search_id, listing_key)
 );
 CREATE TABLE IF NOT EXISTS platforms (
@@ -193,6 +193,9 @@ def init_db() -> None:
             if col not in l_cols:  # Auktionen und Laufzeitende (Ricardo, eBay)
                 c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         _migrate_ai_to_hits(c, l_cols)
+        for col, typ in (("near_km", "REAL"), ("near_place", "TEXT"), ("route_to", "TEXT"), ("route_km", "REAL")):
+            if col not in cols:  # Gebiet: nur in der Nähe (Umkreis um near_place), optional entlang der Strecke nach route_to
+                c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
         if "manual_run_at" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN manual_run_at TEXT")  # letzter manueller Start
         if "market_price" not in cols:
@@ -282,18 +285,22 @@ def save_search(data: dict, search_id: int | None = None) -> int:
         int(data.get("allow_sets", True)),
         int(data.get("require_shipping", False)),
         (data.get("requirements") or "").strip(),
+        data.get("near_km") or None,
+        (data.get("near_place") or "").strip() or None,
+        (data.get("route_to") or "").strip() or None,
+        data.get("route_km") or None,
     )
     with connect() as c:
         if search_id is None:
             cur = c.execute(
                 "INSERT INTO searches (query, exclude, min_price, max_price, platforms, allow_sets, require_shipping, requirements,"
-                " created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                " near_km, near_place, route_to, route_km, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (*values, now()),
             )
             return int(cur.lastrowid)
         c.execute(
             "UPDATE searches SET query=?, exclude=?, min_price=?, max_price=?, platforms=?, allow_sets=?, require_shipping=?,"
-            " requirements=? WHERE id=?",
+            " requirements=?, near_km=?, near_place=?, route_to=?, route_km=? WHERE id=?",
             (*values, search_id),
         )
         return search_id
@@ -459,7 +466,7 @@ def update_listing_shipping(key: str, flag: str) -> bool:
 def hits_of_listing(key: str) -> list[dict]:
     with connect() as c:
         return [dict(r) for r in c.execute(
-            """SELECT h.search_id, h.ai_relevant, h.ai_reason, s.require_shipping FROM hits h
+            """SELECT h.search_id, h.ai_relevant, h.ai_reason, s.require_shipping, s.near_km FROM hits h
                JOIN searches s ON s.id = h.search_id WHERE h.listing_key = ?""", (key,))]
 
 

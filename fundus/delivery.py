@@ -4,8 +4,7 @@ Die KI schätzt pro Inserat die Versandgrösse (SIZES) und das Gewicht, dieses M
 
 - CH-Inserat: Postversand (PostPac Economy) oder Abholung mit Fahrzeit ab Wohnort.
 - DE-Inserat: DHL an die Paket4you-Adresse in Jestetten, dort abholen und selbst über die Grenze bringen.
-  Bis 150 CHF pro Person und Tag ohne MWST (Wertfreigrenze im Reiseverkehr seit 1.1.2025), darüber 8,1 %
-  auf den ganzen Betrag. Industriezölle gibt es seit 1.1.2024 keine mehr.
+  Einfuhr mit dem Auto: fundus rechnet ohne MWST und Zoll (Industriezölle gibt es seit 1.1.2024 keine mehr).
   Direkt per Post in die Schweiz lohnt sich kaum: internationales Porto plus Verzollungsgebühr der Post
   (ab 13 CHF + 3 % des Warenwerts) – teurer als die Fahrt nach Jestetten.
 - Übriges Ausland: Versand an Paket4you (geschätzt) oder Abholung.
@@ -25,7 +24,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from . import db
-from .trust import price_in_chf
+from .trust import listing_price, price_in_chf
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +92,7 @@ def _num(v: float) -> str:
 def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: float | None = None) -> Plan | None:
     """Beste Lieferart und Endpreis für einen Treffer. None, wenn kein Preis bekannt ist."""
     currency = h.get("currency") or "CHF"
-    price = price_in_chf(h.get("single_price") or h.get("price"), currency, fx)
+    price = price_in_chf(listing_price(h), currency, fx)
     if price is None:
         return None
     eur = fx.get("EUR", 0.94)
@@ -101,22 +100,12 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
     weight = h.get("ai_weight") or weight or DEFAULT_WEIGHT.get(size, 3)
     home = delivery.get("home_country", "CH")
     country = listing_country(h) or home
-    vat_rate = delivery.get("import_vat", 0.081)
-    vat_limit = delivery.get("vat_free_limit_chf", 150)
     place = (h.get("location") or "").strip()
     stated = price_in_chf(h["ai_shipping_cost"], currency, fx) if h.get("ai_shipping_cost") is not None else None
-
-    def vat(value: float) -> tuple[float, str]:
-        if country == home:
-            return 0.0, ""
-        if value > vat_limit:
-            return value * vat_rate, f" · MWST {vat_rate * 100:.1f} % am Zoll"
-        return 0.0, f" · ohne MWST (unter {vat_limit} CHF)"
 
     shipping = h.get("ship_flag") or h.get("ai_shipping")  # Angabe der Plattform vor der KI-Schätzung
     if shipping == "nein" or size == "fracht":
         minutes = drive_minutes(place, country, delivery) if place else None
-        tax, tax_txt = vat(price)
         where = f"Abholung in {place}" if place else "Abholung"
         if size == "fracht" and shipping != "nein":
             where += " (zu gross für Paket)"
@@ -125,9 +114,9 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
         # Die Fahrt kostet Geld: bei einem 15-€-Artikel 2½ h entfernt mehr als der Artikel selbst
         car = 2 * minutes * float(delivery.get("drive_chf_per_min", DRIVE_CHF_PER_MIN)) if minutes else 0.0
         label = where + (f" · {fmt_minutes(minutes)} Fahrt (Auto ≈ {_num(car)} CHF hin und zurück)"
-                         if minutes is not None else "") + tax_txt
-        return Plan(round(price + tax + car, 2), label, minutes, penalty,
-                    parts=[p for p in (("Preis", price), ("MWST", tax), ("Auto", car)) if p[1]])
+                         if minutes is not None else "")
+        return Plan(round(price + car, 2), label, minutes, penalty,
+                    parts=[p for p in (("Preis", price), ("Auto", car)) if p[1]])
 
     if country == home:
         ship = stated if stated is not None else post_chf(size, weight)
@@ -149,11 +138,10 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
         how = f"Versand aus {country} ≈ {_num(ship)} CHF an {delivery.get('forwarder', 'Paket4you')} + {_num(fee / eur)} € Gebühr"
     if size == "XL" and stated is None:
         how += " (Sperrgut)"
-    tax, tax_txt = vat(price + ship)
     if j_min is not None:
         how += f" · {fmt_minutes(j_min)} Fahrt nach Jestetten"
-    return Plan(round(price + ship + fee + tax, 2), how + tax_txt,
-                parts=[p for p in (("Preis", price), ("Versand", ship), ("Paket4you", fee), ("MWST", tax)) if p[1]])
+    return Plan(round(price + ship + fee, 2), how,
+                parts=[p for p in (("Preis", price), ("Versand", ship), ("Paket4you", fee)) if p[1]])
 
 
 # ---------- Fahrzeit (OpenStreetMap: Nominatim zum Finden des Orts, OSRM für die Route) ----------

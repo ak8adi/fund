@@ -109,7 +109,7 @@ def check_listing(adapters, hit: dict) -> str:
 
 
 def shortlist_to_check(search_id: int, rest: int = 6, max_age: timedelta | None = None) -> list[dict]:
-    """Beste Gebote und die nächsten Angebote der Suchseite, deren letzte Prüfung älter als max_age
+    """Beste Angebote und die nächsten Angebote der Suchseite, deren letzte Prüfung älter als max_age
     (Standard SHORTLIST_RECHECK_HOURS) ist."""
     from . import views
     offers = views.build(search_id)["offers"]
@@ -145,7 +145,7 @@ def _twins(search_id: int, listing: dict) -> list[dict]:
 
 
 def watch_search(search_id: int, max_age: timedelta | None = None, rounds: int = 3) -> int:
-    """Prüft die Angebote oben auf der Suchseite (beste Gebote, knapp dahinter). Fällt eines weg, rückt das nächste
+    """Prüft die Angebote oben auf der Suchseite (beste Angebote, knapp dahinter). Fällt eines weg, rückt das nächste
     nach – darum mehrere Runden, bis alles Sichtbare geprüft ist. Doppelinserate eines verschwundenen Angebots werden
     gleich mitgeprüft. Rückgabe: Anzahl weg/reserviert gefundener Inserate."""
     adapters = all_adapters(get_config())
@@ -288,6 +288,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
 
     for search in searches:
         collected: list[Listing] = []
+        complete_sources: set[str] = set()
+        returned: set[str] = set()   # alles, was die Plattformen geliefert haben – vor jedem Filter
         for src in sources:
             if search["platforms"] and src["adapter"] not in search["platforms"]:
                 continue
@@ -302,6 +304,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 for l in found:
                     l.source = l.source or src["name"]
                 collected.extend(found)
+                returned.update(l.key for l in found)
+                if getattr(adapter, "complete", False):  # Ricardo: vollständige Liste → Fehlende sind weg
+                    complete_sources.add(src["adapter"])
                 source_counts[src["name"]] = source_counts.get(src["name"], 0) + len(found)
                 log.info("%s / %s: %d Treffer", search["query"], src["name"], len(found))
             except AdapterError as exc:
@@ -329,6 +334,12 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 })
         for l in collected:  # Versand laut Suchergebnis-Karte (Kleinanzeigen, Willhaben, Blocket)
             apply_platform_shipping(l.key, l.shipping, rescore=False)
+        for platform in complete_sources:
+            for h in db.hits_for_search(search["id"]):
+                if h["platform"] == platform and h["key"] not in returned and not h.get("gone_at") \
+                        and matches_query(search["query"], h.get("title") or ""):
+                    db.mark_listing_gone(h["key"])
+                    log.info("%s: nicht mehr in der vollständigen Trefferliste – verkauft oder beendet: %s", platform, h["url"])
         db.mark_search_run(search["id"], manual=trigger not in AUTO_TRIGGERS)
         if newprice.is_stale(search):  # Neupreis beim ersten Lauf, danach monatlich auffrischen
             newprice.refresh(search["id"])
@@ -427,7 +438,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         # Nur Seite 1 wird abgefragt, «nicht gesehen» heisst also nicht «verkauft».
         # Dazu die besten Treffer ohne Versandangabe der Plattform: die Suchkarte zeigt «Nur Abholung» nicht immer.
         to_check = {h["key"]: h for h in db.top_hits_to_check(search["id"])}
-        # Alles, was oben auf der Suchseite steht (beste Gebote + knapp dahinter), auch wenn es noch in den
+        # Alles, was oben auf der Suchseite steht (beste Angebote + knapp dahinter), auch wenn es noch in den
         # Suchergebnissen auftaucht: Kleinanzeigen zeigt reservierte Inserate dort teils weiter an.
         for h in shortlist_to_check(search["id"]):
             to_check.setdefault(h["key"], h)

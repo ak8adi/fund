@@ -41,8 +41,6 @@ DEFAULTS: dict[str, Any] = {
         "forwarder_address": "Hohenkrähenstrasse 22, 79798 Jestetten",
         # Versandkosten-Schätzung in CHF, wenn das Inserat keine nennt (an eine Adresse im selben Land)
         "shipping_estimate_chf": {"CH": 10, "DE": 7, "AT": 12, "FR": 15, "IT": 15, "SE": 30},
-        "import_vat": 0.081,                       # Schweizer MWST bei der Einfuhr
-        "vat_free_limit_chf": 150,                 # Wertfreigrenze pro Person und Tag
     },
     # Grobe Umrechnung für Preisfilter und Preisvergleich – gelegentlich anpassen
     "fx_to_chf": {"CHF": 1.0, "EUR": 0.94, "GBP": 1.08, "USD": 0.88, "SEK": 0.082, "NOK": 0.080, "DKK": 0.126, "PLN": 0.22},

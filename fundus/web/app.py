@@ -266,7 +266,7 @@ def get_listing_description(key: str):
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    """Übersicht: pro Suche eine Zeile – Suchkarte, beste Gebote, Analytics (zum Wischen)."""
+    """Übersicht: pro Suche eine Zeile – Suchkarte, beste Angebote, Analytics (zum Wischen)."""
     from .. import views
     db.expire_ended_listings()
     searches = sorted(db.list_searches(), key=lambda s: not s["active"])
@@ -343,17 +343,47 @@ def create_search(
     require_shipping: str | None = Form(None),
     requirements: str = Form(""),
     new_price: str = Form(""),
+    near: str | None = Form(None),
+    near_km: str = Form(""),
+    near_place: str = Form(""),
+    route_to: str = Form(""),
+    route_km: str = Form(""),
 ):
     sid = db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
         "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
-        "requirements": requirements,
+        "requirements": requirements, **_area_fields(near, near_km, near_place, route_to, route_km),
     })
     if _num(new_price):
         db.set_new_price(sid, _num(new_price), "von Hand", True)
     runner.run_in_background("neue Suche", [sid])  # Bestand sofort einlesen (ohne Meldungen), sucht auch den Neupreis
     return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+def _area_fields(near, near_km: str, near_place: str, route_to: str, route_km: str) -> dict:
+    """Formularfelder «In der Nähe»: nur gespeichert, wenn der Haken gesetzt ist. Orte werden gleich nachgeschlagen."""
+    if not near:
+        return {"near_km": None, "near_place": None, "route_to": None, "route_km": None}
+    fields = {"near_km": _num(near_km) or 30, "near_place": near_place.strip() or None,
+              "route_to": route_to.strip() or None, "route_km": _num(route_km) or None}
+    try:
+        from .. import area
+        area.for_search(fields)  # Startort und Strecke einmal nachschlagen (danach aus dem Cache)
+    except Exception as exc:
+        log.warning("Gebiet nicht bestimmbar: %s", exc)
+    return fields
+
+
+def _mark_filtered(hits: list[dict], search: dict) -> None:
+    """Für die Liste: ausgeschaltete Plattform bzw. ausserhalb des Gebiets («nur in der Nähe») → unter «Ausgefiltert»."""
+    from .. import area
+    region = area.for_search(search)
+    for h in hits:
+        if search.get("platforms") and h["platform"] not in search["platforms"]:
+            h["_inactive_platform"] = True
+        elif region and h.get("ai_relevant") != 0 and (why := area.verdict(search, region, h)):
+            h["_outside"] = why
 
 
 def _sort_hits(hits: list[dict], search: dict) -> None:
@@ -378,11 +408,7 @@ def show_search(request: Request, sid: int):
     db.expire_ended_listings()  # abgelaufene Ricardo-/eBay-Inserate sofort als weg zeigen
     watching = runner.watch_in_background(sid)  # Angebote oben, die länger als 30 Min. ungeprüft sind
     hits = db.hits_for_search(sid)
-
-    for h in hits:
-        if search.get("platforms") and h["platform"] not in search["platforms"]:
-            h["_inactive_platform"] = True
-
+    _mark_filtered(hits, search)
     _sort_hits(hits, search)
     img_done, img_total = db.image_progress(sid, search["image_prompt"]) if search.get("image_prompt") else (0, 0)
     from .. import views
@@ -413,15 +439,8 @@ def search_results(request: Request, sid: int):
         return ""
 
     hits = db.hits_for_search(sid)
-
-    for h in hits:
-
-        if search.get("platforms") and h["platform"] not in search["platforms"]:
-
-            h["_inactive_platform"] = True
-
+    _mark_filtered(hits, search)
     _sort_hits(hits, search)
-
     return templates.TemplateResponse(request, "_search_results.html", _ctx(request, search=search, hits=hits))
 
 
@@ -438,13 +457,18 @@ def update_search(
     require_shipping: str | None = Form(None),
     requirements: str = Form(""),
     new_price: str = Form(""),
+    near: str | None = Form(None),
+    near_km: str = Form(""),
+    near_place: str = Form(""),
+    route_to: str = Form(""),
+    route_km: str = Form(""),
 ):
     old_search = db.get_search(sid)
     db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
         "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
-        "requirements": requirements,
+        "requirements": requirements, **_area_fields(near, near_km, near_place, route_to, route_km),
     }, sid)
 
     if old_search:
@@ -478,11 +502,22 @@ def _apply_search_changes(sid: int, old: dict | None, search: dict) -> int:
     Gibt die Zahl der Treffer zurück, die die KI neu prüfen muss."""
     if not old:
         return 0
+    from .. import area
+    reset = 0
+    was, now_ = area.rejects_pickup(old), area.rejects_pickup(search)
+    if was != now_:  # «nur Versand» bzw. «oder in der Nähe» geändert: Abholangebote neu einordnen
+        for h in db.hits_for_search(sid, limit=5000):
+            if was and h.get("ai_reason") == db.NO_SHIPPING:
+                db.reset_hit_ai(sid, h["key"])
+                reset += 1
+            elif now_ and h.get("ai_relevant") == 1 and (h.get("ship_flag") or h.get("ai_shipping")) == "nein":
+                db.set_hit_relevant(sid, h["key"], False, db.NO_SHIPPING)
     sets_changed = old["allow_sets"] != search["allow_sets"]
     words_changed = old["exclude_words"] != search["exclude_words"]
     if not (sets_changed or words_changed):
-        return 0
-    reset = 0
+        if reset or was != now_:
+            scoring.rescore_search(sid)
+        return reset
     for h in db.hits_for_search(sid, limit=5000):
         is_excluded = excluded(search["exclude_words"], h.get("title"))  # wie im Prüflauf
         reason = (h.get("ai_reason") or "").lower()

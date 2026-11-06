@@ -82,8 +82,8 @@ def test_overview_shows_cheapest_relevant_offer():
     assert views.build(sid)["head"]["used"]["key"] == cheap_eur.key
     with TestClient(webapp.app) as client:
         page = client.get("/").text
-    row = page.split('class="ov-row')[1].split("</section>")[0]
-    assert "Gebraucht ab" in row and "200 CHF" in row and "(200 EUR ≈ 188 CHF + Versand 12)" in row and "Analytics" in row
+    row = page.split('class="ov-strip')[1].split('class="ov-ana"')[0]
+    assert "gebraucht ab" in row and "200 CHF" in row and "Ricardo" in row
 
 
 def test_price_sort_uses_final_price():

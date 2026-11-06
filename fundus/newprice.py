@@ -41,7 +41,7 @@ SKIP_DOMAINS = ("ricardo.", "tutti.", "anibis.", "kleinanzeigen.", "ebay.", "wil
 PROMPT = """Ich suche gebraucht: «{query}». Unten Produktseiten aus Online-Shops (Nr | Shop | Produktname | Preis | Zustand).
 Welche Seiten zeigen GENAU dieses Produkt als Neuware (auch wenn «ausverkauft» – das zählt trotzdem)? Passend, wenn Marke, Modellname und Modellnummer übereinstimmen
 (Wortreihenfolge und Zusätze wie «Control Bar», Grössenangaben oder Jahrgang egal). Nicht passend: Zubehör, Ersatzteile, anderes Modell oder andere
-Produktart, Sets mit weiteren Produkten, Gebraucht-/Vorführware, Miete, Spezialversionen, die nicht gesucht sind
+Produktart, Sets mit weiteren Produkten, Privat-Gebrauchtware, Miete, Spezialversionen, die nicht gesucht sind
 (z.B. Foil-, Kinder-, Lite-Version). NENNT die Suche eine Generation, muss sie passen: «Pro 3» ≠ «Pro 4», Chip M1 ≠ M2 ≠ M4,
 iPhone 13 ≠ 14. Nennt die Suche KEINE Generation, passt jede Generation des Produkts. Nennt die Suche eine Ausstattung
 (z.B. 16GB), muss sie passen; fehlt die Angabe im Produktnamen, passt das Angebot trotzdem. Verschiedene Grössen,
@@ -51,8 +51,11 @@ dann gibt es keinen sinnvollen Neupreis.
 
 {rows}
 
-Antworte NUR mit JSON: {{"match": [Nr, ...], "product": "Modell, kurz", "generic": bool, "size": "S"|"M"|"L"|"XL"|"fracht",
-"weight_kg": number}}
+Vom Händler erneuerte Geräte (Refurbished, «erneuert», generalüberholt, Vorführgerät mit Garantie) des gesuchten
+Produkts sind interessant als Vergleich: deren Nummern in «refurb» statt in «match».
+
+Antworte NUR mit JSON: {{"match": [Nr, ...], "refurb": [Nr, ...], "product": "Modell, kurz", "generic": bool,
+"size": "S"|"M"|"L"|"XL"|"fracht", "weight_kg": number}}
 size = Versandgrösse verpackt: S Päckchen bis 35×25×10 cm, M bis 60×30×15 cm, L bis 120×60×60 cm und 31 kg,
 XL sperrig bis 200 cm lang, fracht = Möbel o.ä., nicht als Paket versendbar."""
 
@@ -227,6 +230,10 @@ def lookup(query: str) -> dict | None:
         offers += find_offers(f"{query} preis neu", [o["url"] for o in offers])
     if len(offers) < 8:
         offers += find_offers(f"{query} online shop", [o["url"] for o in offers])
+    try:  # erneuerte Geräte von Händlern (z.B. MediaMarkt «Refurbished») als Vergleich
+        offers += find_offers(f"{query} refurbished kaufen", [o["url"] for o in offers])
+    except Exception as exc:
+        log.info("Refurbished-Suche für «%s» fehlgeschlagen: %s", query, exc)
     try:
         offers += find_offers(f"{query} toppreise", [o["url"] for o in offers], compare=True)
     except Exception as exc:
@@ -240,16 +247,21 @@ def lookup(query: str) -> dict | None:
     r = r[0] if isinstance(r, list) and r else r
     if not isinstance(r, dict):
         return None
-    picked = [offers[i] for i in r.get("match") or [] if isinstance(i, int) and 0 <= i < len(offers)]
-    picked = [o for o in picked if "used" not in o["condition"].lower() and "refurb" not in o["condition"].lower()]
-    picked.sort(key=lambda o: o["price_chf"])
-    unique, seen = [], set()
-    for o in picked:  # gleiche Seite in Farbvarianten oder doppelt gefunden: nur einmal
-        sig = (o["shop"], o["name"].lower(), round(o["price_chf"]))
-        if sig not in seen:
-            seen.add(sig)
-            unique.append(o)
-    picked = unique
+    def chosen(field: str) -> list[dict]:
+        out, seen = [], set()
+        for i in r.get(field) or []:
+            if not (isinstance(i, int) and 0 <= i < len(offers)):
+                continue
+            o = offers[i]
+            sig = (o["shop"], o["name"].lower(), round(o["price_chf"]))  # Farbvarianten / doppelt gefunden
+            if sig not in seen:
+                seen.add(sig)
+                out.append(o)
+        return sorted(out, key=lambda o: o["price_chf"])
+    refurb_words = ("refurb", "erneuert", "generalüberholt", "renewed", "used")
+    picked = [o for o in chosen("match") if not any(w in (o["condition"] + " " + o["name"]).lower() for w in refurb_words)]
+    refurb = [o for o in chosen("match") + chosen("refurb") if o not in picked]
+    refurb = [o for o in plausible(refurb, refurb + picked) if o.get("available") is not False][:4]
     size = r.get("size") if r.get("size") in ("S", "M", "L", "XL", "fracht") else None
     try:
         weight = float(r["weight_kg"]) if r.get("weight_kg") else None
@@ -258,9 +270,14 @@ def lookup(query: str) -> dict | None:
     if r.get("generic") is True:
         return {"price": None, "note": "Kein bestimmtes Produkt – Neupreis nicht sinnvoll (bei Bedarf von Hand eintragen)",
                 "offers": [], "size": size, "weight": weight}
+    def kept(o: dict, kind: str) -> dict:
+        return {**{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")},
+                "available": o.get("available"), "shipping_chf": o.get("shipping_chf"), "kind": kind}
     if not picked:
-        return {"price": None, "note": "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; "
-                                       "bei Bedarf von Hand eintragen", "offers": [], "size": size, "weight": weight}
+        note = "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; bei Bedarf von Hand eintragen"
+        if refurb:
+            note += f" · erneuert ab {round(refurb[0]['price_chf'])} CHF bei {refurb[0]['shop']}"
+        return {"price": None, "note": note, "offers": [kept(o, "erneuert") for o in refurb], "size": size, "weight": weight}
     picked = plausible(picked, picked)
     in_stock = [o for o in picked if o.get("available") is not False]
     sold_out = [o for o in picked if o.get("available") is False]
@@ -274,9 +291,9 @@ def lookup(query: str) -> dict | None:
             note += f" · ausverkauft ab {round(sold_out[0]['price_chf'])} CHF bei {sold_out[0]['shop']}"
     else:
         note = f"{product} · nur ausverkauft gefunden, zuletzt {price} CHF bei {best['shop']}"
-    ordered = in_stock + sold_out
-    keep = [{**{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")},
-             "available": o.get("available"), "shipping_chf": o.get("shipping_chf")} for o in ordered[:12]]
+    if refurb:
+        note += f" · erneuert ab {round(refurb[0]['price_chf'])} CHF bei {refurb[0]['shop']}"
+    keep = [kept(o, "neu") for o in (in_stock + sold_out)[:12]] + [kept(o, "erneuert") for o in refurb]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
 
 
@@ -317,10 +334,15 @@ def buy_options(search: dict) -> list[dict]:
             continue
         parts = dict(p.parts)
         out.append({**o, "country": country, "total": round(p.total), "route": p.label,
-                    "ship": parts.get("Versand"), "fees": round(parts.get("Paket4you", 0) + parts.get("MWST", 0)),
+                    "ship": parts.get("Versand"), "fees": round(parts.get("Paket4you", 0)),
                     "ship_known": o.get("shipping_chf") is not None})
     out.sort(key=lambda o: (o.get("available") is False, o["total"]))
     return out
+
+
+def best_new(options: list[dict], kind: str = "neu") -> dict | None:
+    """Günstigstes lieferbares Angebot einer Art («neu» oder «erneuert») aus buy_options."""
+    return next((o for o in options if o.get("kind", "neu") == kind and o.get("available") is not False), None)
 
 
 def choose_best(picked: list[dict]) -> dict:

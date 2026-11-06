@@ -98,3 +98,18 @@ def test_exclude_words_match_word_starts_in_title_only():
     assert not excluded(["hp"], "Kiteshop Bar")
     assert excluded(["double"], "Thule Urban Glide 3 Double")
     assert not excluded([], "egal")
+
+
+def test_ricardo_complete_list_marks_missing_as_gone(monkeypatch):
+    """Liefert Ricardo die ganze Trefferliste, ist ein früheres Angebot, das darin fehlt, verkauft oder beendet."""
+    sid = db.save_search({"query": "kite 9m"})
+
+    class Complete(FakeAdapter):
+        complete = True
+    monkeypatch.setattr(runner, "all_adapters", lambda cfg: [Complete(cfg)])
+    FakeAdapter.inventory = [item(1, title="North Kite 9m"), item(2, title="Core Kite 9m")]
+    runner.run("test")
+    FakeAdapter.inventory = [item(1, title="North Kite 9m")]
+    runner.run("test")
+    gone = {h["external_id"]: bool(h["gone_at"]) for h in db.hits_for_search(sid)}
+    assert gone == {"1": False, "2": True}

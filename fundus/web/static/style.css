@@ -327,7 +327,7 @@ details.newprice > summary::after { content: " ▾"; color: var(--muted); }
 .health-line b { color: var(--check); font-weight: 600; }
 .search-head h2 .back { text-decoration: none; color: var(--muted); font-size: 22px; margin-right: 4px; vertical-align: -1px; }
 @media (max-width: 760px) {
-  /* Suchseite: beste Gebote direkt unter dem Titel, Neupreis/Verlauf/Einstellungen darunter */
+  /* Suchseite: beste Angebote direkt unter dem Titel, Neupreis/Verlauf/Einstellungen darunter */
   .search-page { display: flex; flex-direction: column; }
   .search-page .vw { display: contents; }
   .search-page > .search-head, .search-page > .subline { order: 0; }
@@ -357,3 +357,13 @@ body.app #ptr.spin { animation: ptr-spin .7s linear infinite; opacity: 1; transf
 @keyframes ptr-spin { to { transform: translate(-50%, 40px) rotate(360deg); } }
 body.app .btn, body.app button:not(.x), body.app summary { min-height: 40px; }
 body.app .hit .thumb, body.app .vw .card2 img { -webkit-touch-callout: none; }
+
+/* Suchformular: Wo darf das Angebot sein? */
+.where { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 6px; margin: 0 0 12px; display: grid; gap: 6px; }
+.where legend { font-size: 13px; font-weight: 650; padding: 0 4px; }
+.where .near-fields { display: none; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 2px 0 2px 24px; font-size: 13.5px; }
+.where.on .near-fields { display: flex; }
+.where .near-fields label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.where .near-fields input[type=number] { width: 70px; }
+.where .near-fields input:not([type]) { width: 150px; }
+.where p { margin: 2px 0 0; }

@@ -18,7 +18,7 @@ import re
 from . import db, fx as fx_rates
 from .config import get_config
 from . import delivery as deliv
-from .trust import price_in_chf
+from .trust import listing_price, price_in_chf
 
 # Wert relativ zu neu; «gut» ist der typische Zustand im Gebrauchtmarkt
 CONDITION_VALUE = {"neu": 1.0, "neuwertig": 0.95, "sehr gut": 0.9, "gut": 0.8, "gebraucht": 0.7, "defekt": 0.3}
@@ -33,11 +33,11 @@ USED_SHARE = 0.6     # ohne Vergleichspreise: Marktpreis ≈ 60 % des Neupreises
 
 def effective_price_chf(h: dict, fx: dict) -> float | None:
     """Einzelpreis aus Set-Inseraten hat Vorrang vor dem Inseratpreis."""
-    return price_in_chf(h.get("single_price") or h.get("price"), h.get("currency") or "CHF", fx)
+    return price_in_chf(listing_price(h), h.get("currency") or "CHF", fx)
 
 
 def pay_price_chf(h: dict, fx: dict) -> float | None:
-    """Was du bezahlst: Endpreis inkl. Versand, Gebühren und MWST, sonst der Preis in CHF (Abholung, ohne Preisplan)."""
+    """Was du bezahlst: Endpreis inkl. Versand und Gebühren, sonst der Preis in CHF (Abholung, ohne Preisplan)."""
     return h.get("total_chf") or effective_price_chf(h, fx)
 
 
@@ -90,7 +90,7 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
         parts.append(f"Jahrgang {year}")
     if h.get("single_price"):
         parts.append("Einzelpreis aus Set geschätzt" if h.get("single_estimated") else "Einzelpreis aus Set")
-    if price / market < SCAM_RATIO:
+    if price / market < SCAM_RATIO and not h.get("auction"):  # Auktion: tiefes Gebot ist normal, kein Lockvogel
         score = min(score, 40)
         parts.append("auffällig billig – Betrugsmuster prüfen")
     penalty = TRUST_PENALTY.get(h.get("trust_level"), 0)

@@ -1,9 +1,9 @@
-{# Suchseite: beste Gebote, darunter ausklappbar der Vergleich der Finalisten und die Liste aller Angebote.
+{# Suchseite: beste Angebote, darunter ausklappbar der Vergleich der Finalisten und die Liste aller Angebote.
    Diagramme (Marktlage, Lieferwege, Preis-Wert-Karte, Preisleiter) stehen auf der Analytics-Seite.
    Erwartet: search, views (views.build), watching, list_html. #}
 <div class="vw">
-  <div class="short-head sl">
-    <h2>Beste Gebote</h2>
+  <div class="short-head sl" id="beste-gebote">
+    <h2>Beste Angebote</h2>
     <span class="funnel" id="vw-funnel"></span>
   </div>
   {% if watching %}<p class="muted small sl" id="vw-watch" style="margin-top:-4px">Prüft gerade, ob die Angebote noch zu haben sind …</p>{% endif %}
@@ -13,7 +13,7 @@
   <p class="muted small ko-line sl" id="vw-ko"></p>
 
   <details class="view" data-view="matrix">
-    <summary>Vergleich der Finalisten <span class="muted">· die besten Gebote nebeneinander</span></summary>
+    <summary>Vergleich der Finalisten <span class="muted">· die besten Angebote nebeneinander</span></summary>
     <div class="inner"><div class="scroll"><table id="vw-matrix"></table></div></div>
   </details>
 

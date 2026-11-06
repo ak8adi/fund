@@ -2,7 +2,7 @@
 
 Idee: erst hart aussortieren (K.-o.), dann jedes Angebot auf zwei Achsen stellen –
 «was ich zahle» (Endpreis bis zu mir) und «was ich bekomme» (fairer Wert nach Zustand und Jahrgang).
-Die besten Gebote sind die Pareto-Front: kein anderes Angebot ist zugleich billiger und mindestens so gut.
+Die besten Angebote sind die Pareto-Front: kein anderes Angebot ist zugleich billiger und mindestens so gut.
 """
 
 from __future__ import annotations
@@ -11,9 +11,10 @@ import statistics
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from . import db, delivery as deliv, fx as fx_rates, scoring
+from . import area, db, delivery as deliv, fx as fx_rates, scoring
 from .config import get_config
 from .notify import image_url
+from .trust import listing_price
 
 
 def _when(h: dict) -> datetime | None:
@@ -32,22 +33,40 @@ def _quartiles(values: list[float]) -> tuple[float, float, float] | None:
 
 
 def breakdown(h: dict, fx: dict, dcfg: dict, search: dict) -> str:
-    """Kurz, woraus sich der Endpreis zusammensetzt: «365 € ≈ 342 CHF + Versand 10 + MWST 28»."""
+    """Kurz, woraus sich der Endpreis zusammensetzt: «365 EUR ≈ 342 CHF + Versand 10 + Paket4you 3»."""
     p = deliv.plan(h, fx, dcfg, search.get("product_size"), search.get("product_weight"))
     if not p or not p.parts:
         return ""
     cur = h.get("currency") or "CHF"
-    amount = h.get("single_price") or h.get("price")
+    amount = listing_price(h)
     head = f"{amount:,.0f} {cur}".replace(",", "'")
+    if h.get("auction") and h.get("bid_price"):
+        head = "Gebot " + head
     if cur != "CHF":
         head += f" ≈ {p.parts[0][1]:,.0f} CHF".replace(",", "'")
     extras = [f"{name} {value:,.0f}".replace(",", "'") for name, value in p.parts[1:] if round(value)]
     return " + ".join([head] + extras) if extras or cur != "CHF" else ""
 
 
-def ko_reason(h: dict, pay: float | None = None, reference: float | None = None) -> str | None:
-    """Harte Ausschlüsse: was hier steht, kommt nie in die Auswahl der besten Gebote."""
-    if pay and reference and pay < scoring.SCAM_RATIO * reference:
+UNSEEN_HOURS = 20   # Ricardo: so lange nicht mehr in den Suchergebnissen → vermutlich verkauft
+
+
+def _unseen(h: dict, last_run: str | None) -> bool:
+    """Ricardo-Inserate prüft fundus nicht einzeln (Sperren). Taucht eines seit UNSEEN_HOURS in keinem Lauf mehr auf,
+    obwohl die Suche seither lief, ist es meist verkauft – dann nie mehr oben zeigen."""
+    if h.get("platform") != "ricardo" or not last_run or not h.get("last_seen"):
+        return False
+    return (datetime.fromisoformat(last_run) - datetime.fromisoformat(h["last_seen"])).total_seconds() > UNSEEN_HOURS * 3600
+
+
+def ko_reason(h: dict, pay: float | None = None, reference: float | None = None, last_run: str | None = None,
+              search: dict | None = None, region: "area.Area | None" = None) -> str | None:
+    """Harte Ausschlüsse: was hier steht, kommt nie in die Auswahl der besten Angebote."""
+    if search is not None and (where := area.verdict(search, region, h)):
+        return where
+    if _unseen(h, last_run):
+        return "nicht mehr in den Suchergebnissen"
+    if pay and reference and pay < scoring.SCAM_RATIO * reference and not h.get("auction"):
         return "unrealistisch billig"
     if h.get("ai_req") == "nein":
         return "Anforderung nicht erfüllt"
@@ -104,15 +123,21 @@ def price_head(search: dict, offers: list[dict]) -> dict:
     usable = [o for o in offers if not o["ko"]]
     used = min(usable, key=lambda o: o["pay"]) if usable else None
     options = newprice.buy_options(search) if search.get("new_price_offers") else []
-    in_stock = [o for o in options if o.get("available") is not False]
-    new = in_stock[0] if in_stock else None
+    new = newprice.best_new(options, "neu")
+    refurb = newprice.best_new(options, "erneuert")
+    new_offers = [o for o in options if o.get("kind", "neu") == "neu"]
+
+    def tile(o: dict | None) -> dict | None:
+        return o and {"shop": o["shop"], "name": o["name"], "url": o["url"], "price": round(o["price_chf"]),
+                      "ship": round(o["ship"]) if o.get("ship") is not None else None, "ship_known": o["ship_known"],
+                      "fees": o["fees"], "total": o["total"], "available": o.get("available")}
     return {
         "used": used and {k: used[k] for k in ("key", "title", "pay", "breakdown", "img", "thumb", "platform", "cond")},
-        "new": new and {"shop": new["shop"], "name": new["name"], "url": new["url"], "price": round(new["price_chf"]),
-                        "ship": round(new["ship"]) if new.get("ship") is not None else None, "ship_known": new["ship_known"],
-                        "fees": new["fees"], "total": new["total"], "available": new.get("available")},
-        "new_count": len(in_stock), "soldout_count": len(options) - len(in_stock),
+        "new": tile(new), "refurb": tile(refurb),
+        "new_count": sum(o.get("available") is not False for o in new_offers),
+        "soldout_count": sum(o.get("available") is False for o in new_offers),
         "saving": round(new["total"] - used["pay"]) if new and used else None,
+        "saving_pct": round((new["total"] - used["pay"]) / new["total"] * 100) if new and used and new["total"] else None,
     }
 
 
@@ -127,6 +152,7 @@ def build(search_id: int) -> dict:
     year = scoring.typical_year(hits)
     now = datetime.now(timezone.utc)
     dcfg = get_config().get("delivery", {})
+    region = area.for_search(search)
 
     offers = []
     for h in hits:
@@ -151,9 +177,11 @@ def build(search_id: int) -> dict:
             "auction": bool(h.get("auction")), "bids": h.get("bids"), "ends_at": h.get("ends_at"),
             "reserved": bool(h.get("reserved")), "trust": h.get("trust_level"),
             "drop": bool(h.get("first_price") and h.get("price") and h["price"] < h["first_price"]),
-            "reason": h.get("score_reason"), "ko": ko_reason(h, pay, reference), "front": False,
+            "reason": h.get("score_reason"), "ko": ko_reason(h, pay, reference, search.get("last_run_at"), search, region), "front": False,
             "breakdown": breakdown(h, fx, dcfg, search), "new": bool(h.get("is_new")),
         })
+    if deliv.pending():  # neue Orte (Gebiet, Fahrzeit) im Hintergrund nachschlagen
+        deliv.resolve_pending(dcfg)
     pareto(offers)
     offers.sort(key=lambda o: (not o["front"], -(o["ratio"] or 0), o["pay"]))
     missed = _missed(hits, fx, reference, year, new_price, offers)
@@ -181,6 +209,7 @@ def build(search_id: int) -> dict:
         "head": head,
         "band": _quartiles(pays),
         "timeline": [{"day": d, "new": new_per_day.get(d, 0), "gone": gone_per_day.get(d, 0)} for d in days],
+        "area": region.label if region else None,
         "counts": {"all": len([h for h in hits if h.get("ai_relevant") == 1]), "open": len(offers),
                    "front": sum(o["front"] for o in offers), "ko": sum(bool(o["ko"]) for o in offers)},
     }

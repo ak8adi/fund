@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 import random
 
-from . import db
+from . import area, db
 from .config import get_config
 from .adapters import all_adapters, adapter_for_source
 from .adapters.base import GoneError, fetch_html
@@ -127,7 +127,7 @@ def _store_facts(search: dict, r: dict) -> bool:
     condition = r.get("condition") if r.get("condition") in CONDITIONS else "unbekannt"
     shipping = r.get("shipping") if r.get("shipping") in ("ja", "nein", "unbekannt") else "unbekannt"
     shipping = listing.get("ship_flag") or shipping  # Angabe der Plattform schlägt die Schätzung aus dem Text
-    if relevant and shipping == "nein" and search.get("require_shipping"):
+    if relevant and shipping == "nein" and area.rejects_pickup(search):
         relevant, reason = False, db.NO_SHIPPING
     try:
         single = float(r["single_price"]) if r.get("single_price") is not None else None
@@ -178,7 +178,7 @@ def apply_platform_shipping(key: str, flag: str | None, rescore: bool = True) ->
             db.reset_hit_ai(sid, key)
         else:
             db.set_hit_shipping(sid, key, flag)
-            if flag == "nein" and hit["require_shipping"] and hit["ai_relevant"] == 1:
+            if flag == "nein" and area.rejects_pickup(hit) and hit["ai_relevant"] == 1:
                 db.set_hit_relevant(sid, key, False, db.NO_SHIPPING)
         changed.add(sid)
     if rescore:
@@ -210,7 +210,7 @@ def evaluate_listings(search_id: int) -> int:
             # Treffer von vor dem Vorfilter (runner._filter)
             db.update_hit_ai(search_id, h["key"], False, "Suchwörter fehlen im Titel")
             done += 1
-        elif search.get("require_shipping") and (h.get("ship_flag") == "nein" or (
+        elif area.rejects_pickup(search) and (h.get("ship_flag") == "nein" or (
                 h.get("ship_flag") != "ja" and any(t in txt for t in _NO_SHIP))):
             db.update_hit_ai(search_id, h["key"], False, db.NO_SHIPPING)
             done += 1
@@ -245,7 +245,7 @@ def evaluate_listings(search_id: int) -> int:
     items = [{
         "key": h["key"],
         "title": h["title"],
-        "price": f"{h['price']:g} {h.get('currency') or ''}".strip() if h.get("price") else "Preis offen",
+        "price": price_text(h),
         "description": (h.get("description_full") or "")[:1000],
         "seller_chat": (h.get("seller_chat") or "")[:1000],
     } for h in to_evaluate]
@@ -259,6 +259,21 @@ def evaluate_listings(search_id: int) -> int:
             done += 1
     scoring.rescore_search(search_id)
     return done
+
+def price_text(h: dict) -> str:
+    """Preis für die KI – bei Auktionen mit Gebot und Laufzeit, damit ein tiefes Startgebot nicht als Betrug gilt."""
+    cur = h.get("currency") or ""
+    if h.get("auction"):
+        parts = [f"Auktion, aktuelles Gebot {h['bid_price']:g} {cur}".strip() if h.get("bid_price") else "Auktion"]
+        if h.get("bids") is not None:
+            parts.append(f"{h['bids']} Gebote")
+        if h.get("price") and h.get("bid_price") and h["price"] != h["bid_price"]:
+            parts.append(f"Sofortkauf {h['price']:g} {cur}".strip())
+        if h.get("ends_at"):
+            parts.append(f"endet {h['ends_at'][:10]}")
+        return ", ".join(parts) + " – der Endpreis steht noch nicht fest"
+    return f"{h['price']:g} {cur}".strip() if h.get("price") else "Preis offen"
+
 
 # ---------- Bildanalyse (pro Suche, nur auf Auftrag) ----------
 

@@ -15,7 +15,23 @@
   <label class="grow">Was muss es erfüllen? <span class="muted small">(optional, die KI liest jedes Inserat darauf)</span>
     <textarea name="requirements" rows="2" placeholder="z.B. nur Tische zwischen 130 und 150 cm lang, ausziehbar">{{ s.requirements if s and s.requirements else '' }}</textarea>
   </label>
-  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets or s.require_shipping) %}open{% endif %} style="margin-bottom:12px;">
+  <fieldset class="where{{ ' on' if s and s.near_km }}">
+    <legend>Wo darf das Angebot sein?</legend>
+    <label class="check"><input type="checkbox" name="require_shipping" value="1" {% if s and s.require_shipping %}checked{% endif %}>
+      <b>Versand</b> – Angebote, die verschickt werden, von überall</label>
+    <label class="check"><input type="checkbox" name="near" value="1" {% if s and s.near_km %}checked{% endif %}
+      onchange="this.closest('.where').classList.toggle('on', this.checked)">
+      <b>In der Nähe</b> – auch zum Abholen</label>
+    <div class="near-fields">
+      <label>im Umkreis von <input name="near_km" type="number" min="1" max="500" inputmode="numeric" value="{{ s.near_km | int if s and s.near_km else 30 }}"> km</label>
+      <label>um <input name="near_place" placeholder="{{ cfg.delivery.home_place if cfg and cfg.delivery else 'Winterthur' }}" value="{{ s.near_place or '' if s else '' }}"></label>
+      <label>und auf der Strecke nach <input name="route_to" placeholder="z.B. Grabs (optional)" value="{{ s.route_to or '' if s else '' }}"></label>
+      <label>± <input name="route_km" type="number" min="1" max="50" inputmode="numeric" value="{{ s.route_km | int if s and s.route_km else 8 }}"> km Umweg</label>
+    </div>
+    <p class="muted small">Nichts angehakt: alle Angebote. Nur «Versand»: nur verschickbare. Nur «In der Nähe»: nur Angebote im Umkreis
+      (bzw. entlang der Strecke). Beides: verschickbare von überall <i>und</i> alles in der Nähe – z.B. Abholung in Winterthur.</p>
+  </fieldset>
+  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets) %}open{% endif %} style="margin-bottom:12px;">
     <summary>Mehr Optionen ▾</summary>
     <div class="more-body">
       <div class="row">
@@ -33,7 +49,6 @@
       <div class="row">
         <label class="check"><input type="checkbox" name="allow_sets"
           {% if not s or s.allow_sets %}checked{% endif %}> Sets/Bundles erlauben</label>
-        <label class="check"><input type="checkbox" name="require_shipping" value="1" {% if s and s.require_shipping %}checked{% endif %}> Nur mit Versand</label>
       </div>
     </div>
   </details>

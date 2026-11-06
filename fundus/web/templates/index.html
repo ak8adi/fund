@@ -16,64 +16,49 @@
   {% set hd = v.head %}
   {% set front = v.offers | selectattr('front') | list %}
   {% set more = v.offers | rejectattr('front') | rejectattr('ko') | list %}
-  {% set strip = (front | sort(attribute='new', reverse=true) | list) + more[:[0, 5 - front | length] | max] %}
-  {% set lead = hd.used or (front[0] if front else none) %}
-  <section class="ov-row {{ '' if s.active else 'paused' }}">
-    <div class="ov-head">
+  {% set strip = (front | sort(attribute='new', reverse=true) | list) + more[:[0, 6 - front | length] | max] %}
+  {% set n_new = strip | selectattr('new') | list | length %}
+  <div class="ov-strip {{ '' if s.active else 'paused' }}">
+    <div class="ov-info">
       <a class="gear" href="/search/{{ s.id }}#bearbeiten" title="Sucheinstellungen" aria-label="Sucheinstellungen von {{ s.query }}">⚙︎</a>
-      <a class="name" href="/search/{{ s.id }}">{{ s.query }}</a>
-      {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% endif %}
-      {% if not s.active %}<span class="pill">pausiert</span>{% endif %}
-    </div>
-    <div class="ov-strip">
-      <a class="ov-main" href="/search/{{ s.id }}">
-        {% if lead and lead.img %}<img src="{{ lead.img }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">
-        {% else %}<img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">{% endif %}
-        {% if front %}<span class="hint">{{ front | length }} {{ 'bestes Gebot' if front | length == 1 else 'beste Gebote' }} ›</span>{% endif %}
-        <div class="b">
-          <div class="prices">
-            <div class="u"><span>Gebraucht ab</span><b>{{ price(hd.used.pay, 'CHF') if hd.used else '–' }}</b></div>
-            <div><span>Neu ab</span><b>{{ price(hd.new.total, 'CHF') if hd.new else '–' }}</b></div>
-          </div>
-          <span class="muted small">{{ v.counts.open }} verfügbar{% if s.last_run_at %} · geprüft {{ s.last_run_at | ago }}{% endif %}</span>
-        </div>
-      </a>
-      {% for o in strip %}
-      <div class="card2">
-        <a href="/go/{{ o.key | urlencode }}" target="_blank" rel="noopener">
-          {% if o.img %}<img src="{{ o.img }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% endif %}
-          <div class="b">
-            <span class="p">{{ price(o.pay, 'CHF') }}{% if o.breakdown %}<small class="bd">({{ o.breakdown }})</small>{% endif %}</span>
-            <span>{{ o.title }}</span>
-            <span class="muted">{{ o.cond }}{% if o.year %} · {{ o.year }}{% endif %}{% if o.location %} · {{ o.location }}{% endif %}</span>
-          </div>
-        </a>
-        {% if o.new %}<span class="newtag">neu</span>{% endif %}
-      </div>
-      {% endfor %}
-      {% if not strip %}<div class="ov-empty">Noch keine passenden Angebote</div>{% endif %}
-      {% set tl = v.timeline %}
-      {% set mx = [1] + (tl | map(attribute='new') | list) + (tl | map(attribute='gone') | list) %}
-      {% set mx = mx | max %}
-      {% set wk = tl[-7:] %}
-      <a class="ov-ana" href="/search/{{ s.id }}/analytics">
-        <h4>Analytics</h4>
-        <svg viewBox="0 0 300 46" preserveAspectRatio="none" aria-hidden="true">
-          {% for d in tl %}
-            {% if d.new %}<rect x="{{ loop.index0 * 10 + 1 }}" y="{{ 23 - (21 * d.new / mx) }}" width="8" height="{{ 21 * d.new / mx }}" rx="1.5" fill="#bfe3d4"/>{% endif %}
-            {% if d.gone %}<rect x="{{ loop.index0 * 10 + 1 }}" y="23" width="8" height="{{ 21 * d.gone / mx }}" rx="1.5" fill="#f2a493"/>{% endif %}
-          {% endfor %}
-        </svg>
-        <div class="kv">
-          <span>neu / weg (7 Tage)</span><b>{{ wk | sum(attribute='new') }} / {{ wk | sum(attribute='gone') }}</b>
-          {% if v.band %}<span>mittlerer Preis</span><b>{{ price(v.band[1], 'CHF') }}</b>{% endif %}
-          {% if v.missed %}<span>verkauft im Mittel</span><b>{{ price(v.missed.median, 'CHF') }}</b>{% endif %}
-        </div>
-        <span class="more">Marktlage & Lieferwege ›</span>
+      <a class="ov-info-link" href="/search/{{ s.id }}">
+        <span class="name">{{ s.query }}</span>
+        {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% elif not s.active %}<span class="pill">pausiert</span>{% endif %}
+        <span class="pr u"><small>gebraucht ab</small>{{ price(hd.used.pay, 'CHF') if hd.used else '–' }}</span>
+        <span class="pr"><small>neu ab</small>{{ price(hd.new.total, 'CHF') if hd.new else '–' }}</span>
+        {% if hd.saving_pct and hd.saving_pct > 0 %}<span class="save">−{{ hd.saving_pct }} % gebraucht</span>{% endif %}
+        <span class="meta">{{ v.counts.open }} verfügbar{% if s.last_run_at %}<br>geprüft {{ s.last_run_at | ago }}{% endif %}</span>
       </a>
     </div>
-  </section>
+    {% for o in strip %}
+    <a class="ov-offer{{ ' front' if o.front }}" href="/go/{{ o.key | urlencode }}" target="_blank" rel="noopener">
+      {% if o.img %}<img src="{{ o.thumb or o.img }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% else %}<span class="noimg"></span>{% endif %}
+      {% if o.new %}<span class="newtag">neu</span>{% endif %}
+      {% if o.auction %}<span class="auctag" title="Auktion – aktuelles Gebot">🔨</span>{% endif %}
+      <span class="p">{{ price(o.pay, 'CHF') }}</span>
+      <span class="t">{{ o.title }}</span>
+      <span class="m">{{ o.location or '–' }} · {{ o.platform | capitalize }}</span>
+    </a>
+    {% endfor %}
+    {% if not strip %}<div class="ov-empty">noch keine passenden Angebote</div>{% endif %}
+    {% set tl = v.timeline %}
+    {% set mx = ([1] + (tl | map(attribute='new') | list) + (tl | map(attribute='gone') | list)) | max %}
+    {% set wk = tl[-7:] %}
+    <a class="ov-ana" href="/search/{{ s.id }}/analytics">
+      <span class="h">Analytics</span>
+      <svg viewBox="0 0 300 46" preserveAspectRatio="none" aria-hidden="true">
+        {% for d in tl %}
+          {% if d.new %}<rect x="{{ loop.index0 * 10 + 1 }}" y="{{ 23 - (21 * d.new / mx) }}" width="8" height="{{ 21 * d.new / mx }}" rx="1.5" fill="#bfe3d4"/>{% endif %}
+          {% if d.gone %}<rect x="{{ loop.index0 * 10 + 1 }}" y="23" width="8" height="{{ 21 * d.gone / mx }}" rx="1.5" fill="#f2a493"/>{% endif %}
+        {% endfor %}
+      </svg>
+      <span class="kv">7 Tage: {{ wk | sum(attribute='new') }} neu, {{ wk | sum(attribute='gone') }} weg</span>
+      {% if v.band %}<span class="kv">Mitte {{ price(v.band[1], 'CHF') }}</span>{% endif %}
+      <span class="more">ansehen ›</span>
+    </a>
+  </div>
   {% endfor %}
+</div>
 </div>
 </div>
 {% endblock %}
