@@ -221,3 +221,9 @@ def test_newprice_prefers_in_stock(monkeypatch):
     r = newprice.lookup("trust bar")
     assert r["price"] == 349 and "ausverkauft ab 299 CHF bei a.ch" in r["note"]
     assert [o["available"] for o in r["offers"]] == [True, False]
+
+
+def test_newprice_drops_fake_shop_prices():
+    from fundus.newprice import plausible
+    offers = [{"price_chf": p} for p in (156, 541, 688, 764, 765)]
+    assert [o["price_chf"] for o in plausible(offers, offers)] == [541, 688, 764, 765]

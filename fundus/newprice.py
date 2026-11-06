@@ -17,6 +17,7 @@ import html
 import json
 import logging
 import re
+import statistics
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -32,17 +33,19 @@ MAX_AGE_DAYS = 30
 MAX_SHOPS = 10
 COMPARE_RE = re.compile(r"https://www\.toppreise\.ch/(?:preisvergleich|produktserie)/")
 OUTLIER = 0.75   # günstigster Shop unter 75 % des zweitgünstigsten: nicht als Neupreis nehmen
+SUSPICIOUS = 0.5  # unter 50 % des Medians aller passenden Shops: Fake-Shop oder Fehlpreis, weglassen
 SKIP_DOMAINS = ("ricardo.", "tutti.", "anibis.", "kleinanzeigen.", "ebay.", "willhaben.", "blocket.", "markt.de",
                 "youtube.", "facebook.", "instagram.", "reddit.", "pinterest.", "wikipedia.", "idealo.", "toppreise.",
                 "google.", "amazon.", "aliexpress.", "temu.")
 
 PROMPT = """Ich suche gebraucht: «{query}». Unten Produktseiten aus Online-Shops (Nr | Shop | Produktname | Preis | Zustand).
-Welche bieten GENAU dieses Produkt NEU an? Passend, wenn Marke, Modellname und Modellnummer übereinstimmen
+Welche Seiten zeigen GENAU dieses Produkt als Neuware (auch wenn «ausverkauft» – das zählt trotzdem)? Passend, wenn Marke, Modellname und Modellnummer übereinstimmen
 (Wortreihenfolge und Zusätze wie «Control Bar», Grössenangaben oder Jahrgang egal). Nicht passend: Zubehör, Ersatzteile, anderes Modell oder andere
 Produktart, Sets mit weiteren Produkten, Gebraucht-/Vorführware, Miete, Spezialversionen, die nicht gesucht sind
-(z.B. Foil-, Kinder-, Lite-Version). Eine andere Generation ist ein anderes Modell: «Pro 3» ≠ «Pro 4», Chip M1 ≠ M2 ≠ M4,
-iPhone 13 ≠ 14. Nennt die Suche eine Ausstattung (z.B. 16GB), muss sie passen. Verschiedene Grössen, Farben oder
-Modelljahre DERSELBEN Generation passen. Zeilen von toppreise.ch sind Preisvergleiche (Preis = günstigster Shop).
+(z.B. Foil-, Kinder-, Lite-Version). NENNT die Suche eine Generation, muss sie passen: «Pro 3» ≠ «Pro 4», Chip M1 ≠ M2 ≠ M4,
+iPhone 13 ≠ 14. Nennt die Suche KEINE Generation, passt jede Generation des Produkts. Nennt die Suche eine Ausstattung
+(z.B. 16GB), muss sie passen; fehlt die Angabe im Produktnamen, passt das Angebot trotzdem. Verschiedene Grössen,
+Farben oder Modelljahre passen. Zeilen von toppreise.ch sind Preisvergleiche (Preis = günstigster Shop).
 generic = true, wenn die Suche kein bestimmtes Produkt meint (z.B. «sessel», «tisch biedermeier», Antiquitäten) –
 dann gibt es keinen sinnvollen Neupreis.
 
@@ -143,7 +146,7 @@ def extract_offer(html: str, url: str | None = None) -> dict | None:
             if offer:
                 products.append((str(p.get("name") or "")[:120], offer))
     names = {n.lower() for n, _ in products if n}
-    if len(names) > 2 and not (url and COMPARE_RE.match(url)):
+    if len(names) > 3 and not (url and COMPARE_RE.match(url)):
         return None  # Liste mehrerer Produkte
     if products:
         name, offer = products[0]
@@ -227,6 +230,7 @@ def lookup(query: str) -> dict | None:
     if not picked:
         return {"price": None, "note": "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; "
                                        "bei Bedarf von Hand eintragen", "offers": [], "size": size, "weight": weight}
+    picked = plausible(picked, picked)
     in_stock = [o for o in picked if o.get("available") is not False]
     sold_out = [o for o in picked if o.get("available") is False]
     best = choose_best(in_stock) if in_stock else sold_out[0]  # Neupreis = günstigstes lieferbares Angebot
@@ -243,6 +247,15 @@ def lookup(query: str) -> dict | None:
     keep = [{**{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")},
              "available": o.get("available")} for o in ordered[:8]]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
+
+
+def plausible(offers: list[dict], all_matched: list[dict]) -> list[dict]:
+    """Ohne Angebote weit unter dem Median aller passenden (auch ausverkaufter): Fehlpreis, falsche Variante oder
+    Fake-Shop. Braucht mindestens 3 Vergleichspreise."""
+    if len(all_matched) < 3:
+        return offers
+    median = statistics.median(o["price_chf"] for o in all_matched)
+    return [o for o in offers if o["price_chf"] >= SUSPICIOUS * median]
 
 
 def choose_best(picked: list[dict]) -> dict:
