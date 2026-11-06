@@ -34,6 +34,7 @@
     {% for o in search.new_price_offers %}
       <li><a href="{{ o.url }}" target="_blank" rel="noopener">{{ o.shop }}</a>
         <span class="muted">{{ o.name }}</span>
+        {% if o.available is sameas false %}<span class="soldout">ausverkauft</span>{% endif %}
         <strong>{{ price(o.price, o.currency) }}</strong></li>
     {% endfor %}
   </ul>
@@ -41,6 +42,28 @@
 </details>
 {% elif search.new_price_at %}<p class="small newprice muted">{{ search.new_price_note or 'Kein Neupreis online gefunden' }}</p>
 {% else %}<p class="small newprice muted">Neupreis wird beim nächsten Prüflauf online gesucht …</p>{% endif %}
+{% set m = views.missed if views else none %}
+{% if m %}
+<details class="newprice small missed">
+  <summary>Schon weg <strong>{{ m.count }}</strong> passende
+    <span class="muted">· günstigstes für {{ price(m.cheapest.pay, 'CHF') }}, mittlerer Preis {{ price(m.median, 'CHF') }}
+    {% if m.now_cheapest %}– jetzt ab <strong>{{ price(m.now_cheapest.pay, 'CHF') }}</strong>{% endif %}</span></summary>
+  <ul class="shops">
+    {% for label, o in [('Günstigstes', m.cheapest), ('Bestes Preis-Wert', m.best)] if o %}
+      {% if not (loop.index == 2 and o.key == m.cheapest.key) %}
+      <li><span>{{ label }}</span>
+        <a href="/go/{{ o.key | urlencode }}" target="_blank" rel="noopener">{{ o.title }}</a>
+        <span class="muted">{{ o.cond }}{% if o.year %} · {{ o.year }}{% endif %} · {{ o.platform }} · weg {{ o.gone_at | ago }}{% if o.unsold %} (Auktion ohne Gebot abgelaufen){% endif %}</span>
+        <strong>{{ price(o.pay, 'CHF') }}</strong></li>
+      {% endif %}
+    {% endfor %}
+    {% if m.now_best %}<li><span>Bestes aktuelles</span><span>{{ m.now_best.title }}</span>
+      <span class="muted">{% if m.best and m.best.ratio and m.now_best.ratio %}{{ 'besser' if m.now_best.ratio >= m.best.ratio else 'schlechter' }} als das beste verpasste{% endif %}</span>
+      <strong>{{ price(m.now_best.pay, 'CHF') }}</strong></li>{% endif %}
+  </ul>
+  <p class="muted" style="margin:4px 0 0">«Weg» heisst meist verkauft – Preise sind Endpreise bis zu dir. Der mittlere Preis der verschwundenen Angebote ist der beste Hinweis darauf, wofür tatsächlich gekauft wird.</p>
+</details>
+{% endif %}
 {% if search.requirements %}<p class="small req-line">Muss erfüllen: {{ search.requirements }}</p>{% endif %}
 {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}
 <details class="card images-card" {% if search.image_auto %}open{% endif %}>

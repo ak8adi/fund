@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import db, fx as fx_rates, scoring
 from .config import get_config
+from .notify import image_url
 
 
 def _when(h: dict) -> datetime | None:
@@ -51,6 +52,37 @@ def pareto(offers: list[dict]) -> None:
                              and (p["pay"] < o["pay"] or p["value"] > o["value"]) for p in pool)
 
 
+def _missed(hits: list[dict], fx: dict, reference: float | None, year: float | None, new_price: float | None,
+            offers: list[dict]) -> dict | None:
+    """Was ist schon weg? Günstigstes und bestes (Wert ÷ Preis) verschwundenes Angebot, Median der verschwundenen –
+    zum Vergleich mit den besten aktuellen. «Weg» heisst meist verkauft, bei Auktionen auch ohne Gebot abgelaufen."""
+    gone = []
+    for h in hits:
+        if h.get("ai_relevant") != 1 or not h.get("gone_at") or h.get("_dup"):
+            continue
+        pay = scoring.pay_price_chf(h, fx)
+        if not pay or ko_reason(h, pay, reference) in ("unrealistisch billig", "Anforderung nicht erfüllt"):
+            continue
+        value = scoring.fair_value(h, reference, year, new_price) if reference else None
+        gone.append({"key": h["key"], "title": h["title"], "pay": round(pay), "cond": h.get("ai_condition") or "unbekannt",
+                     "year": h.get("ai_year"), "platform": h["platform"], "gone_at": h["gone_at"],
+                     "thumb": image_url(h.get("image"), large=False),
+                     "ratio": round(value / pay, 2) if value else None,
+                     "unsold": bool(h.get("ends_at") and h["gone_at"] == h["ends_at"] and h.get("auction") and not h.get("bids"))})
+    if not gone:
+        return None
+    best_now = max((o for o in offers if o["front"]), key=lambda o: o["ratio"] or 0, default=None)
+    cheapest_now = min((o for o in offers if not o["ko"]), key=lambda o: o["pay"], default=None)
+    return {
+        "count": len(gone),
+        "median": round(statistics.median(o["pay"] for o in gone)),
+        "cheapest": min(gone, key=lambda o: o["pay"]),
+        "best": max(gone, key=lambda o: o["ratio"] or 0) if any(o["ratio"] for o in gone) else None,
+        "now_cheapest": cheapest_now and {"pay": cheapest_now["pay"], "title": cheapest_now["title"]},
+        "now_best": best_now and {"pay": best_now["pay"], "ratio": best_now["ratio"], "title": best_now["title"]},
+    }
+
+
 def build(search_id: int) -> dict:
     search = db.get_search(search_id) or {}
     fx = fx_rates.rates(get_config())
@@ -73,7 +105,8 @@ def build(search_id: int) -> dict:
         when = _when(h)
         label = h.get("delivery") or ""
         offers.append({
-            "key": h["key"], "title": h["title"], "img": h.get("image"), "platform": h["platform"],
+            "key": h["key"], "title": h["title"], "platform": h["platform"],
+            "img": image_url(h.get("image"), large=True), "thumb": image_url(h.get("image"), large=False),
             "location": h.get("location"), "pay": round(pay), "price": h.get("price"), "currency": h.get("currency"),
             "value": round(value) if value else None, "ratio": round(value / pay, 2) if value else None,
             "score": h.get("ai_score"), "tier": h.get("ai_tier"), "cond": h.get("ai_condition") or "unbekannt",
@@ -88,6 +121,7 @@ def build(search_id: int) -> dict:
         })
     pareto(offers)
     offers.sort(key=lambda o: (not o["front"], -(o["ratio"] or 0), o["pay"]))
+    missed = _missed(hits, fx, reference, year, new_price, offers)
 
     # Zeitreihe: neue und verschwundene passende Angebote pro Tag (letzte 30 Tage)
     start = (now - timedelta(days=29)).date()
@@ -107,6 +141,7 @@ def build(search_id: int) -> dict:
                    "reference": round(reference) if reference else None, "typical_year": year,
                    "requirements": search.get("requirements")},
         "offers": offers,
+        "missed": missed,
         "band": _quartiles(pays),
         "timeline": [{"day": d, "new": new_per_day.get(d, 0), "gone": gone_per_day.get(d, 0)} for d in days],
         "counts": {"all": len([h for h in hits if h.get("ai_relevant") == 1]), "open": len(offers),

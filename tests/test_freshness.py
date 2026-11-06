@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from fundus import db, runner
 from fundus.adapters.base import GoneError
-from fundus.adapters.extract import reserved_from_page
+from fundus.adapters.extract import reserved_from_page, status_from_page
 from fundus.adapters.scraped import RicardoAdapter
 from fundus.config import get_config
 from fundus.models import Listing
@@ -68,10 +68,11 @@ def test_go_checks_before_opening(monkeypatch):
     from fundus.web import app as webapp
     gone, live, reserved = _listing("20"), _listing("21"), _listing("22")
 
-    def fake_fetch(url, fetcher="http"):
+    def fake_fetch(url, fetcher="http", impersonate="chrome"):
         if url.endswith("/20"):
             raise GoneError("weg")
-        return '<span class="pvap-reserved">Reserviert</span>' if url.endswith("/22") else "<html>ok</html>"
+        return ('<div class="badge-unavailable"><i class="icon icon-reserved-flag-light-gray"></i> Reserviert </div>'
+                if url.endswith("/22") else "<html>ok</html>")
 
     monkeypatch.setattr(runner, "fetch_html", fake_fetch)
     with TestClient(webapp.app) as client:
@@ -84,7 +85,35 @@ def test_go_checks_before_opening(monkeypatch):
         assert "reserviert" in r.text and db.get_listing(reserved.key)["reserved"] == 1
 
 
+def test_kleinanzeigen_mobile_status():
+    # Ausschnitte der mobilen Inseratseite (November 2026)
+    reserved = ('<div class="badge-unavailable"> <i class="icon large icon-reserved-flag-light-gray" '
+                'style="margin-right: 8px;"></i> Reserviert </div>')
+    deleted = ('<div class="badge-unavailable"> <i class="icon large icon-trash-light-gray"></i> Gelöscht </div>')
+    assert status_from_page(reserved) == "reserved"
+    assert status_from_page(deleted) == "gone"
+    assert status_from_page('<span class="pvap-reserved-title is-hidden">Reserviert • </span>') is None
+    assert status_from_page('<span class="pvap-reserved-title" style="color: #797979;">Reserviert • </span>') == "reserved"
+
+
+def test_shortlist_is_rechecked(monkeypatch):
+    from fundus import scoring
+    sid = db.save_search({"query": "sensor bar"})
+    for i, p in enumerate((300, 340, 365, 420)):
+        l = _listing(f"5{i}")
+        with db.connect() as c:
+            c.execute("UPDATE listings SET price = ? WHERE key = ?", (p, l.key))
+        db.add_hit(sid, l.key, False)
+        db.update_hit_ai(sid, l.key, True, "Bar", "gut")
+    scoring.rescore_search(sid)
+    keys = [h["key"] for h in runner.shortlist_to_check(sid)]
+    assert "kleinanzeigen:50" in keys
+    db.mark_listing_checked("kleinanzeigen:50")
+    assert "kleinanzeigen:50" not in [h["key"] for h in runner.shortlist_to_check(sid)]
+
+
 def test_reserved_markers():
     assert reserved_from_page('{"isReserved": true}')
     assert reserved_from_page('<div class="badge is-reserved">x</div>')
+    assert not reserved_from_page('<span class="pvap-reserved-title is-hidden">Reserviert • </span>')
     assert not reserved_from_page("<p>Bitte nicht reservieren</p>")

@@ -113,7 +113,7 @@ const chf = v => v == null ? '–' : Math.round(v).toLocaleString('de-CH').repla
 const go = o => '/go/' + encodeURIComponent(o.key);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const age = h => h == null ? '' : h < 24 ? 'vor ' + Math.max(1, Math.round(h)) + ' h' : 'vor ' + Math.round(h / 24) + ' T.';
-const img = o => o.img ? `<img src="${esc(o.img)}" loading="lazy" referrerpolicy="no-referrer" alt="">` : '<span class="noimg"></span>';
+const img = (o, big) => (big ? o.img : o.thumb) ? `<img src="${esc(big ? o.img : o.thumb)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="">` : '<span class="noimg"></span>';
 const COND = ['neu', 'neuwertig', 'sehr gut', 'gut', 'gebraucht', 'defekt', 'unbekannt'];
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const front = O.filter(o => o.front), rest = O.filter(o => !o.front && !o.ko), ko = O.filter(o => o.ko);
@@ -161,7 +161,7 @@ document.getElementById('vw-funnel').innerHTML = D.counts.open
   ? `<b>${D.counts.front}</b> von ${D.counts.open} verfügbaren Angeboten – kein anderes ist zugleich günstiger und besser` : '';
 document.getElementById('vw-cards').innerHTML = front.map(o => `
   <div class="card2">
-    <a href="${go(o)}" target="_blank" rel="noopener">${img(o)}
+    <a href="${go(o)}" target="_blank" rel="noopener">${img(o, true)}
       <div class="b"><span class="p">${chf(o.pay)}</span>
         <span>${esc(o.title)}</span>
         <span class="why">✓ ${esc(whyFront(o))}</span>
@@ -267,7 +267,7 @@ const DRAW = {
     ['Art', o => o.auction ? 'Auktion' + (o.bids != null ? ` (${o.bids} Gebote)` : '') : 'Festpreis', null],
     ['Haken', o => catches(o).join(', ') || '–', o => -catches(o).length],
   ];
-  let h = '<tr><th></th>' + cols.map(o => `<th><a href="${go(o)}" target="_blank" rel="noopener">${o.img ? `<img src="${esc(o.img)}" loading="lazy" referrerpolicy="no-referrer" alt="">` : ''}${o.front ? '★ ' : ''}${esc(o.title.slice(0, 48))}</a><br><span class="muted">${esc(o.platform)}</span></th>`).join('') + '</tr>';
+  let h = '<tr><th></th>' + cols.map(o => `<th><a href="${go(o)}" target="_blank" rel="noopener">${img(o, true)}${o.front ? '★ ' : ''}${esc(o.title.slice(0, 48))}</a><br><span class="muted">${esc(o.platform)}</span></th>`).join('') + '</tr>';
   for (const [name, show, rank] of rows) {
     const best = rank ? Math.max(...cols.map(rank)) : null, tie = rank && cols.every(c => rank(c) === best);
     h += `<tr><th>${name}</th>` + cols.map(o => `<td class="${rank && !tie && rank(o) === best ? 'best' : ''}">${esc(show(o))}</td>`).join('') + '</tr>';

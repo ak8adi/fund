@@ -315,6 +315,8 @@ details.newprice { margin: -2px 0 8px; }
 details.newprice > summary { cursor: pointer; list-style: none; }
 details.newprice > summary::-webkit-details-marker { display: none; }
 details.newprice > summary::after { content: " ▾"; color: var(--muted); }
+.missed .shops li > span:first-child { font-weight: 600; white-space: nowrap; }
+.shops .soldout { color: var(--warn); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .shops { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .shops li { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
 .shops li .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

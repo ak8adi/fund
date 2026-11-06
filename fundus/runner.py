@@ -12,7 +12,7 @@ from . import db, fx as fx_rates, newprice, scoring
 from .ai import apply_platform_shipping
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
-from .adapters.extract import extract_description_from_page, reserved_from_page, shipping_from_page
+from .adapters.extract import extract_description_from_page, shipping_from_page, status_from_page
 from .config import get_config
 from .matching import excluded, matches_query
 from .models import Listing
@@ -68,6 +68,8 @@ def is_running() -> bool:
 
 
 # Plattformen, deren Inseratseite die Versandangabe als Feld zeigt (extract.shipping_from_page)
+STATUS_CLIENT = {"kleinanzeigen": "chrome_android"}
+SHORTLIST_RECHECK_HOURS = 2    # Shortlist und «knapp dahinter»: so oft auf reserviert/weg prüfen
 EBAY_DETAILS_PER_SEARCH = 25   # API-Abrufe für Beschreibungen pro Suche und Lauf
 SHIP_FLAG_PLATFORMS = ("kleinanzeigen", "tutti", "anibis", "willhaben")
 
@@ -86,12 +88,17 @@ def check_listing(adapters, hit: dict) -> str:
             db.update_listing_description(hit["key"], d["description"])
         db.mark_listing_checked(hit["key"])
         return "ok"
-    try:
-        page = fetch_html(hit["url"], adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http")
+    fetcher = adapter.platform_cfg().get("fetcher", "http") if hasattr(adapter, "platform_cfg") else "http"
+    try:  # Kleinanzeigen zeigt «Reserviert»/«Gelöscht» nur auf der mobilen Seite im HTML (Desktop: per Skript)
+        page = fetch_html(hit["url"], fetcher, impersonate=STATUS_CLIENT.get(hit["platform"], "chrome"))
     except GoneError:
         db.mark_listing_gone(hit["key"])
         return "gone"
-    reserved = reserved_from_page(page)
+    status = status_from_page(page)
+    if status == "gone":
+        db.mark_listing_gone(hit["key"])
+        return "gone"
+    reserved = status == "reserved"
     db.set_listing_reserved(hit["key"], reserved)
     apply_platform_shipping(hit["key"], shipping_from_page(page, hit["platform"]))
     if not hit.get("description_full"):
@@ -99,6 +106,21 @@ def check_listing(adapters, hit: dict) -> str:
         if desc:
             db.update_listing_description(hit["key"], desc)
     return "reserved" if reserved else "ok"
+
+
+def shortlist_to_check(search_id: int, rest: int = 6) -> list[dict]:
+    """Beste Gebote und die nächsten Angebote der Suchseite, deren letzte Prüfung älter als SHORTLIST_RECHECK_HOURS ist."""
+    from . import views
+    offers = views.build(search_id)["offers"]
+    keys = [o["key"] for o in offers if o["front"]] + [o["key"] for o in offers if not o["front"] and not o["ko"]][:rest]
+    limit = datetime.now(timezone.utc) - timedelta(hours=SHORTLIST_RECHECK_HOURS)
+    out = []
+    for key in keys:
+        l = db.get_listing(key)
+        if l and not l.get("gone_at") and l["platform"] != "ricardo" and (
+                not l.get("checked_at") or datetime.fromisoformat(l["checked_at"]) < limit):
+            out.append(l)
+    return out
 
 
 def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
@@ -307,6 +329,10 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         # Nur Seite 1 wird abgefragt, «nicht gesehen» heisst also nicht «verkauft».
         # Dazu die besten Treffer ohne Versandangabe der Plattform: die Suchkarte zeigt «Nur Abholung» nicht immer.
         to_check = {h["key"]: h for h in db.top_hits_to_check(search["id"])}
+        # Alles, was oben auf der Suchseite steht (beste Gebote + knapp dahinter), auch wenn es noch in den
+        # Suchergebnissen auftaucht: Kleinanzeigen zeigt reservierte Inserate dort teils weiter an.
+        for h in shortlist_to_check(search["id"]):
+            to_check.setdefault(h["key"], h)
         for h in db.top_hits_without_ship_flag(search["id"], SHIP_FLAG_PLATFORMS):
             to_check.setdefault(h["key"], h)
         for hit in to_check.values():

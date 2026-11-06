@@ -151,7 +151,8 @@ def test_new_price_offer_from_json_ld():
     page = """<script type="application/ld+json">{"@context":"http://schema.org","@graph":[{"@type":"Product",
       "name":"Core Sensor 4 Pro Bar","offers":[{"@type":"Offer","price":"765.00","priceCurrency":"CHF",
       "itemCondition":"https://schema.org/NewCondition"},{"@type":"Offer","price":"749","priceCurrency":"CHF"}]}]}</script>"""
-    assert extract_offer(page) == {"name": "Core Sensor 4 Pro Bar", "price": 749.0, "currency": "CHF", "condition": ""}
+    assert extract_offer(page) == {"name": "Core Sensor 4 Pro Bar", "price": 749.0, "currency": "CHF", "condition": "",
+                                   "available": None}
     meta = '<meta property="og:title" content="Trust Bar"><meta property="product:price:amount" content="549.90">' \
            '<meta property="product:price:currency" content="chf">'
     assert extract_offer(meta)["price"] == 549.9 and extract_offer(meta)["currency"] == "CHF"
@@ -179,5 +180,44 @@ def test_newprice_cheapest_matching_offer(monkeypatch):
     monkeypatch.setattr(ai, "_gemini_json", lambda *a, **k: {"match": [0, 1, 2], "product": "Thule Urban Glide 3", "size": "XL"})
     r = newprice.lookup("thule urban glide 3")
     assert r["price"] == 655  # günstigstes passendes, nicht das Zubehör für 49
-    assert r["note"] == "Thule Urban Glide 3 · günstigster bei b.ch (von 2 Shops)"
+    assert r["note"] == "Thule Urban Glide 3 · günstigster lieferbar bei b.ch (von 2 Shops)"
     assert [o["url"] for o in r["offers"]] == ["u2", "u1"]
+
+
+def test_large_image_variants():
+    from fundus.notify import image_url
+    assert image_url("https://i.ebayimg.com/images/g/x/s-l225.jpg").endswith("/s-l1600.jpg")
+    assert image_url("https://i.ebayimg.com/images/g/x/s-l225.jpg", large=False).endswith("/s-l500.jpg")
+    assert "/dynamic/960w/" in image_url("https://images.blocketcdn.se/dynamic/default/item/1/a")
+
+
+def test_new_price_availability_and_product_pages():
+    from fundus.newprice import extract_offer
+    def ld(*products):
+        import json
+        return '<script type="application/ld+json">' + json.dumps({"@graph": list(products)}) + "</script>"
+    bar = {"@type": "Product", "name": "Trust Bar", "offers": [
+        {"price": "299", "priceCurrency": "CHF", "availability": "https://schema.org/OutOfStock", "url": "https://s.ch/a"},
+        {"price": "349", "priceCurrency": "CHF", "availability": "https://schema.org/InStock", "url": "https://s.ch/b"}]}
+    # Variante der Seite (URL) hat Vorrang, sonst günstigste lieferbare
+    assert extract_offer(ld(bar), "https://s.ch/a")["available"] is False
+    assert extract_offer(ld(bar), "https://s.ch/x")["price"] == 349.0
+    # Kategorie-/Trefferseite mit vielen Produkten ist keine Produktseite
+    many = [{"@type": "Product", "name": f"Bar {i}", "offers": {"price": str(100 + i), "priceCurrency": "CHF"}} for i in range(5)]
+    assert extract_offer(ld(*many), "https://s.ch/kategorie") is None
+
+
+def test_newprice_prefers_in_stock(monkeypatch):
+    from fundus import ai, newprice
+    offers = [
+        {"name": "Trust Bar", "price": 299, "currency": "CHF", "condition": "", "available": False, "url": "https://a.ch/1",
+         "shop": "a.ch", "price_chf": 299},
+        {"name": "Trust Bar", "price": 349, "currency": "CHF", "condition": "", "available": True, "url": "https://b.ch/1",
+         "shop": "b.ch", "price_chf": 349},
+    ]
+    monkeypatch.setattr(newprice, "get_config", lambda: {"ai": {"gemini_api_key": "x"}})
+    monkeypatch.setattr(newprice, "find_offers", lambda q, skip=None, compare=False: [] if skip or compare else offers)
+    monkeypatch.setattr(ai, "_gemini_json", lambda *a, **k: {"match": [0, 1], "product": "Trust Bar"})
+    r = newprice.lookup("trust bar")
+    assert r["price"] == 349 and "ausverkauft ab 299 CHF bei a.ch" in r["note"]
+    assert [o["available"] for o in r["offers"]] == [True, False]

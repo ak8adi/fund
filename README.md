@@ -92,14 +92,22 @@ die Plattform `fetcher: browser` setzen.
 
 **Neupreis**: fundus sucht im Netz nach Shops und zusätzlich nach der Produkt- bzw. Serienseite bei toppreise.ch
 (führt auch Auslaufmodelle, solange ein Shop sie hat), liest den Preis aus den Produktdaten, die KI prüft nur, ob
-es genau das Produkt ist – eine andere Generation (M1/M4, «Pro 3»/«Pro 4») zählt nicht. Als Neupreis gilt das
-günstigste passende Angebot, ausser es liegt unter 75 % des zweitgünstigsten (Fehlpreis). Allgemeine Suchen
+es genau das Produkt ist (Seiten mit vielen Produkten zählen nicht, bei Varianten gilt die der verlinkten Seite)
+– eine andere Generation (M1/M4, «Pro 3»/«Pro 4») zählt nicht. Als Neupreis gilt das
+günstigste passende *lieferbare* Angebot (ausverkaufte stehen markiert darunter), ausser es liegt unter 75 % des zweitgünstigsten (Fehlpreis). Allgemeine Suchen
 («sessel») bekommen keinen Neupreis. Von Hand eingetragene Neupreise haben Vorrang.
 
 **Noch zu haben?** Was in den Suchergebnissen steht, ist online. Die besten passenden Treffer, die im Lauf nicht
 mehr auftauchen, prüft fundus direkt (alle 6 h, bis 8 pro Suche); beim Klick auf ein Angebot (`/go/…`) prüft es
 das Inserat nochmals, wenn die letzte Prüfung älter als 10 Minuten ist, und zeigt «nicht mehr verfügbar» oder
-«reserviert», statt dich auf eine leere Seite zu schicken. Ricardo und eBay: Laufzeitende aus der Suche, nach
+«reserviert», statt dich auf eine leere Seite zu schicken. Kleinanzeigen zeigt «Reserviert»/«Gelöscht» nur auf
+der mobilen Seite im HTML (Desktop fügt es per Skript ein) – fundus prüft dort deshalb die mobile Seite. Alles, was
+oben auf der Suchseite steht (beste Gebote, knapp dahinter), wird bei jedem Lauf geprüft, wenn die letzte Prüfung
+älter als 2 h ist.
+
+**Schon weg**: verschwundene passende Angebote bleiben gespeichert (dazu jede Preisänderung in `price_history`).
+Unter dem Neupreis steht das günstigste und das beste verpasste Angebot, der mittlere Preis der verschwundenen
+und das beste aktuelle zum Vergleich. Ricardo und eBay: Laufzeitende aus der Suche, nach
 Ablauf gilt das Inserat ohne weitere Anfrage als weg; eBay prüft zusätzlich über die API. Auktionen sind auf der
 Karte markiert (Gebote, aktuelles Gebot, Restzeit).
 

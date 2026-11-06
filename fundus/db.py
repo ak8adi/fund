@@ -206,6 +206,14 @@ def init_db() -> None:
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
         c.execute("""CREATE TABLE IF NOT EXISTS geo (
                          query TEXT PRIMARY KEY, lat REAL, lon REAL, minutes INTEGER, checked_at TEXT NOT NULL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS price_history (    -- jede Preisänderung eines Inserats
+                         listing_key TEXT NOT NULL, price REAL NOT NULL, currency TEXT, seen_at TEXT NOT NULL)""")
+        c.execute("CREATE INDEX IF NOT EXISTS price_history_key ON price_history(listing_key)")
+        if not c.execute("SELECT 1 FROM price_history LIMIT 1").fetchone():  # Bestand: erster und aktueller Preis
+            c.execute("""INSERT INTO price_history SELECT key, COALESCE(first_price, price), currency, first_seen
+                         FROM listings WHERE COALESCE(first_price, price) IS NOT NULL""")
+            c.execute("""INSERT INTO price_history SELECT key, price, currency, last_seen FROM listings
+                         WHERE price IS NOT NULL AND first_price IS NOT NULL AND price != first_price""")
         if "sort_by" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN sort_by TEXT NOT NULL DEFAULT 'score'")  # score | price
         if "image_prompt" not in cols:  # Bildanalyse: Auftrag an die KI; image_auto = auch neue Angebote prüfen
@@ -362,6 +370,9 @@ def upsert_listing(l: Listing, trust_level: str, trust_reasons: list[str]) -> No
     with connect() as c:
         # Check for price drop before upserting
         existing = c.execute("SELECT price, first_price, trust_reasons FROM listings WHERE key = ?", (l.key,)).fetchone()
+        if l.price is not None and (existing is None or existing["price"] != l.price):
+            c.execute("INSERT INTO price_history (listing_key, price, currency, seen_at) VALUES (?,?,?,?)",
+                      (l.key, l.price, l.currency, ts))
         if existing and l.price and existing["price"] and l.price < existing["price"]:
             existing_reasons = json.loads(existing["trust_reasons"]) if existing["trust_reasons"] else []
             drop_msg = f"Preis-Drop: von {existing['price']} auf {l.price} {l.currency}"

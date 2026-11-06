@@ -84,45 +84,79 @@ def _products(node):
                 yield from _products(node[key])
 
 
-def _offer_price(offers) -> tuple[float, str, str] | None:
-    """(Preis, Währung, Zustand) – bei mehreren Angeboten/Varianten das günstigste."""
+AVAILABLE = ("InStock", "LimitedAvailability", "OnlineOnly", "InStoreOnly", "in stock", "instock")
+UNAVAILABLE = ("OutOfStock", "SoldOut", "Discontinued", "out of stock", "oos", "outofstock")
+
+
+def _availability(value) -> bool | None:
+    """schema.org-Verfügbarkeit: True lieferbar, False ausverkauft, None unbekannt (BackOrder, PreOrder, fehlt)."""
+    v = str(value or "").rsplit("/", 1)[-1].strip()
+    if any(v.lower() == a.lower() for a in AVAILABLE):
+        return True
+    if any(v.lower() == a.lower() for a in UNAVAILABLE):
+        return False
+    return None
+
+
+def _offer_price(offers, page_url: str | None = None) -> tuple[float, str, str, bool | None] | None:
+    """(Preis, Währung, Zustand, lieferbar) des Angebots, das die Seite zeigt: das mit der Seiten-URL, sonst das
+    günstigste lieferbare, sonst das günstigste. «lowPrice» (ab-Preis über Varianten) nur als letzte Wahl."""
     found = []
     for o in offers if isinstance(offers, list) else [offers]:
         if not isinstance(o, dict):
             continue
-        price = o.get("price") or o.get("lowPrice")
+        price = o.get("price")
         if price is None and isinstance(o.get("priceSpecification"), dict):
             price = o["priceSpecification"].get("price")
+        low = price is None
+        price = price if price is not None else o.get("lowPrice")
         try:
             value = float(str(price).replace(",", "."))
         except (TypeError, ValueError):
             continue
         if value > 0:
             cond = str(o.get("itemCondition") or "").rsplit("/", 1)[-1]
-            found.append((value, str(o.get("priceCurrency") or "").upper(), cond))
-    return min(found) if found else None
+            same_page = bool(page_url and o.get("url") and str(o["url"]).split("?")[0].rstrip("/") == page_url.split("?")[0].rstrip("/"))
+            found.append({"value": value, "cur": str(o.get("priceCurrency") or "").upper(), "cond": cond,
+                          "avail": _availability(o.get("availability")), "same": same_page, "low": low})
+    if not found:
+        return None
+    best = (next((f for f in found if f["same"]), None)
+            or min((f for f in found if f["avail"] is not False and not f["low"]), key=lambda f: f["value"], default=None)
+            or min(found, key=lambda f: (f["low"], f["value"])))
+    return best["value"], best["cur"], best["cond"], best["avail"]
 
 
-def extract_offer(html: str) -> dict | None:
-    """Hauptprodukt einer Shopseite: Name, Preis, Währung, Zustand."""
+def extract_offer(html: str, url: str | None = None) -> dict | None:
+    """Hauptprodukt einer Shopseite: Name, Preis, Währung, Zustand, lieferbar.
+    Seiten mit mehreren verschiedenen Produkten (Kategorien, Suchtreffer) gelten nicht als Produktseite –
+    sonst landet der Link auf einer Liste und der Preis gehört zu irgendeinem anderen Produkt."""
+    products = []
     for block in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, re.S | re.I):
         try:
             data = json.loads(block.strip())
         except ValueError:
             continue
         for p in _products(data):
-            offer = _offer_price(p.get("offers")) or _offer_price(
-                [v.get("offers") for v in p.get("hasVariant", []) if isinstance(v, dict)])
+            offer = _offer_price(p.get("offers"), url) or _offer_price(
+                [v.get("offers") for v in p.get("hasVariant", []) if isinstance(v, dict)], url)
             if offer:
-                return {"name": str(p.get("name") or "")[:120], "price": offer[0], "currency": offer[1],
-                        "condition": offer[2]}
+                products.append((str(p.get("name") or "")[:120], offer))
+    names = {n.lower() for n, _ in products if n}
+    if len(names) > 2 and not (url and COMPARE_RE.match(url)):
+        return None  # Liste mehrerer Produkte
+    if products:
+        name, offer = products[0]
+        return {"name": name, "price": offer[0], "currency": offer[1], "condition": offer[2], "available": offer[3]}
     amount = re.search(r'<meta[^>]+(?:product:price:amount|og:price:amount)[^>]+content="([\d.,]+)"', html)
     currency = re.search(r'<meta[^>]+(?:product:price:currency|og:price:currency)[^>]+content="([A-Za-z]{3})"', html)
     title = re.search(r'<meta[^>]+og:title[^>]+content="([^"]+)"', html)
+    avail = re.search(r'<meta[^>]+(?:product:availability|og:availability)[^>]+content="([^"]+)"', html)
     if amount and currency:
         try:
             return {"name": (title.group(1) if title else "")[:120], "price": float(amount.group(1).replace(",", ".")),
-                    "currency": currency.group(1).upper(), "condition": ""}
+                    "currency": currency.group(1).upper(), "condition": "",
+                    "available": _availability(avail.group(1).replace(" ", "")) if avail else None}
         except ValueError:
             return None
     return None
@@ -134,7 +168,7 @@ def find_offers(query: str, skip: list[str] | None = None, compare: bool = False
     offers = []
     for url in search_links(query, skip, compare):
         try:
-            offer = extract_offer(fetch_html(url, "http"))
+            offer = extract_offer(fetch_html(url, "http"), url)
         except Exception as exc:
             log.info("Shopseite %s nicht lesbar: %s", url, exc)
             continue
@@ -164,6 +198,7 @@ def lookup(query: str) -> dict | None:
     except Exception as exc:
         log.info("toppreise für «%s» nicht lesbar: %s", query, exc)
     rows = "\n".join(f"{i} | {o['shop']} | {o['name']} | {o['price']:g} {o['currency']} | {o['condition'] or '-'}"
+                     f"{' | ausverkauft' if o.get('available') is False else ''}"
                      for i, o in enumerate(offers)) or "(keine Shopseiten gefunden)"
     r = _gemini_json(PROMPT.format(query=query, rows=rows),
                      "Du prüfst Produktseiten für einen Preisvergleich. Antworte nur mit JSON.", api_key,
@@ -192,12 +227,21 @@ def lookup(query: str) -> dict | None:
     if not picked:
         return {"price": None, "note": "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; "
                                        "bei Bedarf von Hand eintragen", "offers": [], "size": size, "weight": weight}
-    best = choose_best(picked)
+    in_stock = [o for o in picked if o.get("available") is not False]
+    sold_out = [o for o in picked if o.get("available") is False]
+    best = choose_best(in_stock) if in_stock else sold_out[0]  # Neupreis = günstigstes lieferbares Angebot
     price = round(best["price_chf"])
     product = str(r.get("product") or query)[:60]
-    shops = len({o["shop"] for o in picked})
-    note = f"{product} · günstigster bei {best['shop']}" + (f" (von {shops} Shops)" if shops > 1 else "")
-    keep = [{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")} for o in picked[:8]]
+    shops = len({o["shop"] for o in in_stock})
+    if in_stock:
+        note = f"{product} · günstigster lieferbar bei {best['shop']}" + (f" (von {shops} Shops)" if shops > 1 else "")
+        if sold_out and sold_out[0]["price_chf"] < best["price_chf"]:
+            note += f" · ausverkauft ab {round(sold_out[0]['price_chf'])} CHF bei {sold_out[0]['shop']}"
+    else:
+        note = f"{product} · nur ausverkauft gefunden, zuletzt {price} CHF bei {best['shop']}"
+    ordered = in_stock + sold_out
+    keep = [{**{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")},
+             "available": o.get("available")} for o in ordered[:8]]
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
 
 

@@ -274,13 +274,26 @@ def _richness(l: Listing) -> int:
     return sum(x is not None for x in (l.price, l.image, l.location, l.posted_at, l.seller.name))
 
 
-RESERVED_RE = re.compile(r'"(?:isReserved|reserved)"\s*:\s*true|class="[^"]*\b(?:is-reserved|reserved-badge|pvap-reserved)[^"]*"'
-                         r'|>\s*Reserviert\s*<', re.I)
+RESERVED_RE = re.compile(r'"(?:isReserved|reserved)"\s*:\s*true|class="[^"]*\b(?:is-reserved|reserved-badge)[^"]*"'
+                         r'|class="pvap-reserved-title"[^>]*>\s*Reserviert', re.I)
+# Kleinanzeigen mobil: <div class="badge-unavailable"><i class="icon … icon-reserved-flag-…"></i> Reserviert </div>
+UNAVAILABLE_RE = re.compile(r'class="badge-unavailable"[^>]*>(.{0,300}?)</div>', re.S)
+GONE_WORDS = re.compile(r"Gelöscht|Verkauft|nicht mehr verfügbar|abgelaufen|deaktiviert", re.I)
+
+
+def status_from_page(page: str) -> str | None:
+    """«reserved», «gone» (gelöscht/verkauft, Seite aber noch erreichbar) oder None (verfügbar)."""
+    for badge in UNAVAILABLE_RE.findall(page):
+        if "reserved" in badge or "Reserviert" in badge:
+            return "reserved"
+        if GONE_WORDS.search(badge) or "trash" in badge:
+            return "gone"
+    return "reserved" if RESERVED_RE.search(page) else None
 
 
 def reserved_from_page(page: str) -> bool:
     """Plattform markiert das Inserat als reserviert (Badge oder Status im Seiten-JSON)."""
-    return bool(RESERVED_RE.search(page))
+    return status_from_page(page) == "reserved"
 
 
 def extract_description_from_page(page: str, platform: str) -> str | None:

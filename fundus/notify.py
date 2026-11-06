@@ -47,6 +47,10 @@ def image_url(url: str | None, large: bool = True) -> str | None:
         return re.sub(r"/t_\d+x\d+/", "/t_1000x750/", url)
     if "cache.willhaben.at" in url and large:
         return url.replace("_hoved.jpg", ".jpg")
+    if "i.ebayimg.com" in url:  # s-l225 → s-l500 (Karte) bzw. s-l1600
+        return re.sub(r"/s-l\d+\.", "/s-l1600." if large else "/s-l500.", url)
+    if "images.blocketcdn.se/dynamic/" in url:
+        return re.sub(r"/dynamic/[^/]+/", "/dynamic/960w/" if large else "/dynamic/640w/", url)
     return url
 
 

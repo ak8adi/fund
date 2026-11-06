@@ -25,7 +25,8 @@ USER_AGENTS = [
 
 BLOCK_MARKERS = ("cf-challenge", "challenge-platform", "captcha", "Access Denied", "px-captcha", "datadome")
 # Plattformen, die gelöschte Inserate nicht mit 404 melden, sondern auf eine Übersicht umleiten
-GONE_MARKERS = ("srchrslt-adexpired",)   # Kleinanzeigen: «Die gewünschte Anzeige ist nicht mehr verfügbar.»
+GONE_MARKERS = ("srchrslt-adexpired",     # Kleinanzeigen (Desktop): «Die gewünschte Anzeige ist nicht mehr verfügbar.»
+                "Die gewünschte Anzeige ist nicht mehr verfügbar")  # Kleinanzeigen (mobil): Umleitung auf die Kategorie
 
 
 class AdapterError(Exception):
@@ -111,8 +112,9 @@ def http_client() -> httpx.Client:
     )
 
 
-def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> str:
-    """Eine einzige Seitenabfrage. fetcher='browser' nutzt Playwright (optional installiert)."""
+def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None, impersonate: str = "chrome") -> str:
+    """Eine einzige Seitenabfrage. fetcher='browser' nutzt Playwright (optional installiert).
+    impersonate: Browser-Fingerabdruck von curl_cffi, z.B. «chrome_android» für die mobile Seite."""
     if fetcher == "browser":
         return _fetch_with_browser(url)
     _wait_for_host(url)
@@ -121,7 +123,7 @@ def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None) -> 
         try:
             resp = curl_requests.get(
                 url,
-                impersonate="chrome",
+                impersonate=impersonate,
                 timeout=25,
                 headers=headers
             )
