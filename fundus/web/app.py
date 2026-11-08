@@ -153,6 +153,7 @@ def _ctx(request: Request, **kw) -> dict:
     return {
         "request": request,
         "running": runner.is_running(),
+        "scan": runner.progress(),
         "ai_running": ai.AI_RUNNING,
         "next_runs": next_runs(state["scheduler"]),
         "ntfy_ok": bool(cfg["ntfy"].get("topic")),
@@ -194,7 +195,7 @@ def _go_page(listing: dict, status: str) -> HTMLResponse:
             "reserved": "ist laut Plattform reserviert."}[status]
     from html import escape
     return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<link rel="stylesheet" href="/static/style.css?v=16"><title>fundus</title>
+<link rel="stylesheet" href="/static/style.css?v=17"><title>fundus</title>
 <main class="wrap" style="max-width:560px;margin:12vh auto;padding:0 16px">
 <div class="card"><h2 style="margin-top:0">{escape(listing['title'])}</h2>
 <p>Dieses Inserat {text}</p>

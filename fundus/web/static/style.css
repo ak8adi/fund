@@ -58,7 +58,12 @@ summary { cursor: pointer; }
 .bell-off { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
 #status { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .status-line { display: inline-flex; align-items: center; gap: 8px; }
-.status-line progress { width: 80px; height: 6px; accent-color: var(--accent); }
+.progress-line { gap: 6px; }
+.progress-line .ring { width: 18px; height: 18px; transform: rotate(-90deg); flex: none; }
+.progress-line .ring circle { fill: none; stroke-width: 5; }
+.progress-line .ring .track { stroke: var(--line); }
+.progress-line .ring .fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray .6s var(--ease); }
+.progress-line .small { white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 main { max-width: 1240px; margin: 0 auto; padding: 0 24px 60px; }
 
 .grid-2 { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 36px; }

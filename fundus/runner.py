@@ -67,6 +67,21 @@ def is_running() -> bool:
     return _run_lock.locked()
 
 
+# Fortschritt des laufenden Scans für die Statuszeile: Suche i von n, darin Quelle j von m, danach Angebote prüfen
+_progress: dict = {}
+
+
+def progress() -> dict | None:
+    """{"share": 0–1, "index": i (1-basiert), "total": n, "query": …, "step": …} oder None, wenn kein Scan läuft."""
+    if not is_running() or not _progress.get("total"):
+        return None
+    p = dict(_progress)
+    sources = max(1, p.get("sources", 1))
+    within = 0.8 * min(p.get("source", 0), sources) / sources + (0.2 if p.get("step") == "prüft Angebote" else 0)
+    p["share"] = min(1.0, (p["index"] - 1 + within) / p["total"])
+    return p
+
+
 # Plattformen, deren Inseratseite die Versandangabe als Feld zeigt (extract.shipping_from_page)
 STATUS_CLIENT = {"kleinanzeigen": "chrome_android"}
 SHORTLIST_RECHECK_HOURS = 2    # Shortlist und «knapp dahinter»: so oft auf reserviert/weg prüfen
@@ -286,13 +301,19 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
     lo, hi = cfg.get("request_delay", [4, 11])
     first_request = True
 
+    _progress.clear()
+    _progress.update(total=len(searches), index=0)
     for search in searches:
         collected: list[Listing] = []
         complete_sources: set[str] = set()
         returned: set[str] = set()   # alles, was die Plattformen geliefert haben – vor jedem Filter
+        mine = [s for s in sources if not search["platforms"] or s["adapter"] in search["platforms"]]
+        _progress.update(index=_progress["index"] + 1, query=search["query"], sources=len(mine), source=0, step="sucht")
         for src in sources:
             if search["platforms"] and src["adapter"] not in search["platforms"]:
                 continue
+            _progress["source"] += 1
+            _progress["platform"] = src["label"]
             if src["name"] in blocked:
                 continue  # einmal geblockt → in diesem Lauf nicht weiter anklopfen
             if not first_request:
@@ -332,6 +353,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     "image": l.image, "platform": l.platform, "location": l.location,
                     "trust_level": t.level, "trust_label": t.label, "trust_reasons": t.reasons,
                 })
+        _progress.update(step="prüft Angebote", platform=None)
         for l in collected:  # Versand laut Suchergebnis-Karte (Kleinanzeigen, Willhaben, Blocket)
             apply_platform_shipping(l.key, l.shipping, rescore=False)
         for platform in complete_sources:

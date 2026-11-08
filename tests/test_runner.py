@@ -113,3 +113,26 @@ def test_ricardo_complete_list_marks_missing_as_gone(monkeypatch):
     runner.run("test")
     gone = {h["external_id"]: bool(h["gone_at"]) for h in db.hits_for_search(sid)}
     assert gone == {"1": False, "2": True}
+
+
+def test_status_shows_progress_ring(monkeypatch):
+    from fastapi.testclient import TestClient
+    from fundus import ai
+    from fundus.web import app as webapp
+    with TestClient(webapp.app) as client:
+        assert "Alle" in client.get("/status").text            # kein Scan: Knopf statt Ring
+        runner._run_lock.acquire()
+        try:
+            runner._progress.clear()
+            runner._progress.update(total=4, index=2, query="MacBook Pro 16 M1", sources=5, source=2, step="sucht",
+                                    platform="Ricardo")
+            p = runner.progress()
+            assert round(p["share"], 2) == round((1 + 0.8 * 2 / 5) / 4, 2)
+            html = client.get("/status").text
+            assert 'class="ring"' in html and "2/4" in html and "Ricardo" in html and "MacBook Pro 16 M1" in html
+        finally:
+            runner._run_lock.release()
+        monkeypatch.setattr(ai, "AI_RUNNING", True)
+        monkeypatch.setattr(webapp.db, "get_ai_progress", lambda: (30, 120))
+        html = client.get("/status").text
+        assert "KI bewertet <b>25 %</b>" in html and 'class="ring"' in html
