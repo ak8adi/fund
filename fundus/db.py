@@ -193,6 +193,8 @@ def init_db() -> None:
             if col not in l_cols:  # Auktionen und Laufzeitende (Ricardo, eBay)
                 c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         _migrate_ai_to_hits(c, l_cols)
+        if "position" not in cols:  # Reihenfolge in der Übersicht (per Ziehen sortiert), kleiner = weiter oben
+            c.execute("ALTER TABLE searches ADD COLUMN position INTEGER")
         for col, typ in (("near_km", "REAL"), ("near_place", "TEXT"), ("route_to", "TEXT"), ("route_km", "REAL")):
             if col not in cols:  # Gebiet: nur in der Nähe (Umkreis um near_place), optional entlang der Strecke nach route_to
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
@@ -255,7 +257,7 @@ def list_searches(active_only: bool = False) -> list[dict]:
              FROM searches s"""
     if active_only:
         sql += " WHERE s.active = 1"
-    sql += " ORDER BY s.active DESC, s.created_at DESC"
+    sql += " ORDER BY s.position IS NULL, s.position, s.active DESC, s.created_at DESC"  # eigene Reihenfolge zuerst
     with connect() as c:
         return [_search_row(r) for r in c.execute(sql)]
 
@@ -294,7 +296,8 @@ def save_search(data: dict, search_id: int | None = None) -> int:
         if search_id is None:
             cur = c.execute(
                 "INSERT INTO searches (query, exclude, min_price, max_price, platforms, allow_sets, require_shipping, requirements,"
-                " near_km, near_place, route_to, route_km, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " near_km, near_place, route_to, route_km, created_at, position)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MIN(position), 0) - 1 FROM searches))",  # neu: ganz oben
                 (*values, now()),
             )
             return int(cur.lastrowid)
@@ -357,6 +360,13 @@ def weekly_summary(days: int = 7) -> list[dict]:
              ORDER BY s.query"""
     with connect() as c:
         return [dict(r) for r in c.execute(sql, (cutoff,))]
+
+
+def set_search_order(ids: list[int]) -> None:
+    """Reihenfolge der Übersicht speichern: ids von oben nach unten; nicht genannte bleiben dahinter."""
+    with connect() as c:
+        for pos, sid in enumerate(ids):
+            c.execute("UPDATE searches SET position = ? WHERE id = ?", (pos, sid))
 
 
 def delete_search(search_id: int) -> None:

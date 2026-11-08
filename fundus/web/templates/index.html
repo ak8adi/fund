@@ -18,7 +18,7 @@
   {% set more = v.offers | rejectattr('front') | rejectattr('ko') | list %}
   {% set strip = (front | sort(attribute='new', reverse=true) | list) + more[:[0, 6 - front | length] | max] %}
   {% set n_new = strip | selectattr('new') | list | length %}
-  <div class="ov-strip {{ '' if s.active else 'paused' }}">
+  <div class="ov-strip {{ '' if s.active else 'paused' }}" data-id="{{ s.id }}">
     <div class="ov-info">
       <a class="gear" href="/search/{{ s.id }}#bearbeiten" title="Sucheinstellungen" aria-label="Sucheinstellungen von {{ s.query }}">⚙︎</a>
       <a class="ov-info-link" href="/search/{{ s.id }}">
@@ -61,4 +61,6 @@
 </div>
 </div>
 </div>
+{% if rows | length > 1 %}<p class="muted small" style="margin-top:14px">Reihenfolge ändern: Suchkarte gedrückt halten und an die gewünschte Stelle ziehen.</p>{% endif %}
+<script src="/static/reorder.js?v=1"></script>
 {% endblock %}

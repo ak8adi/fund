@@ -154,3 +154,11 @@ body.app .search-head .actions a[href="/neue-suche"] { display: none; }   /* ste
 .big-btns.one { grid-template-columns: 1fr; }
 .buy-item .tags .refurb { background: color-mix(in srgb, var(--tier-b) 18%, transparent); color: var(--tier-b); font-weight: 650; }
 @media (pointer: coarse) { .ov-strip { scrollbar-width: none; } .ov-strip::-webkit-scrollbar { display: none; } }
+
+/* Sortieren per Langdruck (static/reorder.js) */
+.ov-info { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.ov-strip.lifted { position: relative; z-index: 5; transition: none; }
+.ov-strip.lifted .ov-info { box-shadow: 0 10px 28px rgba(0,0,0,.22); transform: scale(1.04); }
+.ov-strip { transition: transform .15s var(--ease); }
+body.reordering, body.reordering * { cursor: grabbing !important; }
+body.reordering .ov-strip:not(.lifted) { opacity: .85; }

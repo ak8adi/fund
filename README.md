@@ -121,7 +121,9 @@ nicht mehr oben. eBay-Beschreibungen kommen über die API.
 
 **Übersicht**: pro Suche eine kompakte Zeile zum Wischen – vorne eine schmale Infokarte (Name, Zahnrad für die
 Einstellungen, gebraucht ab / neu ab, Ersparnis), dann kleine Karten der besten Angebote (neue zuerst, mit Ort und
-Plattform), zuletzt eine kleine Analytics-Karte. Antippen der Infokarte öffnet die Suche.
+Plattform), zuletzt eine kleine Analytics-Karte. Antippen der Infokarte öffnet die Suche. Reihenfolge: Infokarte gedrückt
+halten und an die gewünschte Stelle ziehen (`static/reorder.js`); neue Suchen kommen oben hin. Läuft ein Scan,
+zeigt oben ein kleiner Ring den Fortschritt (Suche i von n, aktuelle Plattform) bzw. den Stand der KI-Bewertung.
 
 **Wo darf das Angebot sein?** (pro Suche): *Versand* – verschickbare Angebote von überall; *In der Nähe* – Umkreis
 in km um einen Ort, optional zusätzlich entlang der Autostrecke zu einem Ziel (± km Umweg, `area.py`, Luftlinie,

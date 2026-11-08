@@ -269,7 +269,7 @@ def index(request: Request):
     """Übersicht: pro Suche eine Zeile – Suchkarte, beste Angebote, Analytics (zum Wischen)."""
     from .. import views
     db.expire_ended_listings()
-    searches = sorted(db.list_searches(), key=lambda s: not s["active"])
+    searches = db.list_searches()  # eigene Reihenfolge (per Ziehen in der Übersicht)
     return templates.TemplateResponse(request, "index.html", _ctx(
         request,
         rows=[(s, views.build(s["id"])) for s in searches],
@@ -597,6 +597,16 @@ def buy_new(request: Request, sid: int):
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse(request, "neukaufen.html", _ctx(
         request, search=search, views=views.build(sid), options=newprice.buy_options(search)))
+
+
+@app.post("/searches/order")
+async def order_searches(request: Request):
+    """Übersicht per Ziehen sortiert: {"ids": [oben … unten]}."""
+    from fastapi.responses import JSONResponse
+    ids = [int(i) for i in (await request.json()).get("ids", []) if str(i).isdigit()]
+    known = {s["id"] for s in db.list_searches()}
+    db.set_search_order([i for i in ids if i in known])
+    return JSONResponse({"ok": True})
 
 
 @app.get("/neue-suche", response_class=HTMLResponse)

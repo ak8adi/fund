@@ -51,3 +51,17 @@ def test_auction_is_not_a_lure():
     assert listing_price(auction) == 257
     assert views.ko_reason(auction, 260, 988) is None
     assert views.ko_reason({"price": 257}, 260, 988) == "unrealistisch billig"
+
+
+def test_search_order_by_drag():
+    from fastapi.testclient import TestClient
+    from fundus.web import app as webapp
+    a, b, c = (db.save_search({"query": q}) for q in ("alpha", "beta", "gamma"))
+    assert [s["id"] for s in db.list_searches()] == [c, b, a]       # neue Suchen oben
+    with TestClient(webapp.app) as client:
+        assert client.post("/searches/order", json={"ids": [a, c, b, 999]}).json() == {"ok": True}
+        assert [s["id"] for s in db.list_searches()] == [a, c, b]
+        page = client.get("/").text
+    assert page.index(f'data-id="{a}"') < page.index(f'data-id="{c}"') < page.index(f'data-id="{b}"')
+    d = db.save_search({"query": "delta"})
+    assert db.list_searches()[0]["id"] == d                           # neue Suche wieder ganz oben
