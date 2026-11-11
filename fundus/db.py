@@ -169,6 +169,29 @@ def _reassess_trust(c: sqlite3.Connection) -> None:
     c.executemany("UPDATE listings SET trust_level = ?, trust_reasons = ? WHERE key = ?", updates)
 
 
+# Quellenname wie im Prüflauf (runner: src["name"]) – eBay-Inserate speichern nur «EBAY_DE»
+_SOURCE = "CASE WHEN l.platform = 'ebay' AND l.source NOT LIKE 'ebay:%' THEN 'ebay:' || l.source ELSE COALESCE(l.source, l.platform) END"
+BASELINE_WINDOW_H = 3   # Bestand: was in den ersten Stunden einer neuen Quelle kam …
+BASELINE_MIN = 3        # … und mindestens so viele waren (ein einzelnes späteres Angebot ist echt neu)
+
+
+def _backfill_baseline(c: sqlite3.Connection) -> None:
+    """Bestehende Daten: Erst-Scan je Suche und Quelle aus dem ersten Auftauchen ableiten."""
+    rows = c.execute(f"""SELECT h.search_id, {_SOURCE} AS src, MIN(h.first_seen) AS first
+                         FROM hits h JOIN listings l ON l.key = h.listing_key GROUP BY 1, 2""").fetchall()
+    for r in rows:
+        c.execute("INSERT OR IGNORE INTO search_sources (search_id, source, first_scan) VALUES (?,?,?)",
+                  (r["search_id"], r["src"], r["first"]))
+        until = (datetime.fromisoformat(r["first"]) + timedelta(hours=BASELINE_WINDOW_H)).isoformat(timespec="seconds")
+        keys = [k[0] for k in c.execute(
+            f"""SELECT h.listing_key FROM hits h JOIN listings l ON l.key = h.listing_key
+                WHERE h.search_id = ? AND {_SOURCE} = ? AND h.first_seen <= ?""",
+            (r["search_id"], r["src"], until))]
+        if len(keys) >= BASELINE_MIN:
+            c.executemany("UPDATE hits SET baseline = 1 WHERE search_id = ? AND listing_key = ?",
+                          [(r["search_id"], k) for k in keys])
+
+
 def init_db() -> None:
     with connect() as c:
         c.execute("PRAGMA journal_mode = WAL")
@@ -215,6 +238,15 @@ def init_db() -> None:
                          id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, search_id INTEGER,
                          title TEXT NOT NULL, body TEXT NOT NULL, url TEXT)""")
         c.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)")
+        # Erster erfolgreicher Abruf je Suche und Quelle: was dabei kommt, ist Bestand, nicht «neu» (Statistik)
+        c.execute("""CREATE TABLE IF NOT EXISTS search_sources (
+                         search_id INTEGER NOT NULL, source TEXT NOT NULL, first_scan TEXT NOT NULL,
+                         PRIMARY KEY (search_id, source))""")
+        h_cols = {r["name"] for r in c.execute("PRAGMA table_info(hits)")}
+        if "baseline" not in h_cols:
+            c.execute("ALTER TABLE hits ADD COLUMN baseline INTEGER NOT NULL DEFAULT 0")
+            _backfill_baseline(c)
+        c.execute("UPDATE OR IGNORE search_sources SET source = 'ebay:' || source WHERE source LIKE 'EBAY\\_%' ESCAPE '\\'")
         c.execute("""CREATE TABLE IF NOT EXISTS price_history (    -- jede Preisänderung eines Inserats
                          listing_key TEXT NOT NULL, price REAL NOT NULL, currency TEXT, seen_at TEXT NOT NULL)""")
         c.execute("CREATE INDEX IF NOT EXISTS price_history_key ON price_history(listing_key)")
@@ -620,19 +652,32 @@ def get_ai_progress() -> tuple[int, int]:
         return int(row["evaluated"] or 0), int(row["total"] or 0)
 
 
-def add_hit(search_id: int, listing_key: str, is_new: bool) -> bool:
-    """Gibt True zurück, wenn der Treffer für diese Suche bisher unbekannt war."""
+def add_hit(search_id: int, listing_key: str, is_new: bool, baseline: bool = False) -> bool:
+    """Gibt True zurück, wenn der Treffer für diese Suche bisher unbekannt war.
+    baseline: kam beim ersten Abruf einer Quelle (Bestand) – zählt in der Statistik nicht als «neu»."""
     with connect() as c:
         cur = c.execute(
-            "INSERT OR IGNORE INTO hits (search_id, listing_key, first_seen, is_new, notified) VALUES (?,?,?,?,?)",
-            (search_id, listing_key, now(), int(is_new), int(not is_new)),
+            "INSERT OR IGNORE INTO hits (search_id, listing_key, first_seen, is_new, notified, baseline) VALUES (?,?,?,?,?,?)",
+            (search_id, listing_key, now(), int(is_new), int(not is_new), int(baseline)),
         )
         return cur.rowcount == 1
 
 
+def first_scans(search_id: int) -> set[str]:
+    """Quellen, die für diese Suche schon einmal erfolgreich abgefragt wurden."""
+    with connect() as c:
+        return {r["source"] for r in c.execute("SELECT source FROM search_sources WHERE search_id = ?", (search_id,))}
+
+
+def record_first_scan(search_id: int, source: str) -> None:
+    with connect() as c:
+        c.execute("INSERT OR IGNORE INTO search_sources (search_id, source, first_scan) VALUES (?,?,?)",
+                  (search_id, source, now()))
+
+
 def pending_top_hits(search_id: int, min_score: int, max_age_days: int = 3) -> list[dict]:
     """Neue, noch nicht gemeldete Top-Angebote einer Suche."""
-    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, h.search_id, {HIT_AI_SELECT}
+    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.baseline, h.hidden, h.search_id, {HIT_AI_SELECT}
               FROM hits h JOIN listings l ON l.key = h.listing_key
               WHERE h.search_id = ? AND h.notified = 0 AND h.hidden = 0 AND h.ai_relevant = 1
                 AND h.ai_score >= ? AND l.gone_at IS NULL AND COALESCE(l.reserved, 0) = 0
@@ -682,8 +727,8 @@ def mark_notified(search_id: int, keys: list[str]) -> None:
         )
 
 
-def hits_for_search(search_id: int, include_hidden: bool = False, limit: int = 300) -> list[dict]:
-    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.hidden, h.search_id, {HIT_AI_SELECT}
+def hits_for_search(search_id: int, include_hidden: bool = False, limit: int = 1_000_000) -> list[dict]:
+    sql = f"""SELECT l.*, h.first_seen AS hit_seen, h.is_new, h.baseline, h.hidden, h.search_id, {HIT_AI_SELECT}
              FROM hits h JOIN listings l ON l.key = h.listing_key
              WHERE h.search_id = ?"""
     if not include_hidden:

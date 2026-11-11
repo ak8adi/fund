@@ -1,6 +1,6 @@
 {# Suchseite: beste Angebote, darunter ausklappbar der Vergleich der Finalisten und die Liste aller Angebote.
    Diagramme (Marktlage, Lieferwege, Preis-Wert-Karte, Preisleiter) stehen auf der Analytics-Seite.
-   Erwartet: search, views (views.build), watching, list_html. #}
+   Erwartet: search, views (views.build), watching, list_html (Liste wird beim Aufklappen nachgeladen). #}
 <div class="vw">
   <div class="short-head sl" id="beste-gebote">
     <h2>Beste Angebote</h2>
@@ -17,7 +17,8 @@
     <div class="inner"><div class="scroll"><table id="vw-matrix"></table></div></div>
   </details>
 
-  <details class="view" data-view="list">
+  <details class="view" data-view="list" hx-get="/search/{{ search.id }}/results" hx-trigger="toggle once"
+           hx-target="#list-slot" hx-swap="innerHTML">
     <summary>Alle Angebote als Liste <span class="muted">· mit Sortierung, Notizen und Ausblenden</span></summary>
     <div class="inner">{{ list_html }}</div>
   </details>

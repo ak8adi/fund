@@ -187,15 +187,16 @@ window.FundusViews = (function () {
         const svg = $('vw-market'), tl = D.timeline, big = svg.dataset.big === '1';
         const W = big ? 900 : 600, H = big ? 220 : 70, B = big ? 22 : 0, mid = (H - B) / 2;
         svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-        const max = Math.max(1, ...tl.map(d => Math.max(d.new, d.gone))), bw = W / tl.length, Y = v => (mid - 4) * Math.sqrt(v / max);
+        const max = Math.max(1, ...tl.map(d => Math.max(d.new, d.gone))), bw = Math.min(W / tl.length, 30), Y = v => (mid - 4) * Math.sqrt(v / max);
+        const every = Math.max(1, Math.ceil(tl.length / 9));   // höchstens ~9 Datumsbeschriftungen
         el('line', {x1: 0, x2: W, y1: mid, y2: mid, class: 'grid'}, svg);
         tl.forEach((d, i) => {
           const x = i * bw + 1;
           if (d.new) el('rect', {x, y: mid - Y(d.new), width: bw - 2, height: Y(d.new), rx: 2, fill: css('--accent')}, svg)
-            .appendChild(el('title', {}, null, `${d.day}: ${d.new} neu`));
+            .appendChild(el('title', {}, null, `${d.days === 7 ? 'Woche ab ' : ''}${d.day}: ${d.new} neu`));
           if (d.gone) el('rect', {x, y: mid, width: bw - 2, height: Y(d.gone), rx: 2, fill: css('--warn')}, svg)
-            .appendChild(el('title', {}, null, `${d.day}: ${d.gone} weg`));
-          if (big && i % 5 === 0) el('text', {x: x + bw / 2, y: H - 6, 'text-anchor': 'middle'}, svg, d.day.slice(8, 10) + '.' + d.day.slice(5, 7) + '.');
+            .appendChild(el('title', {}, null, `${d.days === 7 ? 'Woche ab ' : ''}${d.day}: ${d.gone} weg`));
+          if (big && i % every === 0) el('text', {x: x + bw / 2, y: H - 6, 'text-anchor': 'middle'}, svg, d.day.slice(8, 10) + '.' + d.day.slice(5, 7) + '.');
         });
       },
     };
@@ -216,6 +217,21 @@ window.FundusViews = (function () {
       d.addEventListener('toggle', () => { try { localStorage.setItem(k, d.open ? '1' : '0'); } catch (e) { /* egal */ } draw(); });
     });
     draw();
+
+    // Liste aller Angebote wird beim Aufklappen nachgeladen (hx-trigger="toggle once"); war sie schon offen, bevor
+    // htmx bereit war, hier sicherstellen
+    const listBox = document.querySelector('.vw details.view[data-view="list"]');
+    const ensureList = () => {
+      const slot = $('list-slot');
+      if (listBox && listBox.open && slot && slot.dataset.loaded !== '1' && window.htmx && !slot.querySelector('#search-results-container')) {
+        slot.dataset.loaded = '1';
+        htmx.ajax('GET', `/search/${SID}/results`, {target: '#list-slot', swap: 'innerHTML'});
+      }
+    };
+    if (listBox) {
+      listBox.addEventListener('toggle', () => setTimeout(ensureList, 300));
+      addEventListener('load', () => setTimeout(ensureList, 300));
+    }
 
     // Verfügbarkeitsprüfung beim Öffnen: warten, und nur neu laden, wenn sich oben etwas geändert hat
     if (opts.watching) {

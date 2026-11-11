@@ -89,13 +89,18 @@
   <button name="by" value="score" class="{{ 'on' if search.sort_by != 'price' }}">Bestes Angebot</button>
   <button name="by" value="price" class="{{ 'on' if search.sort_by == 'price' }}">Preis ↑</button>
 </form>
-{% include "_search_results.html" %}
+<div id="list-slot"><p class="muted small">lädt …</p></div>
 {% endset %}
 {% include "_views.html" %}
 </div>
 
 <script>
-function copyForGemini(btn) {
+async function copyForGemini(btn) {
+  if (!window.currentRelevantHits) {  // Liste wird erst beim Aufklappen geladen – Daten hier direkt holen
+    const html = await fetch('/search/{{ search.id }}/results').then(r => r.text());
+    const m = html.match(/window\.currentRelevantHits = (.*);/);
+    window.currentRelevantHits = m ? JSON.parse(m[1]) : [];
+  }
   const hits = window.currentRelevantHits;
   const query = {{ search.query | tojson }};
 

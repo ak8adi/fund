@@ -144,6 +144,22 @@ alle 30 Minuten und sofort beim Öffnen der Suche (wenn länger als 30 Min. unge
 rückt das nächste nach und wird gleich mitgeprüft, ebenso Doppelinserate desselben Angebots. Verkaufte und
 reservierte Angebote fliessen weiter in Marktpreis und Statistik ein, stehen aber nie oben.
 
+## Langzeit-Archiv
+
+Neben der Datenbank (`data/fundus.db`, behält alle Inserate, Beschreibungen und jede Preisänderung) schreibt fundus
+ein geordnetes Archiv nach `data/archiv/<nr>-<suche>/` (`archive.py`) – nach jeder fertigen KI-Bewertung einer Suche:
+
+- `JJJJ-MM-TT.jsonl.gz` – Tagesstand: jeder Treffer der Suche mit allen Inseratdaten, Beschreibung, KI-Bewertung,
+  Score, Endpreis, Status (auch ausgefilterte und verkaufte) und Preisverlauf, eine JSON-Zeile pro Treffer
+- `verlauf.csv` – eine Zeile pro Lauf: verfügbar, neu, weg, günstigster, Median, Markt-, Neu- und Refurbished-Preis
+- `suche.json` – Einstellungen der Suche
+
+Gelöschte Suchen behalten ihren Ordner. Etwa 1–2 MB pro Tag für ein Dutzend Suchen.
+
+**Neu und weg** zählen nur echte Veränderungen: was beim ersten Abruf einer Plattform für eine Suche kommt
+(`hits.baseline`, Tabelle `search_sources`), ist Bestand – auch wenn eine Plattform später dazukommt. Die Marktlage
+zeigt den ganzen Verlauf seit Beginn der Suche, bis 120 Tage pro Tag, danach pro Woche (höchstens zwei Jahre).
+
 ## Android-App
 
 `android/` ist nur eine Hülle (WebView) um fundus auf dem Mac – wie die Zeit-App. Sie lädt `web.public_url`

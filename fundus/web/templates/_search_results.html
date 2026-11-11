@@ -48,19 +48,15 @@
 
   {% if gone_hits %}
     <details class="card" style="margin-top: 1rem;">
-      <summary>Nicht mehr verfügbar ({{ gone_hits | length }} verkauft oder gelöscht)</summary>
-      <div class="hits wide" style="margin-top: 1rem;">
-        {% for h in gone_hits %}{% include "_hit.html" %}{% endfor %}
-      </div>
+      <summary hx-get="/search/{{ search.id }}/part/gone" hx-trigger="click once" hx-target="next .hits" hx-swap="innerHTML">Nicht mehr verfügbar ({{ gone_hits | length }} verkauft oder gelöscht)</summary>
+      <div class="hits wide" style="margin-top: 1rem;"><p class="muted small">lädt …</p></div>
     </details>
   {% endif %}
 
   {% if irrelevant_hits %}
     <details class="card" style="margin-top: 1rem;">
-      <summary>Ausgefiltert ({{ irrelevant_hits | length }} unpassende Treffer)</summary>
-      <div class="hits wide" style="margin-top: 1rem;">
-        {% for h in irrelevant_hits %}{% include "_hit.html" %}{% endfor %}
-      </div>
+      <summary hx-get="/search/{{ search.id }}/part/filtered" hx-trigger="click once" hx-target="next .hits" hx-swap="innerHTML">Ausgefiltert ({{ irrelevant_hits | length }} unpassende Treffer)</summary>
+      <div class="hits wide" style="margin-top: 1rem;"><p class="muted small">lädt …</p></div>
     </details>
   {% endif %}
 

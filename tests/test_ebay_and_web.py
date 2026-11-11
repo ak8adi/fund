@@ -67,7 +67,7 @@ def test_requirements_and_price_sort(monkeypatch):
 
         client.post(f"/search/{sid}/sort", data={"by": "price"})
         # Noch ungeprüfte Inserate stehen nach den geprüften, auch wenn sie billiger sind
-        page = client.get(f"/search/{sid}").text
+        page = client.get(f"/search/{sid}/results").text   # Liste wird beim Aufklappen nachgeladen
         assert page.index("Tisch 0") < page.index("Tisch 1") < page.index("Tisch 2")
         assert "✓ Länge 140 cm" in page
 

@@ -428,6 +428,8 @@ def start_background_evaluation(search_id: int):
                             AI_RUNNING = False
                     log.info("Hintergrund-Auswertung für Suche %s beendet", search_id)
                     notify_top_hits(search_id)
+                    from . import archive
+                    archive.snapshot(search_id)  # Langzeit-Archiv: Stand nach fertiger Bewertung
                     break
                 time.sleep(7) # 5-10 seconds pause
         finally:

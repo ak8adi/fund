@@ -116,6 +116,39 @@ def _missed(hits: list[dict], fx: dict, reference: float | None, year: float | N
     }
 
 
+DAILY_DAYS = 120    # bis so lange seit Suchbeginn: ein Balken pro Tag, danach pro Woche
+MAX_WEEKS = 104     # länger zurück: nur die neusten zwei Jahre zeigen
+
+
+def _timeline(search: dict, hits: list[dict], now: datetime) -> tuple[list[dict], dict]:
+    """Neue und verschwundene passende Angebote seit Beginn der Suche – nur echte Veränderungen: der Bestand beim
+    ersten Abruf einer Plattform (baseline) zählt nicht als «neu». Dazu die letzten 7 Tage als Kennzahl."""
+    new_at, gone_at = Counter(), Counter()
+    for h in hits:
+        if h.get("ai_relevant") != 1:
+            continue
+        if h.get("hit_seen") and not h.get("baseline"):
+            new_at[h["hit_seen"][:10]] += 1
+        if h.get("gone_at"):
+            gone_at[h["gone_at"][:10]] += 1
+    seen = [h["hit_seen"][:10] for h in hits if h.get("hit_seen")]
+    first = min([d for d in [(search.get("created_at") or "")[:10]] + seen if d] or [now.date().isoformat()])
+    start, today = datetime.fromisoformat(first).date(), now.date()
+    span = (today - start).days + 1
+    step = 1 if span <= DAILY_DAYS else 7
+    if step == 7:
+        start = today - timedelta(days=today.weekday() + 7 * (min(MAX_WEEKS, -(-span // 7)) - 1))  # Montage
+    buckets = []
+    day = start
+    while day <= today:
+        keys = [(day + timedelta(days=i)).isoformat() for i in range(step)]
+        buckets.append({"day": day.isoformat(), "days": step,
+                        "new": sum(new_at[k] for k in keys), "gone": sum(gone_at[k] for k in keys)})
+        day += timedelta(days=step)
+    recent = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+    return buckets, {"new": sum(new_at[k] for k in recent), "gone": sum(gone_at[k] for k in recent)}
+
+
 def price_head(search: dict, offers: list[dict]) -> dict:
     """Ganz oben in der Suche: günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot –
     beide als Endpreis bis zu dir, mit Aufschlüsselung (Preis, Versand, Import)."""
@@ -187,17 +220,7 @@ def build(search_id: int) -> dict:
     missed = _missed(hits, fx, reference, year, new_price, offers)
     head = price_head(search, offers)
 
-    # Zeitreihe: neue und verschwundene passende Angebote pro Tag (letzte 30 Tage)
-    start = (now - timedelta(days=29)).date()
-    new_per_day, gone_per_day = Counter(), Counter()
-    for h in hits:
-        if h.get("ai_relevant") != 1:
-            continue
-        if h.get("hit_seen"):
-            new_per_day[h["hit_seen"][:10]] += 1
-        if h.get("gone_at"):
-            gone_per_day[h["gone_at"][:10]] += 1
-    days = [(start + timedelta(days=i)).isoformat() for i in range(30)]
+    timeline, week = _timeline(search, hits, now)
 
     pays = [o["pay"] for o in offers]
     return {
@@ -208,7 +231,8 @@ def build(search_id: int) -> dict:
         "missed": missed,
         "head": head,
         "band": _quartiles(pays),
-        "timeline": [{"day": d, "new": new_per_day.get(d, 0), "gone": gone_per_day.get(d, 0)} for d in days],
+        "timeline": timeline,
+        "week": week,
         "area": region.label if region else None,
         "counts": {"all": len([h for h in hits if h.get("ai_relevant") == 1]), "open": len(offers),
                    "front": sum(o["front"] for o in offers), "ko": sum(bool(o["ko"]) for o in offers)},

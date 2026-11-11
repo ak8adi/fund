@@ -8,7 +8,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from . import db, fx as fx_rates, newprice, scoring
+from . import archive, db, fx as fx_rates, newprice, scoring
 from .ai import apply_platform_shipping
 from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapter_for_source
 from .adapters.base import fetch_html
@@ -307,6 +307,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         collected: list[Listing] = []
         complete_sources: set[str] = set()
         returned: set[str] = set()   # alles, was die Plattformen geliefert haben – vor jedem Filter
+        scanned_before = db.first_scans(search["id"])
+        stock: set[str] = set()       # Bestand: Treffer aus dem ersten Abruf einer Quelle (zählen nicht als «neu»)
         mine = [s for s in sources if not search["platforms"] or s["adapter"] in search["platforms"]]
         _progress.update(index=_progress["index"] + 1, query=search["query"], sources=len(mine), source=0, step="sucht")
         for src in sources:
@@ -326,6 +328,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     l.source = l.source or src["name"]
                 collected.extend(found)
                 returned.update(l.key for l in found)
+                if src["name"] not in scanned_before:
+                    stock.update(l.key for l in found)
+                    db.record_first_scan(search["id"], src["name"])
                 if getattr(adapter, "complete", False):  # Ricardo: vollständige Liste → Fehlende sind weg
                     complete_sources.add(src["adapter"])
                 source_counts[src["name"]] = source_counts.get(src["name"], 0) + len(found)
@@ -347,7 +352,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         for l in collected:
             t = assess(l)
             db.upsert_listing(l, t.level, t.reasons)
-            if db.add_hit(search["id"], l.key, is_new=bool(search["baseline_done"])) and search["baseline_done"]:
+            fresh = bool(search["baseline_done"]) and l.key not in stock  # neue Quelle: Bestand, keine Meldungsflut
+            if db.add_hit(search["id"], l.key, is_new=fresh, baseline=not fresh) and fresh:
                 new_hits.append({
                     "key": l.key, "title": l.title, "price": l.price, "currency": l.currency, "url": l.url,
                     "image": l.image, "platform": l.platform, "location": l.location,
@@ -366,6 +372,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         if newprice.is_stale(search):  # Neupreis beim ersten Lauf, danach monatlich auffrischen
             newprice.refresh(search["id"])
         scoring.rescore_search(search["id"])  # Preise können sich geändert haben
+        if not cfg.get("ai", {}).get("gemini_api_key"):
+            archive.snapshot(search["id"])  # ohne KI: gleich archivieren (sonst nach der Bewertung, ai.py)
         total_new += len(new_hits)
         if new_hits and not cfg.get("ai", {}).get("gemini_api_key"):
             # Ohne KI sofort melden; mit KI erst nach der Prüfung und nur Top-Angebote (notify.notify_top_hits)

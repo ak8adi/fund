@@ -19,7 +19,7 @@
     {% else %}
       {% set share = ai_progress.evaluated / ai_progress.total %}
       {{ ring(share, "KI %d von %d bewertet" % (ai_progress.evaluated, ai_progress.total)) }}
-      <span class="small">KI bewertet <b>{{ (share * 100) | round | int }} %</b></span>
+      <span class="small">KI bewertet <b>{{ (share * 100) | round(0, "floor") | int }} %</b></span>
     {% endif %}
   </div>
 {% else %}

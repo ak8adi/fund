@@ -9,10 +9,9 @@
   </div>
 
   <section class="view">
-    <h3>Marktlage <span class="muted">· letzte 30 Tage</span></h3>
+    <h3>Marktlage <span class="muted">· seit Beginn der Suche{% if views.timeline and views.timeline[0].days == 7 %}, pro Woche{% endif %}</span></h3>
     <div class="inner">
-      {% set wk = views.timeline[-7:] %}
-      {% set n_new = wk | sum(attribute='new') %}{% set n_gone = wk | sum(attribute='gone') %}
+      {% set n_new = views.week.new %}{% set n_gone = views.week.gone %}
       <div class="stats">
         <div><b>{{ c.open }}</b><span>verfügbar, passend</span></div>
         <div class="good"><b>{{ n_new }}</b><span>neu in 7 Tagen</span></div>
@@ -21,7 +20,7 @@
         <div><b>{{ price(views.band[0], 'CHF') }}–{{ price(views.band[2], 'CHF') }}</b><span>mittlere Hälfte</span></div>{% endif %}
       </div>
       <svg id="vw-market" data-big="1" viewBox="0 0 900 220" role="img" aria-label="Neue und verschwundene Angebote pro Tag"></svg>
-      <div class="legend"><span><i style="background:var(--accent)"></i>neu dazugekommen</span><span><i style="background:var(--warn)"></i>verkauft / weg</span></div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>neu dazugekommen (ohne Bestand beim ersten Abruf einer Plattform)</span><span><i style="background:var(--warn)"></i>verkauft / weg</span></div>
       <p class="muted small">
         {% if n_new > n_gone * 2 %}Es kommen deutlich mehr Angebote dazu als weggehen – Warten lohnt sich eher.
         {% elif n_gone > n_new %}Es gehen mehr Angebote weg als neu dazukommen – gute Angebote nicht lange liegen lassen.

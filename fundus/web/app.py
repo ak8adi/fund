@@ -461,6 +461,24 @@ def search_fresh(sid: int):
     return JSONResponse({"watching": runner.is_watching(sid), "top": top})
 
 
+@app.get("/search/{sid}/part/{which}", response_class=HTMLResponse)
+def search_part(request: Request, sid: int, which: str):
+    """Selten gebrauchte Teile der Liste erst beim Aufklappen laden («Nicht mehr verfügbar», «Ausgefiltert») –
+    grosse Suchen hätten sonst Seiten von mehreren MB."""
+    search = db.get_search(sid)
+    if not search or which not in ("gone", "filtered"):
+        return HTMLResponse("")
+    hits = db.hits_for_search(sid)
+    _mark_filtered(hits, search)
+    _sort_hits(hits, search)
+    if which == "gone":
+        hits = [h for h in hits if h.get("gone_at")]
+    else:
+        hits = [h for h in hits if not h.get("gone_at") and (h.get("_inactive_platform") or h.get("_outside")
+                                                              or h.get("ai_relevant") == 0)]
+    return templates.TemplateResponse(request, "_hit_list.html", _ctx(request, search=search, hits=hits))
+
+
 @app.get("/search/{sid}/results", response_class=HTMLResponse)
 
 def search_results(request: Request, sid: int):
@@ -630,6 +648,8 @@ def toggle_search(sid: int):
 
 @app.post("/search/{sid}/delete")
 def remove_search(sid: int):
+    from .. import archive
+    archive.snapshot(sid)  # letzter Stand bleibt im Archiv (data/archiv), auch wenn die Suche gelöscht ist
     db.delete_search(sid)
     return RedirectResponse("/", status_code=303)
 
