@@ -14,7 +14,7 @@ from .adapters import AdapterError, BlockedError, GoneError, all_adapters, adapt
 from .adapters.base import fetch_html
 from .adapters.extract import extract_description_from_page, shipping_from_page, status_from_page
 from .config import get_config
-from .matching import excluded, matches_query
+from .matching import excluded, matches_query, matches_search, search_terms, words
 from .models import Listing
 from .notify import notify_hits
 from .trust import assess, price_in_chf
@@ -241,7 +241,7 @@ def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
     for l in listings:
         if excluded(search["exclude_words"], l.title):
             continue
-        if not matches_query(search["query"], l.title):
+        if not matches_search(search, l.title):
             continue
         chf = price_in_chf(l.price, l.currency, fx)
         if chf is not None:
@@ -259,6 +259,32 @@ DEEP_PAGES = 3    # Bestand beim ersten Abruf einer Quelle: so viele Seiten lese
 MORE_PAGES = 3    # später: höchstens bis zu dieser Seite nachblättern, solange eine Seite nur Unbekanntes zeigt
 
 
+def _alt_pages(adapter, search: dict, source: str, seen: set[str], pause, stock: set[str]) -> list[Listing]:
+    """Alternativ-Begriffe der Suche (offizieller Name, andere Schreibweise): je eine Abfrage, nur erste Seite.
+    Kostet pro Begriff eine Anfrage mehr je Plattform und Lauf – darum höchstens matching.MAX_ALTS.
+    Erster Abruf eines Begriffs auf einer Quelle = Bestand (in stock), keine Meldungsflut beim Hinzufügen."""
+    out: list[Listing] = []
+    done = db.first_scans(search["id"]) if search.get("id") else set()
+    for alt in search_terms(search)[1:]:
+        pause()
+        try:
+            rows = adapter.search(alt, source, search.get("min_price"), search.get("max_price"))
+        except BlockedError:
+            raise
+        except AdapterError as exc:
+            log.info("%s / %s, Alternative «%s»: %s", search["query"], source, alt, exc)
+            continue
+        new = [l for l in rows if l.key not in seen]
+        seen.update(l.key for l in new)
+        out += new
+        tag = f"{source}|{' '.join(words(alt))}"
+        if tag not in done and search.get("id"):
+            stock.update(l.key for l in new)
+            db.record_first_scan(search["id"], tag)
+        log.info("%s / %s, Alternative «%s»: %d zusätzlich", search["query"], source, alt, len(new))
+    return out
+
+
 def _search_pages(adapter, search: dict, source: str, deep: bool, known: set[str], pause) -> tuple[list[Listing], set[str]]:
     """Seite 1 – und weitere Seiten, wo die Plattform sie liefert (adapter.paged):
     - deep (Bestand noch nie tief gelesen): bis DEEP_PAGES Seiten. Sonst kennt fundus nur die neusten ~25 Inserate
@@ -269,8 +295,9 @@ def _search_pages(adapter, search: dict, source: str, deep: bool, known: set[str
     args = (search["query"], source, search.get("min_price"), search.get("max_price"))
     found = adapter.search(*args)
     stock: set[str] = set()
+    alt = _alt_pages(adapter, search, source, {l.key for l in found}, pause, stock)   # nur erste Seite, zählt nicht fürs Blättern
     if not getattr(adapter, "paged", False):
-        return found, stock
+        return found + alt, stock
     last, seen = found, {l.key for l in found}
     for page in range(2, (DEEP_PAGES if deep else MORE_PAGES) + 1):
         if len(last) < 15 or not (deep or all(l.key not in known for l in last)):
@@ -289,7 +316,7 @@ def _search_pages(adapter, search: dict, source: str, deep: bool, known: set[str
         found += last
         if deep:
             stock.update(l.key for l in last)
-    return found, stock
+    return found + [l for l in alt if l.key not in seen], stock
 
 
 def recently_manual(search: dict, hours: float, now: datetime | None = None) -> bool:
@@ -336,7 +363,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
     blocked: set[str] = set(paused)
     for name, until in paused.items():
         log.info("%s pausiert nach Sperre bis %s", name, until.isoformat(timespec="minutes"))
-    lo, hi = cfg.get("request_delay", [4, 11])
+    lo, hi = (float(x) for x in cfg.get("request_delay", [4, 11]))   # aus Umgebungsvariable kommen Texte
     first_request = True
 
     _progress.clear()

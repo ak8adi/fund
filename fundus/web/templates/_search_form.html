@@ -30,9 +30,15 @@
     </div>
     <p class="muted small">Nichts angehakt = alle. Beides = verschickbare von überall und alles in der Nähe.</p>
   </fieldset>
-  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets or s.group_name) %}open{% endif %} style="margin-bottom:12px;">
+  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets or s.group_name or s.alt_queries) %}open{% endif %} style="margin-bottom:12px;">
     <summary>Mehr Optionen ▾</summary>
     <div class="more-body">
+      <div class="row alt-row">
+        <label class="grow" title="Andere Namen für genau dieses Produkt, z.B. der offizielle Modellname. Werden mit abgefragt und gelten im Titel wie der Suchtext. Höchstens 2 – jeder kostet pro Lauf eine Abfrage mehr je Plattform.">Auch suchen nach <span class="muted small">(höchstens 2, kommagetrennt)</span>
+          <input name="alt_queries" placeholder="z.B. offizieller Produktname" value="{{ s.alt_queries | join(', ') if s else '' }}" autocomplete="off">
+        </label>
+        {% if cfg and cfg.ai and cfg.ai.gemini_api_key %}<button type="button" class="btn small ghost alt-suggest" title="Die KI schlägt andere Namen vor – erst Speichern macht sie aktiv">Vorschlagen</button>{% endif %}
+      </div>
       <div class="row">
         <label class="grow">Ausschliessen (kommagetrennt)
           <input name="exclude" placeholder="defekt, kinder, suche" value="{{ s.exclude if s else '' }}">
@@ -59,3 +65,16 @@
   </details>
   <button class="btn">{{ 'Speichern' if s else 'Suche anlegen' }}</button>
 </form>
+<script>
+document.querySelectorAll('.alt-suggest').forEach(b => b.addEventListener('click', async () => {
+  const f = b.closest('form'), inp = f.querySelector('[name=alt_queries]'), q = f.querySelector('[name=query]').value.trim();
+  if (!q) return;
+  b.disabled = true; b.textContent = '…';
+  try {
+    const alt = (await (await fetch('/api/alternatives?q=' + encodeURIComponent(q))).json()).alt || [];
+    if (alt.length) inp.value = alt.join(', ');
+    b.textContent = alt.length ? 'Vorschlagen' : 'keine nötig';
+  } catch (e) { b.textContent = 'Vorschlagen'; }
+  b.disabled = false;
+}));
+</script>

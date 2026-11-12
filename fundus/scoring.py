@@ -18,7 +18,7 @@ import re
 from . import db, fx as fx_rates
 from .config import get_config
 from . import delivery as deliv
-from .matching import matches_query
+from .matching import matches_search
 from .trust import bidding, listing_price, price_in_chf
 
 # Wert relativ zu neu; «gut» ist der typische Zustand im Gebrauchtmarkt
@@ -160,7 +160,7 @@ def rescore_search(search_id: int) -> float | None:
     search = db.get_search(search_id) or {}
     for h in hits:  # Vorfilter gilt auch für Bestand: nach einer Regeländerung stünde sonst Altes weiter als passend da
         if h.get("ai_relevant") == 1 and h.get("ai_reason") != "Manuell eingeblendet" \
-                and not matches_query(search.get("query") or "", h.get("title") or ""):
+                and not matches_search(search, h.get("title") or ""):
             db.set_hit_relevant(search_id, h["key"], False, "Suchwörter fehlen im Titel")
             h["ai_relevant"] = 0
     mark_duplicates(hits)

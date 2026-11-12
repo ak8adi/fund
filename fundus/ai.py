@@ -13,7 +13,7 @@ from .adapters import all_adapters, adapter_for_source
 from .adapters.base import GoneError, fetch_html, proxy
 from .adapters.extract import extract_description_from_page, listing_images, shipping_from_page
 from . import scoring
-from .matching import excluded, matches_query
+from .matching import excluded, matches_search
 from .notify import image_url, notify_top_hits
 
 log = logging.getLogger(__name__)
@@ -56,7 +56,8 @@ Bewerte NICHT, ob der Preis gut ist – das rechnet das Programm selbst."""
 
 
 def _facts_prompt(search: dict, items: list[dict]) -> str:
-    prompt = f"""Ich suche: '{search["query"]}'. Lies die Inserate und liefere Fakten pro Inserat.
+    aka = f" (auch genannt: {', '.join(search['alt_queries'])})" if search.get("alt_queries") else ""
+    prompt = f"""Ich suche: '{search["query"]}'{aka}. Lies die Inserate und liefere Fakten pro Inserat.
 Fehltreffer (mehrdeutige Begriffe, blosses Zubehör, Ersatzteile, anderes Modell/Grösse) → relevant = false.
 Zahlen im Suchtext sind verbindlich (Bildschirmgrösse, Modellnummer, Generation, Grösse): nennt das Inserat dafür
 einen anderen Wert – z.B. 14 Zoll bei gesuchten 16, «Pro 3» bei gesuchtem «Pro 4», 12 m bei gesuchten 9 m –
@@ -209,7 +210,7 @@ def evaluate_listings(search_id: int) -> int:
         if excluded(search.get("exclude_words") or [], h.get("title")):
             db.update_hit_ai(search_id, h["key"], False, "Ausgeschlossener Begriff")
             done += 1
-        elif not matches_query(search["query"], h.get("title", "")):
+        elif not matches_search(search, h.get("title", "")):
             # Treffer von vor dem Vorfilter (runner._filter)
             db.update_hit_ai(search_id, h["key"], False, "Suchwörter fehlen im Titel")
             done += 1
@@ -442,6 +443,36 @@ def start_background_evaluation(search_id: int):
                     AI_RUNNING = False
 
     threading.Thread(target=_eval_loop, daemon=True).start()
+
+
+def suggest_alternatives(query: str) -> list[str]:
+    """Erster Baustein des Suchprofils: wie nennen Verkäufer das Gesuchte im Titel, wenn nicht so wie im Suchtext?
+    Höchstens zwei Begriffe (offizieller Produktname, gängige andere Schreibweise); leer, wenn der Suchtext schon der
+    übliche Name ist. Nur ein Vorschlag im Formular («Vorschlagen»): an echten Suchen (Nov. 2026) lag die KI bei
+    allgemeinen Begriffen oft daneben («thule urban glide 3» → «thule kinderwagen»), darum aktiviert sie nichts selbst."""
+    api_key = get_config().get("ai", {}).get("gemini_api_key")
+    if not api_key:
+        return []
+    prompt = f"""Gebrauchtsuche nach «{query}» auf Schweizer und deutschen Kleinanzeigen-Plattformen.
+Frage: Unter welchem ANDEREN Namen bieten Verkäufer GENAU dieses Produkt an, sodass ein Inserat den Suchtext nicht
+enthält? Typisch: der offizielle Produkt- oder Modellname, wenn der Suchtext ihn umschreibt (z.B. «Poäng
+Schaukelstuhl» für «ikea schaukelstuhl»), oder eine gängige andere Schreibweise des Namens.
+Regeln:
+- Ist der Suchtext eine allgemeine Kategorie (z.B. «tisch», «sessel», «tisch biedermeier») und kein bestimmtes
+  Produkt: leere Liste.
+- Nennt der Suchtext den Produktnamen schon: leere Liste. Keine Untervarianten (Farben, Jahrgänge, Single/Doppel,
+  Chip-Generationen), keine Oberbegriffe, keine ähnlichen Produkte anderer Marken, keine Schwesterprodukte derselben
+  Serie (z.B. Sessel statt Schaukelstuhl).
+- Zahlen aus dem Suchtext beibehalten. Höchstens 2 Begriffe mit 1–4 Wörtern. Im Zweifel leere Liste.
+JSON: {{"alt": ["…"]}}"""
+    try:
+        data = _gemini_json(prompt, "Du kennst Produktnamen und wie sie in Kleinanzeigen heissen. Antworte nur mit JSON.",
+                            api_key, timeout=30)
+    except Exception as exc:
+        log.info("Alternativ-Begriffe für «%s» nicht erzeugt: %s", query, exc)
+        return []
+    from .matching import clean_alts
+    return clean_alts(query, (data or {}).get("alt") if isinstance(data, dict) else [])
 
 
 def _call_gemini_text(prompt: str, system_instruction: str = "") -> str:

@@ -7,6 +7,7 @@ Geprüft an echten Daten (Okt. 2026): behält 130 von 133 relevanten Treffern un
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # «Sensor4» und «4S» wie «Sensor 4» bzw. «4 S» behandeln
 _LETTER_DIGIT = re.compile(r"(?<=[^\W\d_])(?=\d)|(?<=\d)(?=[^\W\d_])")
@@ -23,9 +24,15 @@ _SPEC_SLASH = re.compile(rf"(?<![\w.,])(\d+) ?/ ?(\d+) ?({_SPEC_UNIT})(?!\w)")  
 _STORAGE_FROM = 100   # GB: darunter Arbeitsspeicher, ab hier Massenspeicher – nicht miteinander vergleichen
 
 
+def fold(text: str | None) -> str:
+    """Klein und ohne Akzente: «POÄNG» = «poang», «Fauteuil à bascule» = «fauteuil a bascule». Verkäufer schreiben
+    Produktnamen oft ohne Umlaut – sonst fehlte «poäng» im Titel «Poang Schaukelstuhl»."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", (text or "").lower()) if not unicodedata.combining(ch))
+
+
 def words(text: str | None) -> list[str]:
-    """Wörter des Texts, klein; «16 GB» und «16-Core» als ein Wort («16gb», «16core»)."""
-    text = _SPEC_SLASH.sub(r"\1\3 \2\3", (text or "").lower())
+    """Wörter des Texts, klein und ohne Akzente; «16 GB» und «16-Core» als ein Wort («16gb», «16core»)."""
+    text = _SPEC_SLASH.sub(r"\1\3 \2\3", fold(text))
     return re.findall(r"\w+", _SPEC_PAIR.sub(r"\1\2", text))
 
 
@@ -98,3 +105,32 @@ def matches_query(query: str, text: str) -> bool:
         return not plain
     allowed = len(wanted) // 2 if len(wanted) >= 4 else (1 if len(wanted) == 3 else 0)
     return len(plain) <= allowed
+
+
+MAX_ALTS = 2   # Alternativ-Begriffe pro Suche: jeder kostet pro Lauf eine Abfrage mehr je Plattform
+
+
+def search_terms(search: dict) -> list[str]:
+    """Suchtext und seine Alternativ-Begriffe (offizieller Produktname, andere Schreibweise), höchstens MAX_ALTS."""
+    return [search.get("query") or ""] + list(search.get("alt_queries") or [])[:MAX_ALTS]
+
+
+def matches_search(search: dict, text: str) -> bool:
+    """Wie matches_query, aber ein Titel darf statt des Suchtexts auch einen Alternativ-Begriff tragen
+    («Schaukelstuhl Poäng» bei der Suche «ikea schaukelstuhl» mit Alternative «Poäng Schaukelstuhl»)."""
+    return any(matches_query(q, text) for q in search_terms(search) if q.strip())
+
+
+def clean_alts(query: str, alts) -> list[str]:
+    """Alternativen aufräumen: kurz, ohne Doppel und ohne solche, die nur Wörter des Suchtexts enthalten
+    (die findet der Suchtext schon)."""
+    have, base = set(words(query)), tokens(query)
+    out: list[str] = []
+    for a in alts or []:
+        a = " ".join(str(a).replace(",", " ").split())[:40]
+        w = set(words(a))
+        # nur Wörter des Suchtexts → findet der Suchtext schon; alle Wörter des Suchtexts und mehr → bloss eine
+        # Untervariante («Thule Urban Glide 3 Doppel»), die der Suchtext ebenfalls findet
+        if w and not w <= have and not tokens(a) >= base and all(set(words(o)) != w for o in out):
+            out.append(a)
+    return out[:MAX_ALTS]

@@ -19,7 +19,7 @@ from ..adapters import all_adapters, adapter_for_source
 from ..adapters.base import BlockedError, GoneError, fetch_html
 from ..adapters.extract import extract_description_from_page, shipping_from_page
 from ..config import get_config, save_settings
-from ..matching import excluded
+from ..matching import clean_alts, excluded, matches_search
 from .. import notify
 from ..notify import format_price, image_url, send_test, send_weekly
 from ..scheduler import apply_schedule, next_runs, start_scheduler
@@ -398,6 +398,7 @@ def create_search(
     route_to: str = Form(""),
     route_km: str = Form(""),
     group_name: str = Form(""),
+    alt_queries: str = Form(""),
 ):
     sid = db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
@@ -407,8 +408,15 @@ def create_search(
     })
     if _num(new_price):
         db.set_new_price(sid, _num(new_price), "von Hand", True)
+    if alt_queries.strip():
+        db.set_alt_queries(sid, clean_alts(query, _split_alts(alt_queries)))
     runner.run_in_background("neue Suche", [sid])  # Bestand sofort einlesen (ohne Meldungen), sucht auch den Neupreis
     return RedirectResponse(f"/search/{sid}", status_code=303)
+
+
+def _split_alts(text: str | None) -> list[str]:
+    """Formularfeld «Auch suchen nach»: kommagetrennt oder eine pro Zeile."""
+    return [a.strip() for a in (text or "").replace("\n", ",").split(",") if a.strip()]
 
 
 def _area_fields(near, near_km: str, near_place: str, route_to: str, route_km: str) -> dict:
@@ -530,6 +538,7 @@ def update_search(
     route_to: str = Form(""),
     route_km: str = Form(""),
     group_name: str = Form(""),
+    alt_queries: str = Form(""),
 ):
     old_search = db.get_search(sid)
     db.save_search({
@@ -551,9 +560,22 @@ def update_search(
             db.set_new_price(sid, None, None, False)  # wieder automatisch
             newprice.refresh_in_background(sid)
 
+    alts_changed = False
+    if old_search:   # leeres Feld (FastAPI liefert dann "") = keine Alternativen
+        typed = clean_alts(query, _split_alts(alt_queries))
+        if typed != old_search["alt_queries"]:
+            db.set_alt_queries(sid, typed)
+            alts_changed = True
     search = db.get_search(sid)
     if search:
         changed = _apply_search_changes(sid, old_search, search)
+        if alts_changed:  # bisher vom Vorfilter Verworfenes, das jetzt passt, nochmals prüfen
+            for h in db.hits_for_search(sid, limit=5000):
+                if h.get("ai_reason") == "Suchwörter fehlen im Titel" and matches_search(search, h.get("title") or ""):
+                    db.reset_hit_ai(sid, h["key"])
+                    changed += 1
+            if not changed:
+                scoring.rescore_search(sid)   # Alternative entfernt: was nur dazu passte, fällt heraus
         if old_search and (old_search.get("requirements") or "") != search["requirements"]:
             db.reset_search_ai(sid)  # neue Anforderungen: passende Treffer neu von der KI prüfen lassen
             changed = True
@@ -648,6 +670,13 @@ def buy_new(request: Request, sid: int):
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse(request, "neukaufen.html", _ctx(
         request, search=search, views=views.build(sid), options=newprice.buy_options(search)))
+
+
+@app.get("/api/alternatives")
+def alternatives(q: str = ""):
+    """Formular «Auch suchen nach» › Vorschlagen: KI nennt andere Namen für dasselbe Produkt (nichts wird gespeichert)."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"alt": ai.suggest_alternatives(q.strip()[:120]) if q.strip() else []})
 
 
 @app.post("/searches/order")

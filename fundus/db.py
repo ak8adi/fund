@@ -236,6 +236,8 @@ def init_db() -> None:
             c.execute("ALTER TABLE searches ADD COLUMN group_name TEXT")
         if "manual_run_at" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN manual_run_at TEXT")  # letzter manueller Start
+        if "alt_queries" not in cols:  # Alternativ-Begriffe (JSON-Liste): offizieller Name, andere Schreibweise
+            c.execute("ALTER TABLE searches ADD COLUMN alt_queries TEXT")
         if "market_price" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN market_price REAL")
         if "requirements" not in cols:
@@ -332,7 +334,15 @@ def _search_row(r: sqlite3.Row) -> dict:
     d["exclude_words"] = [w.strip().lower() for w in d["exclude"].split(",") if w.strip()]
     d["allow_sets"] = bool(d.get("allow_sets", 1))
     d["new_price_offers"] = json.loads(d["new_price_offers"]) if d.get("new_price_offers") else []
+    d["alt_queries"] = json.loads(d["alt_queries"]) if d.get("alt_queries") else []
     return d
+
+
+def set_alt_queries(search_id: int, alts: list[str]) -> None:
+    """Alternativ-Begriffe einer Suche speichern (vom Nutzer bestätigt, siehe Formular «Auch suchen nach»)."""
+    with connect() as c:
+        c.execute("UPDATE searches SET alt_queries = ? WHERE id = ?",
+                  (json.dumps(alts, ensure_ascii=False) if alts else None, search_id))
 
 
 def save_search(data: dict, search_id: int | None = None) -> int:
