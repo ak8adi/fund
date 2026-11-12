@@ -133,3 +133,23 @@ def test_overview_is_cached_until_data_changes():
     assert views.build(sid) is a                    # gleicher Datenstand: aus dem Zwischenspeicher
     db.kv_set("irgendwas", "1")
     assert views.build(sid) is not a                # nach einem Schreibvorgang neu gerechnet
+
+
+def test_fold_rows_and_groups():
+    """Übersicht: Suche und Gruppe einklappen – Zustand auf dem Server, überlebt Neuladen und Umbenennen der Gruppe."""
+    from fastapi.testclient import TestClient
+    from fundus.web import app as webapp
+    a, b = (db.save_search({"query": q}) for q in ("alpha", "beta"))
+    with TestClient(webapp.app) as client:
+        client.post("/groups", json={"old": "", "name": "Wahl", "ids": [b]})
+        assert client.post("/overview/fold", json={"search": a, "folded": True}).json() == {"ok": True}
+        client.post("/overview/fold", json={"group": "Wahl", "folded": True})
+        page = client.get("/").text
+        assert f'class="ov-strip folded" data-id="{a}"' in page
+        assert f'class="ov-strip" data-id="{b}"' in page
+        assert 'class="ov-grp folded" data-group="Wahl"' in page and "1 Suche" in page
+        client.post("/groups", json={"old": "wahl", "name": "Auswahl", "ids": [b]})
+        assert 'class="ov-grp folded" data-group="Auswahl"' in client.get("/").text
+        client.post("/overview/fold", json={"search": a, "folded": False})
+        assert client.post("/overview/fold", json={"folded": True}).status_code == 400
+    assert db.folded() == {"s": set(), "g": {"auswahl"}}

@@ -356,10 +356,13 @@ def grouped(rows: list[tuple[dict, dict]]) -> list[dict]:
         block["rows"].append((s, v))
         block["ids"].append(s["id"])
     for b in blocks:
-        if b["name"] and len(b["rows"]) > 1:
+        if b["name"]:
             # bester Deal über alle Suchen der Gruppe: Wert ÷ Preis ist über Produkte hinweg vergleichbar
             pool = [{**o, "search": s["query"], "search_id": s["id"]} for s, v in b["rows"] for o in v["offers"] if o["front"]]
-            b["best"] = sorted(pool, key=lambda o: -(o["ratio"] or 0))[:6]
+            ranked = sorted(pool, key=lambda o: -(o["ratio"] or 0))
+            b["top"] = ranked[0] if ranked else None     # für die eingeklappte Gruppe
+            if len(b["rows"]) > 1:
+                b["best"] = ranked[:6]
     return blocks
 
 

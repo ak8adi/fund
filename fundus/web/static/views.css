@@ -249,3 +249,42 @@ dialog.sheet p { margin: 0; }
 .grp-list small { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .grp-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .grp-btns #grp-del { margin-right: auto; }
+
+/* Ein-/Ausklappen (static/reorder.js, Zustand serverseitig in kv ov_folded) */
+/* Pfeil links vor dem Namen wie bei den Gruppen: ⌄ offen, › eingeklappt; Trefferfläche grösser als das Zeichen */
+.ov-info .fold { position: absolute; top: 3px; left: 1px; width: 30px; height: 30px; min-height: 0 !important; padding: 0; border: 0;
+                 border-radius: 50%; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer; z-index: 1; }
+.ov-info .name { text-indent: 17px; }
+.ov-info .fold svg, .ov-grp-head .g-name svg { width: 16px; height: 16px; transition: transform .15s var(--ease); }
+.ov-grp-head .g-name { display: inline-flex; align-items: center; gap: 4px; }
+.ov-grp-head .g-name svg { color: var(--muted); flex: none; margin-left: -3px; }
+.ov-grp-head .g-name span { overflow: hidden; text-overflow: ellipsis; }
+.ov-grp-head .g-sum { display: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ov-grp-head .g-sum a { text-decoration: none; color: inherit; } .ov-grp-head .g-sum b { color: var(--accent); }
+body.ordering .ov-info .fold { display: none; }
+body:not(.ordering) .ov-grp.folded > .ov-strip, body:not(.ordering) .ov-grp.folded > .g-best { display: none; }
+body:not(.ordering) .ov-grp.folded .g-sum { display: block; }
+body:not(.ordering) .ov-grp.folded .g-name svg { transform: rotate(-90deg); }
+/* eingeklappte Suche: eine Zeile mit Name, «neu», gebraucht ab, Urteil bzw. neu ab */
+body:not(.ordering) .ov-strip.folded { overflow: visible; scroll-snap-type: none; }
+body:not(.ordering) .ov-strip.folded > :not(.ov-info) { display: none; }
+body:not(.ordering) .ov-strip.folded .ov-info { flex: 1 1 auto; border-radius: 14px; }
+body:not(.ordering) .ov-strip.folded .ov-info-link { flex-direction: row; align-items: center; gap: 4px 12px; padding: 9px 14px 9px 30px; min-height: 44px; }
+body:not(.ordering) .ov-strip.folded .name { flex: 1 1 auto; min-width: 0; -webkit-line-clamp: 1; padding-right: 0; font-size: 14.5px; text-indent: 0; }
+body:not(.ordering) .ov-strip.folded .pill { align-self: center; flex: none; }
+body:not(.ordering) .ov-strip.folded .pr { display: flex; align-items: baseline; gap: 4px; margin: 0; font-size: 14px; white-space: nowrap; flex: none; }
+body:not(.ordering) .ov-strip.folded .save { white-space: nowrap; flex: none; font-size: 12px; }
+body:not(.ordering) .ov-strip.folded .meta, body:not(.ordering) .ov-strip.folded .gear,
+body:not(.ordering) .ov-strip.folded .pr.none { display: none; }
+body:not(.ordering) .ov-strip.folded .fold { top: 50%; margin-top: -15px; }
+body:not(.ordering) .ov-strip.folded .fold svg { transform: rotate(-90deg); }
+body.ordering .ov-info .name { text-indent: 0; }
+@media (max-width: 600px) {
+  body:not(.ordering) .ov-strip.folded .ov-info-link { gap: 8px; }
+  body:not(.ordering) .ov-strip.folded .pr.u small { display: none; }
+  body:not(.ordering) .ov-strip.folded .save .vt { display: none; }
+  body:not(.ordering) .ov-strip.folded .ov-info-link:has(.save) .pr:not(.u) { display: none; }
+}
+body:not(.ordering) .ov-grp.folded .g-name { flex: 0 0 auto; max-width: 50%; }
+body:not(.ordering) .ov-grp.folded .g-sum { flex: 0 1 auto; }
+body.ordering .ov-grp-head .g-name svg { display: none; }

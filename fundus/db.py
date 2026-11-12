@@ -440,6 +440,24 @@ def set_search_groups(groups: dict[int, str]) -> None:
             c.execute("UPDATE searches SET group_name = ? WHERE id = ?", ((name or "").strip()[:60] or None, sid))
 
 
+def folded() -> dict:
+    """Eingeklappte Zeilen der Übersicht: {"s": {Such-ids}, "g": {Gruppennamen klein}} – serverseitig, damit es auf
+    jedem Gerät und nach einem App-Neustart gleich aussieht."""
+    try:
+        d = json.loads(kv_get("ov_folded") or "{}")
+    except ValueError:
+        d = {}
+    return {"s": {int(i) for i in d.get("s", []) if str(i).isdigit()}, "g": {str(g).lower() for g in d.get("g", [])}}
+
+
+def set_folded(kind: str, key, on: bool) -> None:
+    """Eine Suche (kind "s", key = id) oder Gruppe (kind "g", key = Name) ein- oder ausklappen."""
+    d = folded()
+    key = int(key) if kind == "s" else str(key).strip().lower()
+    (d[kind].add if on else d[kind].discard)(key)
+    kv_set("ov_folded", json.dumps({"s": sorted(d["s"]), "g": sorted(d["g"])}))
+
+
 def delete_search(search_id: int) -> None:
     with connect() as c:
         c.execute("DELETE FROM searches WHERE id = ?", (search_id,))

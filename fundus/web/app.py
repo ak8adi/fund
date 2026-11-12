@@ -274,7 +274,7 @@ def index(request: Request):
     rows = [(s, views.build(s["id"])) for s in searches]
     return templates.TemplateResponse(request, "index.html", _ctx(
         request,
-        rows=rows, blocks=views.grouped(rows),
+        rows=rows, blocks=views.grouped(rows), folded=db.folded(),
         runs=db.last_runs(1),
         health=_health(runner.available_sources(get_config())),
     ))
@@ -663,6 +663,21 @@ async def order_searches(request: Request):
     return JSONResponse({"ok": True})
 
 
+@app.post("/overview/fold")
+async def fold_row(request: Request):
+    """Suche oder Gruppe in der Übersicht ein-/ausklappen: {"search": id} oder {"group": Name}, dazu {"folded": bool}."""
+    from fastapi.responses import JSONResponse
+    data = await request.json()
+    on = bool(data.get("folded"))
+    if str(data.get("search", "")).isdigit():
+        db.set_folded("s", int(data["search"]), on)
+    elif str(data.get("group") or "").strip():
+        db.set_folded("g", str(data["group"]), on)
+    else:
+        return JSONResponse({"ok": False}, status_code=400)
+    return JSONResponse({"ok": True})
+
+
 @app.post("/groups")
 async def save_group(request: Request):
     """Gruppe anlegen oder bearbeiten: {"old": bisheriger Name oder "", "name": neuer Name ("" = auflösen),
@@ -679,6 +694,10 @@ async def save_group(request: Request):
         elif old and (s.get("group_name") or "").strip().lower() == old:
             changes[s["id"]] = ""
     db.set_search_groups(changes)
+    if old and old in db.folded()["g"] and old != name.lower():   # umbenannt: eingeklappt bleibt eingeklappt
+        db.set_folded("g", old, False)
+        if name:
+            db.set_folded("g", name, True)
     return JSONResponse({"ok": True})
 
 

@@ -10,7 +10,8 @@
 {% if not rows %}
   <p class="empty">Noch keine Suche. <a href="/neue-suche">Neue Suche anlegen</a></p>
 {% endif %}
-{% macro strip_row(s, v) %}
+{% set CHEV = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' %}
+{% macro strip_row(s, v, fs) %}
   {% set hd = v.head %}
   {% set front = v.offers | selectattr('front') | list %}
   {% set more = v.offers | rejectattr('front') | rejectattr('ko') | rejectattr('bidding') | list %}
@@ -18,8 +19,10 @@
   {% set bids = v.offers | selectattr('bidding') | rejectattr('ko') | selectattr('under') | sort(attribute='ends_at') | list %}
   {% set strip = (front | sort(attribute='new', reverse=true) | list) + more[:[0, 6 - front | length] | max] + bids[:2] %}
   {% set n_new = strip | selectattr('new') | list | length %}
-  <div class="ov-strip {{ '' if s.active else 'paused' }}" data-id="{{ s.id }}">
+  {% set f = s.id in fs.s %}
+  <div class="ov-strip{{ '' if s.active else ' paused' }}{{ ' folded' if f }}" data-id="{{ s.id }}">
     <div class="ov-info">
+      <button type="button" class="fold" aria-expanded="{{ 'false' if f else 'true' }}" title="{{ 'Ausklappen' if f else 'Einklappen' }}" aria-label="{{ s.query }} {{ 'ausklappen' if f else 'einklappen' }}">{{ CHEV | safe }}</button>
       <a class="gear" href="/search/{{ s.id }}#bearbeiten" title="Sucheinstellungen" aria-label="Sucheinstellungen von {{ s.query }}">⚙︎</a>
       <button type="button" class="gear copy" title="Angebote für Gemini kopieren" aria-label="Angebote von {{ s.query }} für Gemini kopieren" onclick="fundusCopy(this, '{{ s.id }}')">⧉</button>
       <span class="handle" aria-label="Ziehen zum Verschieben">≡</span>
@@ -27,9 +30,9 @@
         <span class="name">{{ s.query }}</span>
         {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% elif not s.active %}<span class="pill">pausiert</span>{% endif %}
         <span class="pr u"><small>gebraucht ab</small>{{ price(hd.used.pay, 'CHF') if hd.used else '–' }}</span>
-        {% if hd.new or not hd.successor %}<span class="pr"><small>neu ab</small>{{ price(hd.new.total, 'CHF') if hd.new else '–' }}</span>
+        {% if hd.new or not hd.successor %}<span class="pr{{ '' if hd.new else ' none' }}"><small>neu ab</small>{{ price(hd.new.total, 'CHF') if hd.new else '–' }}</span>
         {% else %}<span class="pr"><small>Nachfolger neu ab</small>{{ price(hd.successor.total, 'CHF') }}</span>{% endif %}
-        {% if hd.verdict and hd.verdict.against == 'neu' %}<span class="save verdict {{ hd.verdict.level }}" title="{{ hd.verdict.text }}">{{ {'klar': 'lohnt sich klar', 'ja': 'lohnt sich', 'knapp': 'knapp', 'nein': 'lieber neu'}[hd.verdict.level] }} · {{ '−' if hd.verdict.pct > 0 else '+' }}{{ hd.verdict.pct | abs }} %</span>
+        {% if hd.verdict and hd.verdict.against == 'neu' %}<span class="save verdict {{ hd.verdict.level }}" title="{{ hd.verdict.text }}"><span class="vt">{{ {'klar': 'lohnt sich klar', 'ja': 'lohnt sich', 'knapp': 'knapp', 'nein': 'lieber neu'}[hd.verdict.level] }} · </span>{{ '−' if hd.verdict.pct > 0 else '+' }}{{ hd.verdict.pct | abs }} %</span>
         {% elif hd.saving_pct and hd.saving_pct > 0 %}<span class="save">−{{ hd.saving_pct }} % gebraucht</span>{% endif %}
         <span class="meta">{{ v.counts.open }} verfügbar{% if s.last_run_at %}<br>geprüft {{ s.last_run_at | ago }}{% endif %}</span>
       </a>
@@ -66,9 +69,11 @@
   {% for b in blocks %}
   {% if b.name %}
   {# Entweder-oder-Gruppe: dünne Linie links zeigt, wie weit sie reicht; Kopf gedrückt halten = ganze Gruppe ziehen #}
-  <section class="ov-grp" data-group="{{ b.name }}">
+  {% set gf = b.name | lower in folded.g %}
+  <section class="ov-grp{{ ' folded' if gf }}" data-group="{{ b.name }}">
     <div class="ov-grp-head">
-      <button type="button" class="g-name" title="Gruppe bearbeiten">{{ b.name }}</button>
+      <button type="button" class="g-name" aria-expanded="{{ 'false' if gf else 'true' }}" title="{{ 'Ausklappen' if gf else 'Einklappen' }}">{{ CHEV | safe }}<span>{{ b.name }}</span></button>
+      <span class="g-sum">{{ b.rows | length }} {{ 'Suche' if b.rows | length == 1 else 'Suchen' }}{% if b.top %} · <a href="/go/{{ b.top.key | urlencode }}" target="_blank" rel="noopener" title="{{ b.top.title }}">bestes <b>{{ price(b.top.pay, 'CHF') }}</b></a>{% endif %}</span>
       <button type="button" class="g-edit">Bearbeiten</button>
       <span class="handle" aria-label="Gruppe verschieben">≡</span>
       <button type="button" class="g-copy" title="Alle Angebote der Gruppe für Gemini kopieren" aria-label="Gruppe für Gemini kopieren" onclick="fundusCopy(this, '{{ b.ids | join(',') }}')">⧉</button>
@@ -81,10 +86,10 @@
       {% endfor %}
     </div>
     {% endif %}
-    {% for s, v in b.rows %}{{ strip_row(s, v) }}{% endfor %}
+    {% for s, v in b.rows %}{{ strip_row(s, v, folded) }}{% endfor %}
   </section>
   {% else %}
-  {% for s, v in b.rows %}{{ strip_row(s, v) }}{% endfor %}
+  {% for s, v in b.rows %}{{ strip_row(s, v, folded) }}{% endfor %}
   {% endif %}
   {% endfor %}
 </div>
@@ -113,5 +118,5 @@
   </form>
 </dialog>
 {% endif %}
-<script src="/static/reorder.js?v=5"></script>
+<script src="/static/reorder.js?v=6"></script>
 {% endblock %}

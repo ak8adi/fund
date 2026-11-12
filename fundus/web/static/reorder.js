@@ -2,6 +2,7 @@
 //  · «Ordnen»: Suchen werden zu schmalen Zeilen; am Griff ≡ sofort ziehen. Über eine Gruppe ziehen = hinein,
 //    über ihr Ende hinaus = heraus; Griff am Gruppenkopf = ganze Gruppe verschieben. «Fertig» beendet.
 //  · Ohne «Ordnen» geht es weiterhin per Langdruck auf die Infokarte (~0,45 s).
+//  · Pfeil an der Suche bzw. Gruppenname = ein-/ausklappen (POST /overview/fold).
 //  · Gruppe anlegen/bearbeiten: Blatt mit Name und Auswahl der Suchen (POST /groups), danach neu laden.
 // Reihenfolge und Gruppen nach dem Ziehen → POST /searches/order.
 (function () {
@@ -118,6 +119,19 @@
   list.addEventListener('contextmenu', e => { if (e.target.closest('.ov-info, .ov-grp-head')) e.preventDefault(); });
   list.addEventListener('dragstart', e => { if (e.target.closest('.ov-info, .ov-grp-head')) e.preventDefault(); });
 
+  // ---------- Ein-/Ausklappen: Pfeil an der Suche, Name der Gruppe; Zustand liegt auf dem Mac (alle Geräte) ----------
+  list.addEventListener('click', e => {
+    const b = e.target.closest('.fold, .g-name');
+    if (!b || suppressClick || ordering()) return;
+    e.preventDefault();
+    const item = b.closest('.ov-grp-head') ? b.closest('.ov-grp') : b.closest('.ov-strip');
+    const on = item.classList.toggle('folded');
+    b.setAttribute('aria-expanded', on ? 'false' : 'true');
+    b.title = on ? 'Ausklappen' : 'Einklappen';
+    post('/overview/fold', item.matches('.ov-grp') ? {group: item.dataset.group, folded: on} : {search: +item.dataset.id, folded: on})
+      .catch(() => {});
+  });
+
   // ---------- Ordnen-Modus ----------
   const toggle = document.getElementById('order-toggle');
   if (toggle) toggle.addEventListener('click', () => {
@@ -160,7 +174,7 @@
   nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); nameIn.blur(); } });
 
   list.addEventListener('click', e => {
-    const b = e.target.closest('.g-name, .g-edit');
+    const b = e.target.closest('.g-edit');
     if (b && !suppressClick) openGroup(b.closest('.ov-grp').dataset.group);
   });
   const add = document.getElementById('new-group');
