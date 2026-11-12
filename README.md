@@ -60,8 +60,15 @@ mitliefern (`__NEXT_DATA__`, `ld+json`). Das übersteht Layout-Änderungen besse
 fundus ruft dort darum nur die Suchseite ab – ohne Parameter, so wie es Ricardos robots.txt erlaubt
 (`Allow: /*/s/`, `Disallow: /*/s/*?`) –, nie einzelne Inseratseiten, und mit mindestens 60 s Abstand.
 Nach einer Sperre ruht eine Plattform 1 h (oder so lange, wie der Server per `Retry-After` verlangt),
-bei weiteren Sperren in Folge 2, 4 … bis 24 h. Bot-Schutz umgehen (Browser-Tarnung, Proxys, Captcha-Löser)
-gehört bewusst nicht dazu.
+bei weiteren Sperren in Folge 2, 4 … bis 24 h. Bot-Schutz umgehen (Browser-Tarnung, wechselnde Proxys,
+Captcha-Löser) gehört bewusst nicht dazu. Vorübergehende Störungen (HTTP 500/502/504, Zeitüberschreitung) werden
+genau einmal nach 8 s wiederholt; scheitert nur ein Teil der Abfragen, steht in den Einstellungen
+«1 von 13 Abfragen fehlgeschlagen» statt eines Plattformfehlers.
+
+**Eigener Ausgang (optional):** `network.proxy: "http://<rechner-im-tailnet>:8888"` in `config.yaml` schickt
+alle Anfragen an Plattformen und Shops über einen festen, eigenen Rechner – eine Sperre gegen fundus trifft
+dann nicht die Heim-IP, mit der man selbst surft. Gemini, eBay-API, Karten und ntfy bleiben direkt.
+Das ist ein fester Ausgang, keine Rotation: Sperren gelten weiterhin und werden respektiert.
 
 **Bilder auswerten:** In jeder Suche lässt sich ein Prüfauftrag für die Fotos eingeben («Bestimme den Jahrgang
 der Trust Bar»). Gemini sieht sich dann bis zu 4 Fotos pro passendem Angebot an und passt Fazit, Jahrgang,

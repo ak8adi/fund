@@ -111,6 +111,7 @@ def http_client() -> httpx.Client:
             "Accept-Language": "de-CH,de;q=0.9,en;q=0.6",
         },
         http2=False,
+        proxy=proxy(),
     )
 
 
@@ -118,9 +119,16 @@ TRANSIENT = (500, 502, 504)
 RETRY_WAIT = 8.0   # Sekunden vor dem einen Neuversuch
 
 
+def proxy() -> str | None:
+    """network.proxy aus config.yaml: ein fester, eigener Ausgang für fundus (kein Wechsel, keine Tarnung) – damit eine
+    Sperre gegen fundus nicht die Heim-IP trifft, mit der man selbst surft. None = direkt."""
+    from ..config import get_config
+    return (get_config().get("network") or {}).get("proxy") or None
+
+
 def _get(url: str, impersonate: str, headers: dict | None):
     if CURL_AVAILABLE:
-        return curl_requests.get(url, impersonate=impersonate, timeout=25, headers=headers)
+        return curl_requests.get(url, impersonate=impersonate, timeout=25, headers=headers, proxy=proxy())
     with http_client() as client:
         if headers:
             client.headers.update(headers)
@@ -179,7 +187,7 @@ def _fetch_with_browser(url: str) -> str:
     except ImportError as exc:  # pragma: no cover
         raise AdapterError("fetcher: browser braucht Playwright: pip install 'fundus[browser]' && playwright install chromium") from exc
     with sync_playwright() as p:  # pragma: no cover - braucht echten Browser
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, proxy={"server": proxy()} if proxy() else None)
         try:
             page = browser.new_page(locale="de-CH", user_agent=random.choice(USER_AGENTS))
             page.goto(url, wait_until="domcontentloaded", timeout=45000)

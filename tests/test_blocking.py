@@ -80,3 +80,19 @@ def test_single_failed_query_is_not_a_platform_error():
     assert st["last_error"].startswith("HTTP 502") and st["last_partial"] is None
     db.record_platform_result("tutti", 200, None, fails=0, tries=13)
     assert db.platform_states()["tutti"]["last_error"] is None
+
+
+def test_optional_fixed_proxy(monkeypatch):
+    """network.proxy: alle Plattform-Anfragen über einen festen Ausgang; leer = direkt (Standard)."""
+    from fundus.config import get_config
+    seen = {}
+    monkeypatch.setattr(base, "CURL_AVAILABLE", True)
+    monkeypatch.setattr(base.curl_requests, "get", lambda url, **kw: seen.update(kw) or _Resp(200))
+    assert base.proxy() is None
+    base.fetch_html("https://www.tutti.ch/de/q/suche?query=a")
+    assert seen["proxy"] is None
+    monkeypatch.setitem(get_config()["network"], "proxy", "http://100.64.0.5:8888")
+    base.fetch_html("https://www.tutti.ch/de/q/suche?query=a")
+    assert seen["proxy"] == "http://100.64.0.5:8888"
+    with base.http_client() as c:
+        assert c._mounts   # httpx: Proxy für http und https eingehängt

@@ -17,6 +17,10 @@ DEFAULTS: dict[str, Any] = {
                  "pause_after_manual_hours": 3,
                  "auction_alert_minutes": 60},     # so lange vor Ablauf einer Auktion nochmals prüfen und melden
     "request_delay": [4, 11],
+    # Fester eigener Ausgang für alle Anfragen an Plattformen und Shops (Suche, Inserate, Bilder, Neupreis), z.B.
+    # "http://100.64.0.5:8888" (tinyproxy auf einem eigenen Rechner im Tailnet). Leer = direkt über die Heim-IP.
+    # Bewusst nur EIN fester Ausgang – keine wechselnden Proxys (siehe README).
+    "network": {"proxy": ""},
     "ntfy": {
         "enabled": True,                                 # false: ntfy stillgelegt, Meldungen nur über die Android-App
         "auctions": False,                               # true: Auktions-Alarme trotzdem als Push über ntfy (zeitkritisch)

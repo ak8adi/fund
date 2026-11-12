@@ -10,7 +10,7 @@ import random
 from . import area, db
 from .config import get_config
 from .adapters import all_adapters, adapter_for_source
-from .adapters.base import GoneError, fetch_html
+from .adapters.base import GoneError, fetch_html, proxy
 from .adapters.extract import extract_description_from_page, listing_images, shipping_from_page
 from . import scoring
 from .matching import excluded, matches_query
@@ -333,7 +333,7 @@ def _fetch_images(h: dict, adapters) -> list[tuple[str, bytes]]:
     images = []
     for url in urls:
         try:
-            r = httpx.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+            r = httpx.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}, proxy=proxy())
             mime = r.headers.get("content-type", "").split(";")[0]
             if r.status_code == 200 and mime.startswith("image/") and len(r.content) <= MAX_IMAGE_BYTES:
                 images.append((mime, r.content))
