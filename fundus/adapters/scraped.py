@@ -20,14 +20,23 @@ class ScrapedAdapter(Adapter):
     def build_url(self, d: dict, ext_id: str) -> str | None:
         return None
 
-    def search_url(self, query: str) -> str:
-        return self.platform_cfg()["url"].format(query=quote(query.strip()))
+    page_param: str | None = None   # URL-Parameter für weitere Ergebnisseiten, wo die Plattform ihn beachtet
+
+    @property
+    def paged(self) -> bool:
+        return bool(self.page_param)
+
+    def search_url(self, query: str, page: int = 1) -> str:
+        url = self.platform_cfg()["url"].format(query=quote(query.strip()))
+        if page > 1 and self.page_param:
+            url += ("&" if "?" in url else "?") + f"{self.page_param}={page}"
+        return url
 
     def parse(self, page: str) -> list[Listing]:
         return extract_listings(page, self.name, self.base_url, self.build_url, self.url_pattern, self.require_price)
 
-    def search(self, query, source, min_price, max_price) -> list[Listing]:
-        page = fetch_html(self.search_url(query), self.platform_cfg().get("fetcher", "http"))
+    def search(self, query, source, min_price, max_price, page: int = 1) -> list[Listing]:
+        page = fetch_html(self.search_url(query, page), self.platform_cfg().get("fetcher", "http"))
         listings = self.parse(page)
         if not listings and next(json_blobs(page), None) is None:
             raise AdapterError(

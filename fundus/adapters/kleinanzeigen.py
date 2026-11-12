@@ -19,13 +19,26 @@ class KleinanzeigenAdapter(Adapter):
     def platform_cfg(self) -> dict:
         return self.cfg["platforms"].get(self.name, {})
 
-    def search_url(self, query: str) -> str:
-        # e.g., https://www.kleinanzeigen.de/s-macbook/k0 (spaces become hyphens)
-        q = quote(query.strip().replace(" ", "-"))
-        return self.platform_cfg()["url"].format(query=q)
+    paged = True
 
-    def search(self, query, source, min_price, max_price) -> list[Listing]:
-        url = self.search_url(query)
+    def search_url(self, query: str, page: int = 1, min_price: float | None = None, max_price: float | None = None) -> str:
+        """https://www.kleinanzeigen.de/s-macbook/k0 (Leerzeichen werden Bindestriche); Preisrahmen und Seite stehen
+        als Filter vor dem Suchtext: /s-preis:500:900/seite:2/macbook/k0 (geprüft Nov. 2026).
+        Der Preisrahmen (CHF) geht grosszügig gerundet in Euro mit, damit die Seite nicht mit Unpassendem gefüllt ist."""
+        q = quote(query.strip().replace(" ", "-"))
+        url = self.platform_cfg()["url"].format(query=q)
+        filters = ""
+        if min_price is not None or max_price is not None:
+            rate = float(self.cfg.get("fx_to_chf", {}).get("EUR", 0.94))
+            lo = f"{min_price / rate * 0.9:.0f}" if min_price is not None else ""
+            hi = f"{max_price / rate * 1.1:.0f}" if max_price is not None else ""
+            filters += f"preis:{lo}:{hi}/"
+        if page > 1:
+            filters += f"seite:{page}/"
+        return url.replace("/s-", "/s-" + filters, 1) if filters and "/s-" in url else url
+
+    def search(self, query, source, min_price, max_price, page: int = 1) -> list[Listing]:
+        url = self.search_url(query, page, min_price, max_price)
         try:
             page = fetch_html(url, self.platform_cfg().get("fetcher", "http"))
         except BlockedError:

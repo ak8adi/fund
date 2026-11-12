@@ -3,7 +3,7 @@
 
 /* Preis-Kopf: gebraucht ab / neu ab, darunter die zwei Knöpfe */
 .ph { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 10px; }
-.ph .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow);
+.ph .tile { background: var(--surface-2); border-radius: 18px; padding: 13px 15px;
             display: grid; gap: 2px; text-decoration: none; min-width: 0; }
 .ph .tile .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 650; }
 .ph .tile .val { font-size: 24px; font-weight: 750; letter-spacing: -.03em; line-height: 1.15; }
@@ -12,13 +12,20 @@
 .ph .tile.empty .val { color: var(--muted); font-size: 16px; font-weight: 600; }
 .ph .cmp { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); margin: -2px 2px 0; }
 .ph .cmp b { color: var(--ink); }
+/* Urteil «lohnt sich gebraucht?»: klar/ja grün, knapp gelb, nein rot, info neutral */
+.cmp.verdict { font-size: 13.5px; line-height: 1.45; padding: 10px 14px; border-radius: 14px;
+  background: var(--surface-2); margin: 0; color: var(--ink); }
+.cmp.verdict.klar, .cmp.verdict.ja { background: color-mix(in srgb, var(--ok) 11%, var(--bg)); }
+.cmp.verdict.knapp { background: color-mix(in srgb, var(--check) 12%, var(--bg)); }
+.cmp.verdict.nein { background: color-mix(in srgb, var(--warn) 10%, var(--bg)); }
+.ph .tile .small-val { font-size: 17px; }
+.ov-info .save.verdict.knapp { color: var(--check); } .ov-info .save.verdict.nein { color: var(--warn); }
 .big-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 6px; }
-.big-btns a { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; text-decoration: none; font-weight: 700;
-              letter-spacing: -.01em; color: #fff; box-shadow: var(--shadow); min-height: 52px; }
-.big-btns a small { display: block; font-weight: 500; font-size: 11.5px; opacity: .85; letter-spacing: 0; }
-.big-btns a .ico { font-size: 22px; line-height: 1; }
-.big-btns .analytics { background: linear-gradient(135deg, #2f5d50, #3f7f6b); }
-.big-btns .buy { background: linear-gradient(135deg, #1f3f73, #3366a8); }
+.big-btns a { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 18px; text-decoration: none; font-weight: 650;
+              color: var(--ink); background: var(--surface-2); min-height: 54px; }
+.big-btns a::after { content: "›"; margin-left: auto; color: var(--muted); font-size: 22px; font-weight: 400; line-height: 1; }
+.big-btns a small { display: block; font-weight: 500; font-size: 12px; color: var(--muted); letter-spacing: 0; }
+.big-btns a .ico { font-size: 20px; line-height: 1; color: var(--accent); }
 
 /* Shortlist */
 .vw .short-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 22px 0 10px; }
@@ -26,8 +33,8 @@
 .vw .funnel { font-size: 12.5px; color: var(--muted); }
 .vw .funnel b { color: var(--ink); }
 .vw .short { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.card2 { position: relative; border: 1px solid var(--front, var(--tier-s)); box-shadow: 0 0 0 1px var(--front, var(--tier-s)), var(--shadow);
-         border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; background: var(--surface); }
+.card2 { position: relative; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column;
+         background: var(--surface); }
 .card2 > a { text-decoration: none; display: flex; flex-direction: column; flex: 1; }
 .card2 img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: var(--surface-2); display: block; }
 .card2 .b { padding: 10px 12px; display: grid; gap: 5px; font-size: 13px; }
@@ -37,20 +44,22 @@
 .card2 .catch { color: var(--check); }
 .card2 .newtag { position: absolute; top: 8px; left: 8px; background: var(--new); color: #fff; font-size: 11px; font-weight: 700;
                  padding: 2px 8px; border-radius: 999px; }
-.card2 .x { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 50%; border: 0;
-            cursor: pointer; background: color-mix(in srgb, var(--surface) 85%, transparent); color: var(--muted); font-size: 16px;
+.card2 .x { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; min-height: 0 !important; padding: 0; border-radius: 50%; border: 0;
+            cursor: pointer; background: rgba(0,0,0,.38); color: #fff; font-size: 16px;
             line-height: 30px; display: grid; place-items: center; flex: none; }
-.card2 .x:hover { color: var(--warn); }
+.card2 .x:hover { background: rgba(0,0,0,.6); }
 .vw .rows { display: grid; gap: 2px; margin-top: 10px; }
 .vw .row { display: grid; grid-template-columns: 44px 76px 1fr 110px 54px; gap: 10px; align-items: center; font-size: 13px; padding: 4px 8px;
            border-radius: 7px; text-decoration: none; }
 .vw .row:hover { background: var(--surface-2); }
 .vw .row img, .vw .row .noimg { width: 44px; height: 33px; object-fit: cover; border-radius: 5px; background: var(--surface-2); }
+.vw .row.auc { grid-template-columns: 44px 76px 1fr 120px 118px; align-items: start; }
+.vw .row.auc .lim, .vw .row.auc .end { text-align: right; line-height: 1.25; }
+.vw .row.auc.under .lim b { color: var(--tier-s); }
 .vw .ko-line { margin: 8px 0 0; }
 
 /* Ausklappbare Bereiche und Analytics-Abschnitte */
-.vw details.view, .vw section.view { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 12px 0;
-                                     box-shadow: var(--shadow); }
+.vw details.view, .vw section.view { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 12px 0; }
 .vw details.view > summary, .vw section.view > h3 { padding: 13px 18px; font-weight: 650; list-style: none; display: flex; gap: 10px;
                                                     align-items: baseline; margin: 0; font-size: 15px; }
 .vw details.view > summary::-webkit-details-marker { display: none; }
@@ -90,8 +99,11 @@
 
 /* Neu kaufen */
 .buy-list { display: grid; gap: 8px; }
-.buy-item { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; background: var(--surface); border: 1px solid var(--line);
-            border-radius: 12px; padding: 12px 14px; text-decoration: none; box-shadow: var(--shadow); }
+.buy-h { margin: 18px 0 6px; font-size: 14px; }
+.buy-more { margin-top: 18px; }
+.buy-item .tags .warnish { background: color-mix(in srgb, var(--check) 18%, transparent); color: var(--check); font-weight: 650; }
+.buy-item { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; background: var(--surface-2);
+            border-radius: 16px; padding: 12px 14px; text-decoration: none; }
 .buy-item.soldout { opacity: .6; }
 .buy-item .shop { font-weight: 700; }
 .buy-item .name { font-size: 13px; color: var(--muted); grid-column: 1; }
@@ -103,15 +115,23 @@
 .buy-item .tags .no { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); font-weight: 650; }
 
 /* Übersicht: pro Suche eine Zeile zum Wischen – kompakt, die Suchseite ist die grosse Ansicht */
-.ov { display: grid; gap: 14px; margin-top: 8px; }
-.ov-strip { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 8px; margin: 0 -2px;
-            scrollbar-width: thin; -webkit-overflow-scrolling: touch; align-items: stretch; }
-.ov-strip > * { scroll-snap-align: start; flex: 0 0 132px; min-width: 0; border-radius: 12px; }
+.ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 8px; }
+.ov-strip { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+            padding: 0 16px 2px; margin: 0 -16px; scroll-padding: 0 16px; scrollbar-width: thin; align-items: stretch; }
+.ov-strip > * { scroll-snap-align: start; flex: 0 0 132px; min-width: 0; border-radius: 16px; }
 .ov-strip.paused { opacity: .55; }
-.ov-info { position: relative; flex-basis: 124px; background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-           border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); }
+.ov-info { position: relative; flex-basis: 128px; background: var(--surface-2); }
 .ov-info .gear { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
                  text-decoration: none; background: var(--surface); color: var(--muted); font-size: 14px; z-index: 1; }
+.ov-info .gear.copy { top: auto; bottom: 6px; border: 0; cursor: pointer; font: inherit; font-size: 13px; }
+.ov-info .meta { padding-right: 26px; }
+/* Entweder-oder-Gruppe: Kopfzeile über ihren Suchen, mit den besten Angeboten über alle hinweg */
+.ov-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 0 -4px; min-width: 0; }
+.ov-group .g-name { font-weight: 750; font-size: 15px; letter-spacing: -.02em; }
+.ov-group .g-best { flex-basis: 100%; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.ov-group .g-best a { flex: 0 0 auto; max-width: 150px; padding: 5px 9px; border-radius: 9px; background: var(--surface-2);
+  text-decoration: none; font-size: 12.5px; line-height: 1.25; }
+.ov-group .g-best a .t { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ov-info-link { display: flex; flex-direction: column; gap: 3px; padding: 10px 10px 9px; height: 100%; text-decoration: none; }
 .ov-info .name { font-weight: 750; font-size: 14.5px; letter-spacing: -.02em; line-height: 1.2; padding-right: 26px;
                  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -119,11 +139,11 @@
 .ov-info .pr { display: grid; font-size: 15px; font-weight: 750; letter-spacing: -.02em; line-height: 1.15; margin-top: 2px; }
 .ov-info .pr small { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 650; }
 .ov-info .pr.u { color: var(--accent); }
-.ov-info .save { font-size: 11px; font-weight: 650; color: var(--ok); }
+.ov-info .save { font-size: 11px; font-weight: 650; color: var(--ok); line-height: 1.25; }
 .ov-info .meta { margin-top: auto; font-size: 10.5px; color: var(--muted); line-height: 1.3; }
 .ov-offer { position: relative; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line);
-            overflow: hidden; text-decoration: none; box-shadow: var(--shadow); }
-.ov-offer.front { border-color: var(--tier-s); }
+            overflow: hidden; text-decoration: none; }
+.ov-offer.front { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .ov-offer img, .ov-offer .noimg { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: var(--surface-2); display: block; }
 .ov-offer .p { font-size: 14.5px; font-weight: 750; letter-spacing: -.02em; padding: 6px 8px 0; }
 .ov-offer .t { font-size: 12px; line-height: 1.25; padding: 1px 8px 0; display: -webkit-box; -webkit-line-clamp: 2;
@@ -133,18 +153,19 @@
 .ov-offer .newtag, .ov-offer .auctag { position: absolute; top: 6px; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
 .ov-offer .newtag { left: 6px; background: var(--new); color: #fff; }
 .ov-offer .auctag { right: 6px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
-.ov-ana { flex-basis: 120px; background: linear-gradient(160deg, #2f5d50, #1f3f3a); color: #fff; padding: 10px; text-decoration: none;
-          display: flex; flex-direction: column; gap: 5px; box-shadow: var(--shadow); }
+.ov-ana { flex-basis: 120px; background: var(--surface-2); color: var(--ink); padding: 10px 11px; text-decoration: none;
+          display: flex; flex-direction: column; gap: 5px; }
 .ov-ana .h { font-weight: 750; font-size: 13.5px; }
 .ov-ana svg { width: 100%; height: 40px; }
-.ov-ana .kv { font-size: 11px; opacity: .9; }
-.ov-ana .more { margin-top: auto; font-weight: 700; font-size: 12px; }
+.ov-ana .kv { font-size: 11px; color: var(--muted); }
+.ov-ana .more { margin-top: auto; font-weight: 650; font-size: 12px; color: var(--accent); }
 .ov-empty { color: var(--muted); font-size: 12px; padding: 12px; border: 1px dashed var(--line); display: grid; place-items: center;
             text-align: center; flex-basis: 150px; }
 
 @media (max-width: 760px) {
   .vw .lanes { grid-template-columns: 1fr; }
   .vw .row { grid-template-columns: 44px 70px 1fr; } .vw .row .c4, .vw .row .c5 { display: none; }
+  .vw .row.auc { grid-template-columns: 44px 64px 1fr 92px; } .vw .row.auc .c4 { display: block; font-size: 12px; }
 }
 @media (min-width: 761px) {
   .ov-strip > * { flex-basis: 158px; }
@@ -158,7 +179,21 @@ body.app .search-head .actions a[href="/neue-suche"] { display: none; }   /* ste
 /* Sortieren per Langdruck (static/reorder.js) */
 .ov-info { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .ov-strip.lifted { position: relative; z-index: 5; transition: none; }
-.ov-strip.lifted .ov-info { box-shadow: 0 10px 28px rgba(0,0,0,.22); transform: scale(1.04); }
+.ov-strip.lifted .ov-info { box-shadow: var(--shadow-hover); transform: scale(1.04); }
 .ov-strip { transition: transform .15s var(--ease); }
 body.reordering, body.reordering * { cursor: grabbing !important; }
 body.reordering .ov-strip:not(.lifted) { opacity: .85; }
+
+/* Handy: beste Angebote als ruhige Liste (Bild links), statt bildschirmhoher Karten */
+@media (max-width: 600px) {
+  .vw .short { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .card2 > a { display: grid; grid-template-columns: 104px minmax(0, 1fr); }
+  .card2 img { width: 104px; height: 100%; min-height: 104px; aspect-ratio: auto; }
+  .card2 .b { padding: 10px 12px 11px; gap: 3px; font-size: 12.5px; line-height: 1.35; }
+  .card2 .b > span:nth-child(2) { font-weight: 550; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card2 .p { font-size: 18px; padding-right: 26px; }
+  .card2 .newtag { top: 6px; left: 6px; }
+  .card2 .x { top: 6px; right: 6px; width: 26px; height: 26px; background: var(--surface-2); color: var(--muted); }
+  .ph { gap: 8px; }
+  .ph .tile .val { font-size: 22px; }
+}

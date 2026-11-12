@@ -39,13 +39,33 @@ class TrustResult:
         return LEVELS[self.level]
 
 
+def buy_now(h: dict) -> float | None:
+    """Sofortkauf-Preis einer Auktion, falls es einen gibt (liegt über dem aktuellen Gebot)."""
+    if h.get("auction") and h.get("price") and h.get("bid_price") and h["price"] > h["bid_price"]:
+        return h["price"]
+    return None
+
+
+def bidding(h: dict) -> bool:
+    """Reine Auktion ohne Sofortkauf: der Preis steht erst am Ende fest. Das aktuelle Gebot ist kein Angebotspreis –
+    solche Inserate zählen nicht für Marktpreis, «gebraucht ab» und Bestenliste, sondern stehen im Auktions-Bereich."""
+    return bool(h.get("auction")) and buy_now(h) is None
+
+
+def as_bid(h: dict) -> dict:
+    """Das Inserat so, als wäre das aktuelle Gebot der Preis – für «was kostet es beim Gebot» und «lohnt sich bis»,
+    auch wenn es daneben einen Sofortkauf gibt."""
+    return {**h, "price": h.get("bid_price") or h.get("price"), "single_price": None}
+
+
 def listing_price(h: dict) -> float | None:
-    """Preis, mit dem fundus rechnet: Einzelpreis aus einem Set, bei Auktionen das aktuelle Gebot (der Sofortpreis
-    ist nur die Obergrenze), sonst der Inseratpreis – in der Währung des Inserats."""
+    """Preis, mit dem fundus rechnet, in der Währung des Inserats: Einzelpreis aus einem Set; bei Auktionen mit
+    Sofortkauf der Sofortpreis (zu dem ist es sicher zu haben); bei reinen Auktionen das aktuelle Gebot –
+    das ist nur ein Zwischenstand, siehe bidding()."""
     if h.get("single_price"):
         return h["single_price"]
-    if h.get("auction") and h.get("bid_price"):
-        return h["bid_price"]
+    if h.get("auction"):
+        return buy_now(h) or h.get("bid_price") or h.get("price")
     return h.get("price")
 
 

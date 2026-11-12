@@ -2,44 +2,60 @@
 {% block title %}Neu kaufen · {{ search.query }} – fundus{% endblock %}
 {% block content %}
 {% set page = 'buy' %}
+{% set hd = views.head %}
+{# günstigstes lieferbares Angebot je Art und das günstigste aus der Schweiz hervorheben #}
+{% set marks = {} %}
+{% if hd.new %}{% set _ = marks.update({hd.new.url: 'günstigstes'}) %}{% endif %}
+{% if hd.local %}{% set _ = marks.update({hd.local.url: 'günstigstes aus der Schweiz'}) %}{% endif %}
+{% macro item(o) %}
+<a class="buy-item {{ 'soldout' if o.available is sameas false }}" href="{{ o.url }}" target="_blank" rel="noopener">
+  <span class="shop">{{ o.shop }}</span>
+  <span class="tot">{{ price(o.total, 'CHF') }}<small>bis zu dir</small></span>
+  <span class="name">{{ o.name }}</span>
+  <span class="tags">
+    {% if marks.get(o.url) %}<span class="ok">{{ marks[o.url] }}</span>{% endif %}
+    {% if o.approx %}<span class="warnish" title="Die Seite nennt keine Grösse – der Preis gilt oft für die kleinste">ab-Preis · Grösse prüfen</span>{% endif %}
+    {% if o.available is sameas false %}<span class="no">ausverkauft</span>{% elif o.available is sameas true %}<span>lieferbar</span>{% endif %}
+    <span>{{ price(o.price, o.currency) }}{% if o.ship is not none %} + Versand {{ '' if o.ship_known else '≈ ' }}{{ o.ship | round | int }}{% endif %}{% if o.fees %} + Gebühr {{ o.fees }}{% endif %}</span>
+    {% if o.vat %}<span title="Bei Verzollung fällig – nicht im Endpreis">MWST {{ o.vat }} separat</span>{% endif %}
+    {% if o.count and o.count > 1 %}<span>{{ o.count }} Shops</span>{% endif %}
+    <span>{{ o.country }}</span>
+  </span>
+</a>
+{% endmacro %}
 <div class="vw">
   <div class="search-head">
     <h2><a href="/search/{{ search.id }}" class="back" aria-label="Zurück zur Suche">‹</a> Neu kaufen · {{ search.query }}</h2>
     <div class="actions">
-      <form method="post" action="/search/{{ search.id }}/newprice" class="inline"><button class="btn small">Shops neu suchen</button></form>
+      <form method="post" action="/search/{{ search.id }}/newprice" class="inline"><button class="btn small">Neu suchen</button></form>
     </div>
   </div>
-  {% set hd = views.head %}
-  {% if hd.used and hd.new %}
-  <p class="small">Günstigstes gebraucht <b>{{ price(hd.used.pay, 'CHF') }}</b> – {% if hd.saving > 0 %}<b>{{ hd.saving_pct }} % günstiger</b> als{% else %}nicht günstiger als{% endif %}
-    das günstigste lieferbare Neuangebot ({{ price(hd.new.total, 'CHF') }}){% if hd.refurb %}, erneuert ab {{ price(hd.refurb.total, 'CHF') }}{% endif %}.</p>
-  {% endif %}
-  <p class="muted small">{{ search.new_price_note or '' }}{% if search.new_price_at %} · gesucht {{ search.new_price_at | ago }}{% endif %}.
-    Endpreis bis zu dir: Versand laut Shop, sonst geschätzt (≈); Shops aus dem Ausland über die Grenzadresse inkl. Gebühr (ohne MWST, Einfuhr mit dem Auto) –
-    gleich gerechnet wie die Gebrauchtangebote.</p>
-  {% if options %}
-  <div class="buy-list">
-    {% for o in options %}
-    <a class="buy-item {{ 'soldout' if o.available is sameas false }}" href="{{ o.url }}" target="_blank" rel="noopener">
-      <span class="shop">{{ o.shop }}</span>
-      <span class="tot">{{ price(o.total, 'CHF') }}<small>bis zu dir</small></span>
-      <span class="name">{{ o.name }}</span>
-      <span class="tags">
-        {% if o.kind == 'erneuert' %}<span class="refurb">erneuert</span>{% endif %}
-        {% if o.available is sameas true %}<span class="ok">lieferbar</span>{% elif o.available is sameas false %}<span class="no">ausverkauft</span>{% else %}<span>Lieferbarkeit unbekannt</span>{% endif %}
-        <span>{{ price(o.price, o.currency) }}{% if o.currency != 'CHF' %} ≈ {{ price(o.price_chf, 'CHF') }}{% endif %}</span>
-        {% if o.ship is not none %}<span>Versand {{ '' if o.ship_known else '≈ ' }}{{ o.ship | round | int }} CHF</span>{% endif %}
-        {% if o.fees %}<span>Gebühr {{ o.fees }} CHF</span>{% endif %}
-        {% if hd.used and o.total %}<span>gebraucht {{ ((o.total - hd.used.pay) / o.total * 100) | round | int }} % günstiger</span>{% endif %}
-        <span>{{ o.country }}</span>
-      </span>
-    </a>
-    {% endfor %}
-  </div>
+  {% if hd.verdict %}<p class="cmp verdict {{ hd.verdict.level }}"><b>{{ hd.verdict.text }}</b>{% if hd.verdict.note %}<br>{{ hd.verdict.note }}{% endif %}</p>{% endif %}
+
+  {% set new = options | selectattr('kind', 'equalto', 'neu') | list %}
+  {% set succ = options | selectattr('kind', 'equalto', 'nachfolger') | list %}
+  {% set refurb = options | selectattr('kind', 'equalto', 'erneuert') | list %}
+  {% if new %}
+  <div class="buy-list">{% for o in new %}{{ item(o) }}{% endfor %}</div>
+  {% elif not options %}
+  <p class="empty">{{ 'Allgemeine Suche – kein Neupreis.' if search.new_price_note and 'nicht sinnvoll' in search.new_price_note else 'Noch keine Shops gefunden.' }}</p>
   {% else %}
-  <p class="empty">{{ 'Für allgemeine Suchen gibt es keinen Neupreis.' if search.new_price_note and 'nicht sinnvoll' in search.new_price_note else 'Noch keine Shops gefunden – «Shops neu suchen» startet die Suche (dauert etwa eine Minute).' }}</p>
+  <p class="empty">Nicht mehr neu erhältlich.</p>
   {% endif %}
-  <p class="muted small" style="margin-top:18px">Eigenen Neupreis festlegen (z.B. Listenpreis eines Auslaufmodells):
-    <a href="/search/{{ search.id }}#bearbeiten">Suche bearbeiten › Neupreis</a>. Er dient dann als Referenz für die Bewertung.</p>
+  {% if succ %}<h3 class="buy-h">Nachfolger</h3><div class="buy-list">{% for o in succ %}{{ item(o) }}{% endfor %}</div>{% endif %}
+  {% if refurb %}<h3 class="buy-h">Erneuert vom Händler</h3><div class="buy-list">{% for o in refurb %}{{ item(o) }}{% endfor %}</div>{% endif %}
+
+  <details class="view buy-more">
+    <summary>Shop ergänzen · eigener Neupreis · Info</summary>
+    <div class="inner">
+      <form method="post" action="/search/{{ search.id }}/shop" class="row" style="gap:8px">
+        <input name="url" type="url" required placeholder="Link zur Produktseite eines Shops, den fundus nicht gefunden hat" style="flex:1;min-width:0">
+        <button class="btn small">Hinzufügen</button>
+      </form>
+      <p class="small">Eigener Neupreis: <a href="/search/{{ search.id }}#bearbeiten">Suche bearbeiten ›</a></p>
+      <p class="muted small">{% if search.new_price_at %}Gesucht {{ search.new_price_at | ago }}, wöchentlich neu. {% endif %}Endpreis = Preis + Versand (≈ geschätzt)
+        + Gebühr der Grenzadresse; Fahrt und Einfuhr-MWST sind nicht eingerechnet.{% if search.new_price_note %}<br>{{ search.new_price_note }}{% endif %}</p>
+    </div>
+  </details>
 </div>
 {% endblock %}

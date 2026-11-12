@@ -3,13 +3,16 @@
      Die Oberfläche kommt vom Mac – Änderungen dort brauchen keine neue APK. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ch.fundus.app"
-    android:versionCode="3"
-    android:versionName="1.2">
+    android:versionCode="5"
+    android:versionName="1.4">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- exakter Wecker für den Auktions-Alarm (sonst verschiebt Android ihn im Stromsparmodus um Stunden) -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
 
     <application
         android:label="fundus"

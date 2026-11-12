@@ -30,8 +30,10 @@ Ohne Autostart, zum Ausprobieren: `pip install -e . && fundus serve`
 
 ## Wie abgefragt wird
 
-- **Pro Suche und Quelle genau eine Anfrage**: erste Ergebnisseite, neueste zuerst. 5 Suchen × 8 Quellen
-  = 40 Anfragen pro Lauf, verteilt mit 4–11 s Pause.
+- **Pro Suche und Quelle in der Regel eine Anfrage**: erste Ergebnisseite, neueste zuerst, verteilt mit 4–11 s Pause.
+  Kleinanzeigen und Willhaben liefern weitere Seiten: beim ersten Abruf liest fundus dort bis 3 Seiten (Bestand –
+  die besten Angebote sind oft nicht die neusten) und blättert später nach, solange eine volle Seite nur Unbekanntes
+  zeigt (sonst gingen bei gefragten Suchen Inserate verloren). Bei Kleinanzeigen geht der Preisrahmen in die Abfrage.
 - Zeitplan standardmässig 07:40 und 18:20 mit ±25 min Zufallsversatz. War der Mac im Ruhezustand, wird
   der Lauf beim Aufwachen nachgeholt (bis 3 h).
 - **Erster Lauf einer neuen Suche meldet nichts**, er merkt sich nur den aktuellen Bestand. Gemeldet wird,
@@ -87,15 +89,23 @@ die Plattform `fetcher: browser` setzen.
    Set-Inhalt und Einzelpreis, Versandgrösse, deine Anforderungen (Freitext, z.B. «nur 3-rädrig») und
    Hinweise auf Betrug. Die KI bewertet keine Preise.
 3. **Lieferweg** (`delivery.py`): Postversand in der Schweiz, DHL an Paket4you in Jestetten inkl. Gebühr
-   (Einfuhr mit dem Auto, ohne MWST), oder Abholung mit Fahrzeit ab Winterthur (OpenStreetMap). Ergibt den Endpreis bis zu dir.
+   (ohne die Fahrt dorthin und ohne Einfuhr-MWST – die MWST von 8,1 % ab 150 CHF Warenwert steht separat daneben), oder Abholung mit Fahrzeit ab Winterthur (OpenStreetMap). Ergibt den Endpreis bis zu dir.
 4. **Deal-Score** (`scoring.py`): Endpreis gegen den Marktpreis (Median der passenden Treffer), angepasst an
    Zustand und Jahrgang, gedeckelt durch den Neupreis. 50 = Marktpreis, 90 = halber Preis. Stufen S/A/B/C.
 5. **Meldung** per ntfy ab Score 65 (A), mit Bild, Endpreis, Lieferweg und Einschätzung.
 
-**Neupreis**: fundus sucht im Netz nach Shops und zusätzlich nach der Produkt- bzw. Serienseite bei toppreise.ch
-(führt auch Auslaufmodelle, solange ein Shop sie hat), liest den Preis aus den Produktdaten, die KI prüft nur, ob
-es genau das Produkt ist (Seiten mit vielen Produkten zählen nicht, bei Varianten gilt die der verlinkten Seite)
-– eine andere Generation (M1/M4, «Pro 3»/«Pro 4») zählt nicht. Als Neupreis gilt das
+**Neupreis – lohnt sich gebraucht überhaupt?** (`newprice.py`) Ein Gebrauchtangebot ist nur so gut wie sein Abstand
+zu neu, darum wird der Neupreis so sorgfältig ermittelt wie die Gebrauchtpreise:
+fundus fragt die Preisvergleiche direkt ab – toppreise.ch (Schweiz, Preis mit Versand, Anzahl Shops) und geizhals.de
+(Deutschland, über die Grenzadresse) –, liest dazu Fachgeschäfte aus der Websuche und beim Auffrischen wieder
+die Shopseiten, die letztes Mal passten (sonst springt der Preis von Lauf zu Lauf). Die KI ordnet jede Zeile ein:
+*genau das Produkt* (übliche Ausstattung, keine Sonderkonfiguration; bei genannter Grösse nur diese), *Nachfolger*,
+*erneuert* – eine andere Generation (M1/M4, «Pro 3»/«Pro 4») ist nie der Neupreis. Gibt es das Produkt nicht mehr
+neu, bleibt der Neupreis leer und der Nachfolger steht als Vergleich daneben («nicht mehr neu · Nachfolger ab …»).
+Ausschlusswörter der Suche gelten auch für Shops. Aufgefrischt wird wöchentlich. Oben in der Suche steht das
+**Urteil**: bestes Gebrauchtangebot (bestes Preis-Wert-Verhältnis, nicht das billigste) gegen das günstigste
+lieferbare Neuangebot, beide als Endpreis – ab 35 % darunter «lohnt sich klar», ab 20 % «lohnt sich», ab 10 %
+«knapp», darunter «lieber neu»; ein kaum teureres erneuertes Gerät mit Garantie wird dazu genannt. Als Neupreis gilt das
 günstigste passende *lieferbare* Angebot (ausverkaufte stehen markiert darunter), ausser es liegt unter 75 % des zweitgünstigsten (Fehlpreis). Allgemeine Suchen
 («sessel») bekommen keinen Neupreis. Von Hand eingetragene Neupreise haben Vorrang.
 
@@ -106,6 +116,20 @@ das Inserat nochmals, wenn die letzte Prüfung älter als 10 Minuten ist, und ze
 der mobilen Seite im HTML (Desktop fügt es per Skript ein) – fundus prüft dort deshalb die mobile Seite. Alles, was
 oben auf der Suchseite steht (beste Angebote, knapp dahinter), wird bei jedem Lauf geprüft, wenn die letzte Prüfung
 älter als 2 h ist.
+
+**Auktionen** (Ricardo, eBay): das aktuelle Gebot ist ein Zwischenstand, kein Preis. Reine Auktionen zählen darum
+nicht für Marktpreis, «gebraucht ab», Bestenliste und Deal-Score. Sie stehen auf der Suchseite im Bereich
+*Auktionen* (nach Restzeit, mit «lohnt sich bis X CHF Gebot» = fairer Wert minus Versand, Gebühren, Fahrt), in der
+Übersicht hinten in der Zeile, im Vergleich der Finalisten und als hohle Raute auf der Preis-Wert-Karte. Gibt es
+neben der Auktion einen Sofortkauf, steht das Inserat mit dem Sofortpreis in der normalen Rangliste *und* im
+Auktions-Bereich. **Alarm vor Ablauf** (`auctions.py`): `schedule.auction_alert_minutes` (Standard 60) vor dem Ende
+holt fundus das aktuelle Gebot nochmals (eBay über die API, Ricardo über die Suchseite der Suche) und meldet, wenn
+der Endpreis beim Gebot noch unter dem Wert liegt – als eigene, auffällige Meldung in der App (Kanal «Auktion endet
+gleich»). Die App erfährt den Zeitpunkt über `auction_check`, stellt dafür einen exakten Wecker (ab App 1.4 – der
+ungenaue wird im Stromsparmodus um Stunden verschoben) und versucht es bei einem Fehlschlag nach 3 Minuten nochmals.
+Der Titel nennt die Uhrzeit des Endes; eine Meldung, die erst nach dem Ende abgeholt würde, wird nicht mehr zugestellt.
+Pro Inserat gibt es genau eine solche Meldung. Wer ganz sicher gehen will: `ntfy.auctions: true` schickt nur die
+Auktions-Alarme zusätzlich als Push über ntfy (kommt sofort, auch wenn das Handy schläft).
 
 **Schon weg**: verschwundene passende Angebote bleiben gespeichert (dazu jede Preisänderung in `price_history`).
 Unter dem Neupreis steht das günstigste und das beste verpasste Angebot, der mittlere Preis der verschwundenen
@@ -118,6 +142,16 @@ Ricardo-Inseratseiten ruft fundus nie einzeln ab – Ricardo sperrt schon einzel
 die ganze Suche. Verkauft/beendet erkennt fundus ohne Einzelabruf: liefert die Suche die vollständige
 Trefferliste (`totalArticlesCount`), ist ein fehlendes Angebot weg; taucht eines 20 h nicht mehr auf, steht es
 nicht mehr oben. eBay-Beschreibungen kommen über die API.
+
+**Gruppen** (entweder–oder): Suchen mit derselben Gruppe («Mehr Optionen» › Gruppe, z.B. «Kitebar» für Sensor Pro 3
+und 4) stehen in der Übersicht beieinander, darüber die besten Angebote über alle Suchen der Gruppe und ein Knopf
+**Für Gemini kopieren** – alle passenden Angebote der Gruppe mit Endpreis, Zustand, Lieferweg, Link, Beschreibung
+und Neupreis in einem Text. Derselbe Knopf (⧉) sitzt auf jeder Suchkarte und im Menü der Suchseite (`/api/gemini?ids=…`).
+
+**Neu kaufen**: alle passenden Shops untereinander – neu, darunter Nachfolger und erneuerte Geräte; markiert sind das
+günstigste und das günstigste aus der Schweiz. Nennt die Suche eine Grösse, bestimmen die Angebote mit genau dieser
+Grösse den Neupreis, die übrigen stehen als «ab-Preis · Grösse prüfen» dabei. Findet fundus einen Shop nicht
+(z.B. aus einer Google-Anzeige): unter «Shop ergänzen» den Link zur Produktseite eintragen – er wird ab dann mitgelesen.
 
 **Übersicht**: pro Suche eine kompakte Zeile zum Wischen – vorne eine schmale Infokarte (Name, Zahnrad für die
 Einstellungen, gebraucht ab / neu ab, Ersparnis), dann kleine Karten der besten Angebote (neue zuerst, mit Ort und
@@ -173,6 +207,7 @@ Im Browser lässt sich die App-Ansicht zum Testen mit dem Cookie `fundus_app=1` 
 neuen Top-Angeboten ab (`app_notices`). Die App fragt kurz nach jedem geplanten Scan (`/api/app/notices`, der Mac
 nennt den Zeitpunkt) und nach einem Scan von Hand, wartet, bis alle Suchen und die ganze KI-Auswertung fertig
 sind, und zeigt **eine** Meldung für den ganzen Durchgang; Antippen öffnet fundus. Hat die App in den letzten 7 Tagen nachgefragt, bleibt ntfy still (sonst kämen Meldungen doppelt).
+Mit `ntfy.enabled: false` in `config.yaml` ist ntfy ganz stillgelegt (auch die Wochenübersicht); die Meldungen für die App bleiben.
 
 Neu bauen nur bei Änderungen an `android/`: `android/build-android.sh` (JDK und Android SDK im Benutzerordner,
 Signierschlüssel bleibt in `~/Library/Application Support/fundus`). Installieren: auf dem Handy mit Tailscale

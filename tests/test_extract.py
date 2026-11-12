@@ -185,7 +185,8 @@ def test_newprice_cheapest_matching_offer(monkeypatch):
         {"shop": "c.ch", "name": "Thule Regenverdeck", "price": 49, "currency": "CHF", "price_chf": 49.0, "url": "u4", "condition": ""},
     ]
     monkeypatch.setattr(newprice, "get_config", lambda: {"ai": {"gemini_api_key": "x"}})
-    monkeypatch.setattr(newprice, "find_offers", lambda q, skip=None: offers if skip is None else [])
+    monkeypatch.setattr(newprice, "compare_offers", lambda q: [])
+    monkeypatch.setattr(newprice, "find_offers", lambda q, skip=None: offers if not skip else [])
     monkeypatch.setattr(ai, "_gemini_json", lambda *a, **k: {"match": [0, 1, 2], "product": "Thule Urban Glide 3", "size": "XL"})
     r = newprice.lookup("thule urban glide 3")
     assert r["price"] == 655  # günstigstes passendes, nicht das Zubehör für 49
@@ -225,6 +226,7 @@ def test_newprice_prefers_in_stock(monkeypatch):
          "shop": "b.ch", "price_chf": 349},
     ]
     monkeypatch.setattr(newprice, "get_config", lambda: {"ai": {"gemini_api_key": "x"}})
+    monkeypatch.setattr(newprice, "compare_offers", lambda q: [])
     monkeypatch.setattr(newprice, "find_offers", lambda q, skip=None, compare=False: [] if skip or compare else offers)
     monkeypatch.setattr(ai, "_gemini_json", lambda *a, **k: {"match": [0, 1], "product": "Trust Bar"})
     r = newprice.lookup("trust bar")

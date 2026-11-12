@@ -8,25 +8,28 @@
 {% set bad = health | selectattr('state', 'in', ['bad', 'zero']) | list %}
 <a class="health-line" href="/settings">{{ health | length }} Plattformen{% if bad %} · <b>{{ bad | length }} mit Hinweis</b>{% else %} · alle liefern{% endif %} ›</a>
 {% if not rows %}
-  <p class="empty">Noch keine Suche. <a href="/neue-suche">Neue Suche anlegen</a> – beim ersten Lauf wird nur der aktuelle Bestand eingelesen,
-    gemeldet wird erst, was danach neu dazukommt.</p>
+  <p class="empty">Noch keine Suche. <a href="/neue-suche">Neue Suche anlegen</a></p>
 {% endif %}
-<div class="ov">
-  {% for s, v in rows %}
+{% macro strip_row(s, v) %}
   {% set hd = v.head %}
   {% set front = v.offers | selectattr('front') | list %}
-  {% set more = v.offers | rejectattr('front') | rejectattr('ko') | list %}
-  {% set strip = (front | sort(attribute='new', reverse=true) | list) + more[:[0, 6 - front | length] | max] %}
+  {% set more = v.offers | rejectattr('front') | rejectattr('ko') | rejectattr('bidding') | list %}
+  {# laufende Auktionen, die noch unter dem Wert liegen: hinten in derselben Zeile, als Gebot gekennzeichnet #}
+  {% set bids = v.offers | selectattr('bidding') | rejectattr('ko') | selectattr('under') | sort(attribute='ends_at') | list %}
+  {% set strip = (front | sort(attribute='new', reverse=true) | list) + more[:[0, 6 - front | length] | max] + bids[:2] %}
   {% set n_new = strip | selectattr('new') | list | length %}
   <div class="ov-strip {{ '' if s.active else 'paused' }}" data-id="{{ s.id }}">
     <div class="ov-info">
       <a class="gear" href="/search/{{ s.id }}#bearbeiten" title="Sucheinstellungen" aria-label="Sucheinstellungen von {{ s.query }}">⚙︎</a>
+      <button type="button" class="gear copy" title="Angebote für Gemini kopieren" aria-label="Angebote von {{ s.query }} für Gemini kopieren" onclick="fundusCopy(this, '{{ s.id }}')">⧉</button>
       <a class="ov-info-link" href="/search/{{ s.id }}">
         <span class="name">{{ s.query }}</span>
         {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% elif not s.active %}<span class="pill">pausiert</span>{% endif %}
         <span class="pr u"><small>gebraucht ab</small>{{ price(hd.used.pay, 'CHF') if hd.used else '–' }}</span>
-        <span class="pr"><small>neu ab</small>{{ price(hd.new.total, 'CHF') if hd.new else '–' }}</span>
-        {% if hd.saving_pct and hd.saving_pct > 0 %}<span class="save">−{{ hd.saving_pct }} % gebraucht</span>{% endif %}
+        {% if hd.new or not hd.successor %}<span class="pr"><small>neu ab</small>{{ price(hd.new.total, 'CHF') if hd.new else '–' }}</span>
+        {% else %}<span class="pr"><small>Nachfolger neu ab</small>{{ price(hd.successor.total, 'CHF') }}</span>{% endif %}
+        {% if hd.verdict and hd.verdict.against == 'neu' %}<span class="save verdict {{ hd.verdict.level }}" title="{{ hd.verdict.text }}">{{ {'klar': 'lohnt sich klar', 'ja': 'lohnt sich', 'knapp': 'knapp', 'nein': 'lieber neu'}[hd.verdict.level] }} · {{ '−' if hd.verdict.pct > 0 else '+' }}{{ hd.verdict.pct | abs }} %</span>
+        {% elif hd.saving_pct and hd.saving_pct > 0 %}<span class="save">−{{ hd.saving_pct }} % gebraucht</span>{% endif %}
         <span class="meta">{{ v.counts.open }} verfügbar{% if s.last_run_at %}<br>geprüft {{ s.last_run_at | ago }}{% endif %}</span>
       </a>
     </div>
@@ -34,8 +37,8 @@
     <a class="ov-offer{{ ' front' if o.front }}" href="/go/{{ o.key | urlencode }}" target="_blank" rel="noopener">
       {% if o.img %}<img src="{{ o.thumb or o.img }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% else %}<span class="noimg"></span>{% endif %}
       {% if o.new %}<span class="newtag">neu</span>{% endif %}
-      {% if o.auction %}<span class="auctag" title="Auktion – aktuelles Gebot">🔨</span>{% endif %}
-      <span class="p">{{ price(o.pay, 'CHF') }}</span>
+      {% if o.bidding %}<span class="auctag" title="Auktion – aktuelles Gebot, Preis steht noch nicht fest">🔨 {{ o.ends_at | left }}</span>{% endif %}
+      <span class="p">{% if o.bidding %}<small>Gebot</small> {{ price(o.bid_chf, 'CHF') }}{% else %}{{ price(o.pay, 'CHF') }}{% endif %}</span>
       <span class="t">{{ o.title }}</span>
       <span class="m">{{ o.location or '–' }} · {{ o.platform | capitalize }}</span>
     </a>
@@ -48,8 +51,8 @@
       <span class="h">Analytics</span>
       <svg viewBox="0 0 300 46" preserveAspectRatio="none" aria-hidden="true">
         {% for d in tl %}
-          {% if d.new %}<rect x="{{ loop.index0 * bw + 0.5 }}" y="{{ 23 - (21 * d.new / mx) }}" width="{{ [bw - 1, 1] | max }}" height="{{ 21 * d.new / mx }}" rx="1" fill="#bfe3d4"/>{% endif %}
-          {% if d.gone %}<rect x="{{ loop.index0 * bw + 0.5 }}" y="23" width="{{ [bw - 1, 1] | max }}" height="{{ 21 * d.gone / mx }}" rx="1" fill="#f2a493"/>{% endif %}
+          {% if d.new %}<rect x="{{ loop.index0 * bw + 0.5 }}" y="{{ 23 - (21 * d.new / mx) }}" width="{{ [bw - 1, 1] | max }}" height="{{ 21 * d.new / mx }}" rx="1" fill="#86c2aa"/>{% endif %}
+          {% if d.gone %}<rect x="{{ loop.index0 * bw + 0.5 }}" y="23" width="{{ [bw - 1, 1] | max }}" height="{{ 21 * d.gone / mx }}" rx="1" fill="#ee9f8b"/>{% endif %}
         {% endfor %}
       </svg>
       <span class="kv">7 Tage: {{ v.week.new }} neu, {{ v.week.gone }} weg</span>
@@ -57,10 +60,27 @@
       <span class="more">ansehen ›</span>
     </a>
   </div>
+{% endmacro %}
+<div class="ov">
+  {% for b in blocks %}
+  {% if b.name and b.rows | length > 1 %}
+  <div class="ov-group">
+    <span class="g-name" title="Entweder-oder-Gruppe: du kaufst nur eines davon">{{ b.name }}</span>
+    <button type="button" class="btn small ghost" onclick="fundusCopy(this, '{{ b.ids | join(',') }}')">Für Gemini kopieren</button>
+    {% if b.best %}
+    <div class="g-best">
+      {% for o in b.best %}
+      <a href="/go/{{ o.key | urlencode }}" target="_blank" rel="noopener" title="{{ o.title }}">
+        <b>{{ price(o.pay, 'CHF') }}</b>{% if o.cond != 'unbekannt' %} <span class="muted">{{ o.cond }}</span>{% endif %}<span class="t">{{ o.search }}</span></a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% for s, v in b.rows %}{{ strip_row(s, v) }}{% endfor %}
   {% endfor %}
 </div>
 </div>
-</div>
-{% if rows | length > 1 %}<p class="muted small" style="margin-top:14px">Reihenfolge ändern: Suchkarte gedrückt halten und an die gewünschte Stelle ziehen.</p>{% endif %}
-<script src="/static/reorder.js?v=1"></script>
+{% if rows | length > 1 %}<p class="muted small" style="margin-top:18px;text-align:center">Gedrückt halten und ziehen = Reihenfolge ändern</p>{% endif %}
+<script src="/static/reorder.js?v=2"></script>
 {% endblock %}

@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}fundus{% endblock %}</title>
-  <meta name="theme-color" content="#2f5d50">
+  <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%232f5d50' stroke-width='4'/%3E%3Cpath d='M21 21l7 7' stroke='%232f5d50' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/style.css?v=17">
-  <link rel="stylesheet" href="/static/views.css?v=5">
-  <script src="/static/views.js?v=3"></script>
+  <link rel="stylesheet" href="/static/style.css?v=18">
+  <link rel="stylesheet" href="/static/views.css?v=6">
+  <script src="/static/views.js?v=4"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
 <body class="{{ 'app' if is_app }}">
@@ -23,25 +23,40 @@
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.73 21a2 2 0 0 1-3.46 0"></path><path d="M18.63 13A17.89 17.89 0 0 1 18 8"></path><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"></path><path d="M18 8a6 6 0 0 0-9.33-5"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
     </a>
     {% endif %}
-    <div id="status" hx-get="/status" hx-trigger="every 4s" hx-swap="innerHTML" >
+    <div id="status">
       {% include "_status.html" %}
     </div>
   </header>
-  <main class="intro">
+  <main>
     {% block content %}{% endblock %}
   </main>
   {% if is_app %}
   {% set path = request.url.path %}
   <nav class="tabbar" aria-label="Hauptnavigation">
-    <a href="/" class="{{ 'here' if path == '/' or path.startswith('/search') }}"><span aria-hidden="true">⌕</span>Übersicht</a>
-    <a href="/neue-suche" class="{{ 'here' if path == '/neue-suche' }}"><span aria-hidden="true">＋</span>Neue Suche</a>
-    <a href="/settings" class="{{ 'here' if path == '/settings' }}"><span aria-hidden="true">⚙︎</span>Einstellungen</a>
+    <a href="/" class="{{ 'here' if path == '/' or path.startswith('/search') }}"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6.5" rx="2"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="2"/></svg></span>Übersicht</a>
+    <a href="/neue-suche" class="{{ 'here' if path == '/neue-suche' }}"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>Neue Suche</a>
+    <a href="/settings" class="{{ 'here' if path == '/settings' }}"><span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></span>Einstellungen</a>
   </nav>
-  <div id="ptr" aria-hidden="true">↻</div>
+  <div id="ptr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4"/></svg></div>
   {% endif %}
   <script>
-    // Einblend-Animation nur beim ersten Laden, nicht bei jedem Auto-Refresh
-    setTimeout(() => document.querySelector('main').classList.remove('intro'), 1200);
+    // Statuszeile: während Scan/KI alle 4 s, sonst alle 30 s; nichts, solange die App im Hintergrund ist.
+    // Nur ersetzen, wenn sich etwas geändert hat – jedes Ersetzen kostet Layout und Rechenzeit.
+    (() => {
+      const box = document.getElementById('status'); let timer = 0, last = null;
+      const plan = () => { clearTimeout(timer); timer = setTimeout(tick, box.querySelector('.progress-line') ? 4000 : 30000); };
+      async function tick() {
+        if (document.hidden) return;
+        try {
+          const html = await fetch('/status', {cache: 'no-store'}).then(r => r.text());
+          if (html !== last) { last = html; box.innerHTML = html; if (window.htmx) htmx.process(box); }
+        } catch (e) { /* Mac kurz nicht erreichbar */ }
+        plan();
+      }
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+      document.addEventListener('htmx:afterSwap', e => { if (e.target === box) plan(); });
+      plan();
+    })();
     {% if is_app %}
     // App (android/): Status- und Navigationsleiste in der Hintergrundfarbe der Seite; nach einem Scan von Hand
     // fragt die App selbst nach, sobald alles ausgewertet ist, und meldet die neuen Top-Angebote
@@ -82,5 +97,21 @@
     // Menüs schliessen beim Klick daneben
     document.addEventListener('click', e => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
   </script>
+<script>
+// «Für Gemini kopieren»: Angebote einer oder mehrerer Suchen (ids kommagetrennt) als Text in die Zwischenablage
+async function fundusCopy(btn, ids) {
+  const old = btn.textContent;
+  const done = ok => { btn.textContent = ok ? '✓ kopiert' : 'Kopieren fehlgeschlagen'; setTimeout(() => btn.textContent = old, 2000); };
+  btn.textContent = '…';
+  try {
+    const text = await fetch('/api/gemini?ids=' + ids).then(r => r.text());
+    try { await navigator.clipboard.writeText(text); done(true); }
+    catch (e) {   // z.B. WebView ohne Zwischenablage-Recht: über ein unsichtbares Textfeld
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = 0;
+      document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); done(ok);
+    }
+  } catch (e) { done(false); }
+}
+</script>
 </body>
 </html>

@@ -12,9 +12,9 @@ log = logging.getLogger(__name__)
 TRUST_TAG = {"ok": "green_circle", "neutral": "white_circle", "check": "yellow_circle", "warn": "red_circle"}
 
 
-def _publish(cfg: dict, payload: dict) -> bool:
+def _publish(cfg: dict, payload: dict, force: bool = False) -> bool:
     n = cfg["ntfy"]
-    if not n.get("topic"):
+    if not n.get("topic") or not (n.get("enabled", True) or force):  # enabled: false = ntfy stillgelegt, Meldungen nur über die App
         return False
     headers = {"Authorization": f"Bearer {n['token']}"} if n.get("token") else {}
     try:
@@ -170,13 +170,19 @@ def notify_top_hits(search_id: int) -> list[str]:
     if not cfg["ntfy"].get("on_new", True) or not search.get("notify_new", 1):
         db.mark_notified(search_id, [h["key"] for h in hits])  # Meldungen für neue Angebote ausgeschaltet
         return []
-    add_app_notice(cfg, search, hits)
-    if app_active():  # die App holt ihre Meldungen selbst ab – ntfy wäre doppelt
-        sent = [h["key"] for h in hits]
+    add_app_notice(cfg, search, hits)  # die App holt ihre Meldungen selbst ab (/api/app/notices)
+    if app_active() or not cfg["ntfy"].get("enabled", True) or not cfg["ntfy"].get("topic"):
+        sent = [h["key"] for h in hits]  # ntfy wäre doppelt bzw. ist stillgelegt – die Meldung liegt für die App bereit
     else:
         sent = notify_hits(cfg, search, hits, {a.name: a.label for a in all_adapters(cfg)})
     db.mark_notified(search_id, sent)
     return sent
+
+
+def publish_urgent(cfg: dict, title: str, body: str, url: str) -> bool:
+    """Dringende Meldung (Auktion endet gleich) über ntfy, höchste Priorität – nur wenn ntfy eingeschaltet ist."""
+    return _publish(cfg, {"title": title[:200], "message": body, "click": url, "priority": 5, "tags": ["alarm_clock"]},
+                    force=bool(cfg["ntfy"].get("auctions")))
 
 
 APP_ACTIVE_DAYS = 7

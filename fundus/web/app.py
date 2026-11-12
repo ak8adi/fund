@@ -158,6 +158,7 @@ def _ctx(request: Request, **kw) -> dict:
         "next_runs": next_runs(state["scheduler"]),
         "ntfy_ok": bool(cfg["ntfy"].get("topic")),
         "adapters": [(a.name, a.label) for a in all_adapters(cfg)],
+        "groups": sorted({s["group_name"] for s in db.list_searches() if s.get("group_name")}),
         "cfg": cfg,
         "ai_progress": {"evaluated": evaluated, "total": total},
         "is_app": APP_MARKER in request.headers.get("user-agent", "") or request.cookies.get("fundus_app") == "1",
@@ -270,9 +271,10 @@ def index(request: Request):
     from .. import views
     db.expire_ended_listings()
     searches = db.list_searches()  # eigene Reihenfolge (per Ziehen in der Übersicht)
+    rows = [(s, views.build(s["id"])) for s in searches]
     return templates.TemplateResponse(request, "index.html", _ctx(
         request,
-        rows=[(s, views.build(s["id"])) for s in searches],
+        rows=rows, blocks=views.grouped(rows),
         runs=db.last_runs(1),
         health=_health(runner.available_sources(get_config())),
     ))
@@ -287,17 +289,29 @@ def app_notices(after: int = -1):
     after=-1 (erster Kontakt): keine alten Meldungen nachliefern, nur den Stand zurückgeben."""
     from fastapi.responses import JSONResponse
     db.kv_set("app_seen", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    from .. import auctions
     busy = _busy()
     notices = [] if after < 0 or busy else db.app_notices_after(after, limit=100)
     last = notices[-1]["id"] if notices else (db.last_app_notice_id() if after < 0 else after)
     public = (get_config()["web"].get("public_url") or "").rstrip("/")
     digest = _digest(notices, public)
+    # Dringend (Auktion endet gleich): sofort, einzeln und auch während eines Scans – jede genau einmal
+    urgent = [{"id": n["id"], "title": n["title"], "body": n["body"], "url": n["url"] or f"{public}/", "urgent": True}
+              for n in db.take_urgent_notices()]
     jitter = int(get_config()["schedule"].get("jitter_minutes", 0))
     upcoming = next_runs(state["scheduler"])
     nxt = (upcoming[0] + timedelta(minutes=jitter + APP_CHECK_AFTER_RUN)) if upcoming else \
         datetime.now(timezone.utc) + timedelta(hours=12)
-    return JSONResponse({"busy": busy, "last_id": last, "next_check": nxt.astimezone(timezone.utc).isoformat(timespec="seconds"),
-                         "notices": [digest] if digest else []})
+    # Endet vorher eine Auktion, soll die App gleich nach deren Prüfung fragen (Job-Takt + 1 Min. Reserve)
+    alert = auctions.next_alert_time()
+    check = alert + timedelta(minutes=auctions.CHECK_EVERY_MIN + 1) if alert else None
+    if check:
+        nxt = min(nxt, check)
+    iso = lambda t: t.astimezone(timezone.utc).isoformat(timespec="seconds")
+    # auction_check: dieser Zeitpunkt ist zeitkritisch – die App stellt dafür einen exakten Wecker und versucht es
+    # bei einem Fehlschlag rasch nochmals (ab App 1.4)
+    return JSONResponse({"busy": busy, "last_id": last, "next_check": iso(nxt), "auction_check": iso(check) if check else None,
+                         "notices": urgent + ([digest] if digest else [])})
 
 
 AI_SETTLE_HOURS = 2   # so lange nach einem Scan auf ausstehende KI-Bewertungen warten
@@ -381,12 +395,13 @@ def create_search(
     near_place: str = Form(""),
     route_to: str = Form(""),
     route_km: str = Form(""),
+    group_name: str = Form(""),
 ):
     sid = db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
         "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
-        "requirements": requirements, **_area_fields(near, near_km, near_place, route_to, route_km),
+        "requirements": requirements, "group_name": group_name, **_area_fields(near, near_km, near_place, route_to, route_km),
     })
     if _num(new_price):
         db.set_new_price(sid, _num(new_price), "von Hand", True)
@@ -456,8 +471,7 @@ def search_fresh(sid: int):
     """Für die Suchseite: läuft die Verfügbarkeitsprüfung noch, und welche Angebote stehen jetzt oben?"""
     from fastapi.responses import JSONResponse
     from .. import views
-    offers = views.build(sid)["offers"]
-    top = [o["key"] for o in offers if o["front"]] + [o["key"] for o in offers if not o["front"] and not o["ko"]][:6]
+    top = views.top_keys(views.build(sid)["offers"])
     return JSONResponse({"watching": runner.is_watching(sid), "top": top})
 
 
@@ -513,13 +527,14 @@ def update_search(
     near_place: str = Form(""),
     route_to: str = Form(""),
     route_km: str = Form(""),
+    group_name: str = Form(""),
 ):
     old_search = db.get_search(sid)
     db.save_search({
         "query": query, "exclude": exclude, "min_price": _num(min_price),
         "max_price": _num(max_price), "platforms": platforms or None,
         "allow_sets": allow_sets == "on", "require_shipping": bool(require_shipping),
-        "requirements": requirements, **_area_fields(near, near_km, near_place, route_to, route_km),
+        "requirements": requirements, "group_name": group_name, **_area_fields(near, near_km, near_place, route_to, route_km),
     }, sid)
 
     if old_search:
@@ -593,6 +608,22 @@ def refresh_new_price(request: Request, sid: int):
     newprice.refresh_in_background(sid)
     back = request.headers.get("referer", "")
     return RedirectResponse(f"/search/{sid}/neu-kaufen" if back.endswith("/neu-kaufen") else f"/search/{sid}", status_code=303)
+
+
+@app.get("/api/gemini")
+def gemini_text(ids: str = ""):
+    """Angebote einer oder mehrerer Suchen als Text für Gemini (Knopf «Für Gemini kopieren»)."""
+    from fastapi.responses import PlainTextResponse
+    from .. import views
+    return PlainTextResponse(views.gemini_prompt([int(i) for i in ids.split(",") if i.strip().isdigit()]))
+
+
+@app.post("/search/{sid}/shop")
+def add_shop(sid: int, url: str = Form("")):
+    """Shopseite von Hand ergänzen (Produktseite): wird ab jetzt bei jeder Neupreis-Suche mitgelesen."""
+    if newprice.add_shop(sid, url):
+        newprice.refresh_in_background(sid)
+    return RedirectResponse(f"/search/{sid}/neu-kaufen", status_code=303)
 
 
 @app.get("/search/{sid}/analytics", response_class=HTMLResponse)

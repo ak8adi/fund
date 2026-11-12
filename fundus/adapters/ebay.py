@@ -105,7 +105,8 @@ class EbayAdapter(Adapter):
 
     def item_details(self, item_id: str, marketplace: str = "EBAY_DE") -> dict:
         """Beschreibung und Status eines Inserats über die API (zählt zum Tageskontingent, kein Scraping).
-        Rückgabe: {"description": str|None, "location": str|None, "gone": bool}."""
+        Rückgabe: {"description": str|None, "location": str|None, "gone": bool} und für Auktionen der frische Stand
+        {"bid_price", "bids", "ends_at"} (None, wenn die API nichts nennt)."""
         resp = httpx.get(
             ITEM_URL.format(item_id=quote(item_id, safe="")),
             params={"fieldgroups": "PRODUCT"},
@@ -113,7 +114,7 @@ class EbayAdapter(Adapter):
             timeout=25,
         )
         if resp.status_code == 404:
-            return {"description": None, "location": None, "gone": True}
+            return {"description": None, "location": None, "gone": True, "bid_price": None, "bids": None, "ends_at": None}
         if resp.status_code == 429:
             raise BlockedError("eBay-Tageslimit erreicht")
         if resp.status_code != 200:
@@ -126,7 +127,11 @@ class EbayAdapter(Adapter):
         text = re.sub(r"[ \t\xa0]+", " ", re.sub(r"\n\s*\n+", "\n\n", text)).strip()
         loc = d.get("itemLocation") or {}
         ended = d.get("itemEndDate") and parse_date(d["itemEndDate"]) and parse_date(d["itemEndDate"]).timestamp() < time.time()
-        return {"description": text[:6000] or None,
+        bid = (d.get("currentBidPrice") or {}).get("value")
+        end = parse_date(d["itemEndDate"]) if d.get("itemEndDate") else None
+        return {"bid_price": float(bid) if bid else None, "bids": d.get("bidCount"),
+                "ends_at": end.isoformat() if end else None,
+                "description": text[:6000] or None,
                 "location": " ".join(p for p in (loc.get("postalCode"), loc.get("city")) if p) or None,
                 "gone": bool(ended) or d.get("estimatedAvailabilities", [{}])[0].get("estimatedAvailabilityStatus") == "OUT_OF_STOCK"}
 

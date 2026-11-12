@@ -13,6 +13,7 @@ from apscheduler.triggers.date import DateTrigger
 from . import db
 from .config import get_config
 from .notify import send_weekly
+from . import auctions
 from .runner import run, watch_all
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ def apply_schedule(scheduler: BackgroundScheduler, cfg: dict) -> None:
     # Verfügbarkeits-Wächter: was oben auf den Suchseiten steht, tagsüber alle 30 Min. auf weg/reserviert prüfen
     scheduler.add_job(watch_all, CronTrigger(minute="5,35", hour="7-22", timezone=scheduler.timezone),
                       id="watch", max_instances=1, coalesce=True, misfire_grace_time=600)
+    # Auktions-Alarm: rund um die Uhr im 5-Minuten-Takt nachsehen, ob eine Auktion bald endet (ohne Anfrage, solange keine fällig ist)
+    scheduler.add_job(auctions.check, CronTrigger(minute=f"*/{auctions.CHECK_EVERY_MIN}", timezone=scheduler.timezone),
+                      id="auctions", max_instances=1, coalesce=True, misfire_grace_time=240)
     jitter = int(sched_cfg.get("jitter_minutes", 0)) * 60 or None
     for t in times:
         hour, minute = (int(x) for x in str(t).split(":"))

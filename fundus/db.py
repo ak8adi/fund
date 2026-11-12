@@ -99,14 +99,25 @@ def db_path() -> Path:
     return Path(get_config()["data_dir"]) / "fundus.db"
 
 
+_writes = 0   # zählt Schreibvorgänge dieses Prozesses – Zwischenspeicher (views.build) gelten nur für einen Stand
+
+
+def version() -> tuple[str, int]:
+    """Kennung des Datenstands: ändert sich mit jedem Schreibvorgang (und mit der Datenbankdatei, z.B. in Tests)."""
+    return str(db_path()), _writes
+
+
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
+    global _writes
     conn = sqlite3.connect(db_path(), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
+        if conn.total_changes:
+            _writes += 1
     finally:
         conn.close()
 
@@ -221,6 +232,8 @@ def init_db() -> None:
         for col, typ in (("near_km", "REAL"), ("near_place", "TEXT"), ("route_to", "TEXT"), ("route_km", "REAL")):
             if col not in cols:  # Gebiet: nur in der Nähe (Umkreis um near_place), optional entlang der Strecke nach route_to
                 c.execute(f"ALTER TABLE searches ADD COLUMN {col} {typ}")
+        if "group_name" not in cols:  # Entweder-oder-Gruppe: mehrere Suchen, von denen nur eines gekauft wird
+            c.execute("ALTER TABLE searches ADD COLUMN group_name TEXT")
         if "manual_run_at" not in cols:
             c.execute("ALTER TABLE searches ADD COLUMN manual_run_at TEXT")  # letzter manueller Start
         if "market_price" not in cols:
@@ -242,7 +255,18 @@ def init_db() -> None:
         c.execute("""CREATE TABLE IF NOT EXISTS search_sources (
                          search_id INTEGER NOT NULL, source TEXT NOT NULL, first_scan TEXT NOT NULL,
                          PRIMARY KEY (search_id, source))""")
+        if "deep_scan" not in {r["name"] for r in c.execute("PRAGMA table_info(search_sources)")}:
+            # Bestand einmal tiefer gelesen (mehrere Seiten)? Sonst kennt fundus nur die neusten ~25 Inserate
+            c.execute("ALTER TABLE search_sources ADD COLUMN deep_scan TEXT")
         h_cols = {r["name"] for r in c.execute("PRAGMA table_info(hits)")}
+        if "auction_alert" not in h_cols:  # Auktions-Alarm kurz vor Ablauf: wann geprüft bzw. gemeldet (auctions.py)
+            c.execute("ALTER TABLE hits ADD COLUMN auction_alert TEXT")
+        n_cols = {r["name"] for r in c.execute("PRAGMA table_info(app_notices)")}
+        if "urgent" not in n_cols:  # dringend = eigene, auffällige Meldung (Auktion endet), sofort und einzeln zugestellt
+            c.execute("ALTER TABLE app_notices ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0")
+            c.execute("ALTER TABLE app_notices ADD COLUMN delivered_at TEXT")
+        if "expires_at" not in {r["name"] for r in c.execute("PRAGMA table_info(app_notices)")}:
+            c.execute("ALTER TABLE app_notices ADD COLUMN expires_at TEXT")  # danach nie mehr zustellen (Auktion vorbei)
         if "baseline" not in h_cols:
             c.execute("ALTER TABLE hits ADD COLUMN baseline INTEGER NOT NULL DEFAULT 0")
             _backfill_baseline(c)
@@ -323,19 +347,20 @@ def save_search(data: dict, search_id: int | None = None) -> int:
         (data.get("near_place") or "").strip() or None,
         (data.get("route_to") or "").strip() or None,
         data.get("route_km") or None,
+        (data.get("group_name") or "").strip() or None,
     )
     with connect() as c:
         if search_id is None:
             cur = c.execute(
                 "INSERT INTO searches (query, exclude, min_price, max_price, platforms, allow_sets, require_shipping, requirements,"
-                " near_km, near_place, route_to, route_km, created_at, position)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MIN(position), 0) - 1 FROM searches))",  # neu: ganz oben
+                " near_km, near_place, route_to, route_km, group_name, created_at, position)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MIN(position), 0) - 1 FROM searches))",  # neu: ganz oben
                 (*values, now()),
             )
             return int(cur.lastrowid)
         c.execute(
             "UPDATE searches SET query=?, exclude=?, min_price=?, max_price=?, platforms=?, allow_sets=?, require_shipping=?,"
-            " requirements=?, near_km=?, near_place=?, route_to=?, route_km=? WHERE id=?",
+            " requirements=?, near_km=?, near_place=?, route_to=?, route_km=?, group_name=? WHERE id=?",
             (*values, search_id),
         )
         return search_id
@@ -352,16 +377,23 @@ def set_new_price(search_id: int, price: float | None, note: str | None, manual:
                                        json.dumps(offers, ensure_ascii=False) if offers is not None else None, search_id))
 
 
+_geo: dict = {"path": None, "rows": {}}   # ganze Tabelle im Speicher: die Übersicht fragt pro Aufruf ~2000 Orte ab
+
+
 def geo_get(query: str) -> dict | None:
-    with connect() as c:
-        r = c.execute("SELECT * FROM geo WHERE query = ?", (query,)).fetchone()
-        return dict(r) if r else None
+    path = str(db_path())
+    if _geo["path"] != path:
+        with connect() as c:
+            _geo["rows"] = {r["query"]: dict(r) for r in c.execute("SELECT * FROM geo")}
+        _geo["path"] = path
+    return _geo["rows"].get(query)
 
 
 def geo_put(query: str, lat: float | None, lon: float | None, minutes: int | None) -> None:
     with connect() as c:
         c.execute("INSERT OR REPLACE INTO geo (query, lat, lon, minutes, checked_at) VALUES (?,?,?,?,?)",
                   (query, lat, lon, minutes, now()))
+    _geo["path"] = None  # beim nächsten Lesen neu laden
 
 
 def set_search_sort(search_id: int, sort_by: str) -> None:
@@ -669,6 +701,26 @@ def first_scans(search_id: int) -> set[str]:
         return {r["source"] for r in c.execute("SELECT source FROM search_sources WHERE search_id = ?", (search_id,))}
 
 
+def deep_scans(search_id: int) -> set[str]:
+    """Quellen, deren Bestand für diese Suche schon einmal über mehrere Seiten gelesen wurde."""
+    with connect() as c:
+        return {r["source"] for r in c.execute(
+            "SELECT source FROM search_sources WHERE search_id = ? AND deep_scan IS NOT NULL", (search_id,))}
+
+
+def record_deep_scan(search_id: int, source: str) -> None:
+    with connect() as c:
+        c.execute("INSERT OR IGNORE INTO search_sources (search_id, source, first_scan) VALUES (?,?,?)",
+                  (search_id, source, now()))
+        c.execute("UPDATE search_sources SET deep_scan = ? WHERE search_id = ? AND source = ?", (now(), search_id, source))
+
+
+def hit_keys(search_id: int) -> set[str]:
+    """Alle Inserate, die diese Suche schon kennt (auch ausgefilterte und verschwundene)."""
+    with connect() as c:
+        return {r["listing_key"] for r in c.execute("SELECT listing_key FROM hits WHERE search_id = ?", (search_id,))}
+
+
 def record_first_scan(search_id: int, source: str) -> None:
     with connect() as c:
         c.execute("INSERT OR IGNORE INTO search_sources (search_id, source, first_scan) VALUES (?,?,?)",
@@ -699,17 +751,64 @@ def kv_set(key: str, value: str) -> None:
                   (key, value))
 
 
-def add_app_notice(search_id: int | None, title: str, body: str, url: str | None) -> int:
+def add_app_notice(search_id: int | None, title: str, body: str, url: str | None, urgent: bool = False,
+                   expires_at: str | None = None) -> int:
     with connect() as c:
-        return c.execute("INSERT INTO app_notices (created_at, search_id, title, body, url) VALUES (?,?,?,?,?)",
-                         (now(), search_id, title, body, url)).lastrowid
+        return c.execute(
+            "INSERT INTO app_notices (created_at, search_id, title, body, url, urgent, expires_at) VALUES (?,?,?,?,?,?,?)",
+            (now(), search_id, title, body, url, int(urgent), expires_at)).lastrowid
+
+
+def take_urgent_notices(max_age_minutes: int = 180) -> list[dict]:
+    """Dringende Meldungen (Auktion endet), die die App noch nicht abgeholt hat – jede wird genau einmal geliefert.
+    Ältere sind überholt: die Auktion ist dann vorbei."""
+    with connect() as c:
+        rows = [dict(r) for r in c.execute(
+            """SELECT * FROM app_notices WHERE urgent = 1 AND delivered_at IS NULL
+                 AND created_at >= strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', ?) ORDER BY id""",
+            (f"-{max_age_minutes} minutes",))]
+        c.executemany("UPDATE app_notices SET delivered_at = ? WHERE id = ?", [(now(), r["id"]) for r in rows])
+        # Fragt die App zu spät (Handy im Stromsparmodus, Tailscale aus), ist die Auktion vorbei: dann gar nicht melden –
+        # ein Alarm nach dem Ende ist schlimmer als keiner
+        return [r for r in rows if not r.get("expires_at") or r["expires_at"] > now()]
+
+
+# ---------- Auktionen ----------
+
+def auctions_to_watch() -> list[dict]:
+    """Laufende Auktionen in aktiven Suchen, die passen und für die noch kein Alarm entschieden ist:
+    {search_id, key, ends_at}. Ob es reine Auktionen sind und ob sie sich lohnen, entscheidet auctions.py."""
+    with connect() as c:
+        return [dict(r) for r in c.execute(
+            """SELECT h.search_id, l.key, l.ends_at FROM hits h JOIN listings l ON l.key = h.listing_key
+               JOIN searches s ON s.id = h.search_id
+               WHERE s.active = 1 AND h.hidden = 0 AND h.ai_relevant = 1 AND h.auction_alert IS NULL
+                 AND l.auction = 1 AND l.gone_at IS NULL AND l.ends_at IS NOT NULL AND l.ends_at > ?
+               ORDER BY l.ends_at""", (now(),))]
+
+
+def set_auction_alert(search_id: int, key: str, result: str) -> None:
+    """result: «gemeldet …» oder «kein Alarm: …» mit Zeitpunkt – danach wird die Auktion nicht nochmals geprüft."""
+    with connect() as c:
+        c.execute("UPDATE hits SET auction_alert = ? WHERE search_id = ? AND listing_key = ?",
+                  (f"{now()} {result}", search_id, key))
+
+
+def update_auction(key: str, bid_price: float | None, bids: int | None, ends_at: str | None = None,
+                   price: float | None = None) -> None:
+    """Frischer Stand einer Auktion (Gebot, Anzahl Gebote, evtl. verlängertes Ende)."""
+    with connect() as c:
+        c.execute("""UPDATE listings SET bid_price = COALESCE(?, bid_price), bids = COALESCE(?, bids),
+                                        ends_at = COALESCE(?, ends_at), price = COALESCE(?, price), last_seen = ?
+                     WHERE key = ?""", (bid_price, bids, ends_at, price, now(), key))
 
 
 def app_notices_after(after: int, limit: int = 20) -> list[dict]:
     """Noch nicht abgeholte Meldungen (id > after), höchstens 3 Tage alt – ältere sind überholt."""
     with connect() as c:
         return [dict(r) for r in c.execute(
-            """SELECT * FROM app_notices WHERE id > ? AND created_at >= strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', '-3 days')
+            """SELECT * FROM app_notices WHERE id > ? AND urgent = 0
+                 AND created_at >= strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now', '-3 days')
                ORDER BY id LIMIT ?""", (after, limit))]
 
 

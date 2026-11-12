@@ -12,7 +12,7 @@
       <input name="new_price" inputmode="decimal" value="{{ s.new_price | int if s and s.new_price_manual and s.new_price else '' }}"
              placeholder="{{ 'automatisch: %d' % s.new_price if s and s.new_price and not s.new_price_manual else 'automatisch' }}"></label>
   </div>
-  <label class="grow">Was muss es erfüllen? <span class="muted small">(optional, die KI liest jedes Inserat darauf)</span>
+  <label class="grow">Was muss es erfüllen? <span class="muted small">(optional)</span>
     <textarea name="requirements" rows="2" placeholder="z.B. nur Tische zwischen 130 und 150 cm lang, ausziehbar">{{ s.requirements if s and s.requirements else '' }}</textarea>
   </label>
   <fieldset class="where{{ ' on' if s and s.near_km }}">
@@ -28,10 +28,9 @@
       <label>und auf der Strecke nach <input name="route_to" placeholder="z.B. Grabs (optional)" value="{{ s.route_to or '' if s else '' }}"></label>
       <label>± <input name="route_km" type="number" min="1" max="50" inputmode="numeric" value="{{ s.route_km | int if s and s.route_km else 8 }}"> km Umweg</label>
     </div>
-    <p class="muted small">Nichts angehakt: alle Angebote. Nur «Versand»: nur verschickbare. Nur «In der Nähe»: nur Angebote im Umkreis
-      (bzw. entlang der Strecke). Beides: verschickbare von überall <i>und</i> alles in der Nähe – z.B. Abholung in Winterthur.</p>
+    <p class="muted small">Nichts angehakt = alle. Beides = verschickbare von überall und alles in der Nähe.</p>
   </fieldset>
-  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets) %}open{% endif %} style="margin-bottom:12px;">
+  <details class="more" {% if s and (s.exclude or s.platforms or not s.allow_sets or s.group_name) %}open{% endif %} style="margin-bottom:12px;">
     <summary>Mehr Optionen ▾</summary>
     <div class="more-body">
       <div class="row">
@@ -46,6 +45,12 @@
             {% if s and s.platforms and name in s.platforms %}checked{% endif %}> {{ label }}</label>
         {% endfor %}
       </fieldset>
+      <div class="row">
+        <label class="grow" title="Suchen mit derselben Gruppe stehen in der Übersicht beieinander und werden gemeinsam verglichen – wenn du nur eines davon kaufen willst">Gruppe (entweder–oder)
+          <input name="group_name" list="gruppen" placeholder="z.B. Kitebar" value="{{ s.group_name or '' if s else '' }}">
+          <datalist id="gruppen">{% for g in groups %}<option value="{{ g }}">{% endfor %}</datalist>
+        </label>
+      </div>
       <div class="row">
         <label class="check"><input type="checkbox" name="allow_sets"
           {% if not s or s.allow_sets %}checked{% endif %}> Sets/Bundles erlauben</label>

@@ -58,6 +58,9 @@ Bewerte NICHT, ob der Preis gut ist – das rechnet das Programm selbst."""
 def _facts_prompt(search: dict, items: list[dict]) -> str:
     prompt = f"""Ich suche: '{search["query"]}'. Lies die Inserate und liefere Fakten pro Inserat.
 Fehltreffer (mehrdeutige Begriffe, blosses Zubehör, Ersatzteile, anderes Modell/Grösse) → relevant = false.
+Zahlen im Suchtext sind verbindlich (Bildschirmgrösse, Modellnummer, Generation, Grösse): nennt das Inserat dafür
+einen anderen Wert – z.B. 14 Zoll bei gesuchten 16, «Pro 3» bei gesuchtem «Pro 4», 12 m bei gesuchten 9 m –
+→ relevant = false. Technische Angaben wie «16 GB» sind keine Modellgrösse.
 """
     if not search.get("allow_sets", True):
         prompt += """Ich suche NUR das Einzelprodukt. Reine Sets → relevant = false, ausser im Text steht, dass das gesuchte

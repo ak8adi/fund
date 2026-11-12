@@ -30,6 +30,7 @@ import java.util.TimeZone;
  */
 public class Melder extends BroadcastReceiver {
     private static final String KANAL = "angebote";
+    private static final String KANAL_DRINGEND = "auktion";   // Auktion endet gleich: mit Ton und Einblendung
     private static final long MINUTE = 60_000L;
 
     @Override
@@ -60,17 +61,24 @@ public class Melder extends BroadcastReceiver {
             JSONArray meldungen = antwort.getJSONArray("notices");
             for (int i = 0; i < meldungen.length(); i++) {
                 JSONObject m = meldungen.getJSONObject(i);
-                zeigen(ctx, m.getInt("id"), m.getString("title"), m.getString("body"), m.optString("url", adresse + "/"));
+                zeigen(ctx, m.getInt("id"), m.getString("title"), m.getString("body"), m.optString("url", adresse + "/"),
+                        m.optBoolean("urgent", false));
             }
-            prefs.edit().putLong("letzte", antwort.getLong("last_id")).apply();
-            if (antwort.getBoolean("busy")) {
-                wecken(ctx, System.currentTimeMillis() + 15 * MINUTE);   // Scan oder Auswertung läuft noch
-            } else {
-                long naechste = zeitpunkt(antwort.getString("next_check"));
-                wecken(ctx, Math.max(naechste, System.currentTimeMillis() + 5 * MINUTE));
-            }
+            // Auktion endet bald: dieser Zeitpunkt ist zeitkritisch (exakter Wecker, rascher Neuversuch)
+            long auktion = antwort.isNull("auction_check") ? 0 : zeitpunkt(antwort.optString("auction_check"));
+            prefs.edit().putLong("letzte", antwort.getLong("last_id")).putLong("auktion", auktion).apply();
+            long jetzt = System.currentTimeMillis();
+            long naechste = antwort.getBoolean("busy")
+                    ? jetzt + 15 * MINUTE                                   // Scan oder Auswertung läuft noch
+                    : Math.max(zeitpunkt(antwort.getString("next_check")), jetzt + 5 * MINUTE);
+            if (auktion > 0) naechste = Math.min(naechste, Math.max(auktion, jetzt + MINUTE));
+            wecken(ctx, naechste, auktion > 0 && naechste <= auktion + MINUTE);
         } catch (Exception e) {
-            wecken(ctx, System.currentTimeMillis() + 30 * MINUTE);       // Mac nicht erreichbar: später nochmals
+            // Mac nicht erreichbar: später nochmals – steht eine Auktions-Prüfung an oder ist sie eben vorbei, rasch
+            long jetzt = System.currentTimeMillis();
+            long auktion = prefs.getLong("auktion", 0);
+            boolean eilig = auktion > 0 && auktion - 10 * MINUTE < jetzt && jetzt < auktion + 50 * MINUTE;
+            wecken(ctx, jetzt + (eilig ? 3 : 30) * MINUTE, eilig);
         }
     }
 
@@ -95,22 +103,34 @@ public class Melder extends BroadcastReceiver {
     }
 
     static void wecken(Context ctx, long wann) {
+        wecken(ctx, wann, false);
+    }
+
+    /** genau = exakter Wecker: der ungenaue wird im Stromsparmodus um Stunden verschoben – für Auktionen zu spät. */
+    static void wecken(Context ctx, long wann, boolean genau) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         PendingIntent pi = PendingIntent.getBroadcast(ctx, 0, new Intent(ctx, Melder.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, wann, pi);   // ungenau, aber auch im Stromsparmodus
+        boolean darf = android.os.Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms();
+        if (genau && darf) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, wann, pi);
+        else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, wann, pi);   // ungenau, aber auch im Stromsparmodus
     }
 
-    private static void zeigen(Context ctx, int id, String titel, String text, String url) {
+    private static void zeigen(Context ctx, int id, String titel, String text, String url, boolean dringend) {
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(KANAL, "Neue Top-Angebote", NotificationManager.IMPORTANCE_DEFAULT));
+        NotificationChannel alarm = new NotificationChannel(KANAL_DRINGEND, "Auktion endet gleich", NotificationManager.IMPORTANCE_HIGH);
+        alarm.enableVibration(true);
+        alarm.setVibrationPattern(new long[]{0, 400, 200, 400, 200, 400});
+        nm.createNotificationChannel(alarm);
         Intent oeffnen = new Intent(Intent.ACTION_VIEW, Uri.parse(url), ctx, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(ctx, id, oeffnen,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification n = new Notification.Builder(ctx, KANAL)
+        Notification n = new Notification.Builder(ctx, dringend ? KANAL_DRINGEND : KANAL)
+                .setCategory(dringend ? Notification.CATEGORY_ALARM : Notification.CATEGORY_RECOMMENDATION)
                 .setSmallIcon(ctx.getResources().getIdentifier("ic_launcher_vordergrund", "mipmap", ctx.getPackageName()))
-                .setColor(0xFF2F5D50)
+                .setColor(dringend ? 0xFFC0392B : 0xFF2F5D50)
                 .setContentTitle(titel)
                 .setContentText(text.split("\n")[0])
                 .setStyle(new Notification.BigTextStyle().bigText(text))

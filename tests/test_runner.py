@@ -136,3 +136,44 @@ def test_status_shows_progress_ring(monkeypatch):
         monkeypatch.setattr(webapp.db, "get_ai_progress", lambda: (30, 120))
         html = client.get("/status").text
         assert "KI bewertet <b>25 %</b>" in html and 'class="ring"' in html
+
+
+def test_deep_first_scan_and_paging_when_page_is_all_new():
+    """Erster Abruf liest mehrere Seiten (Bestand); später wird nur nachgeblättert, wenn eine volle Seite nur
+    Unbekanntes zeigt."""
+    from fundus import runner
+    from fundus.models import Listing
+
+    class Paged:
+        paged = True
+
+        def __init__(self, pages):
+            self.pages, self.calls = pages, []
+
+        def search(self, query, source, lo, hi, page=1):
+            self.calls.append(page)
+            return [Listing(platform="kleinanzeigen", external_id=str(i), title="x", url=f"https://x/{i}", price=1)
+                    for i in self.pages.get(page, [])]
+
+    search = {"query": "x"}
+    a = Paged({1: range(0, 25), 2: range(25, 50), 3: range(50, 60)})
+    found, stock = runner._search_pages(a, search, "kleinanzeigen", True, set(), lambda: None)
+    assert a.calls == [1, 2, 3] and len(found) == 60 and len(stock) == 35      # Seiten 2–3 sind Bestand
+
+    known = {f"kleinanzeigen:{i}" for i in range(10, 60)}
+    b = Paged({1: range(0, 25), 2: range(25, 50)})                              # Seite 1 enthält Bekanntes
+    found, stock = runner._search_pages(b, search, "kleinanzeigen", False, known, lambda: None)
+    assert b.calls == [1] and len(found) == 25 and not stock
+
+    c = Paged({1: range(100, 125), 2: range(125, 135)})                         # volle Seite, alles unbekannt
+    found, stock = runner._search_pages(c, search, "kleinanzeigen", False, known, lambda: None)
+    assert c.calls == [1, 2] and len(found) == 35 and not stock                 # nachgeblättert, zählt als neu
+
+
+def test_kleinanzeigen_url_with_price_and_page():
+    from fundus.adapters.kleinanzeigen import KleinanzeigenAdapter
+    from fundus.config import get_config
+    a = KleinanzeigenAdapter(get_config())
+    assert a.search_url("macbook pro") == "https://www.kleinanzeigen.de/s-macbook-pro/k0"
+    assert a.search_url("macbook pro", 2) == "https://www.kleinanzeigen.de/s-seite:2/macbook-pro/k0"
+    assert a.search_url("sessel", 2, 50, 500) == "https://www.kleinanzeigen.de/s-preis:48:585/seite:2/sessel/k0"

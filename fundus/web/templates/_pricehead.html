@@ -16,17 +16,24 @@
     <span class="lbl">Neu ab</span>
     {% if hd.new %}
     <span class="val">{{ price(hd.new.total, 'CHF') }}</span>
-    <span class="sub">{{ price(hd.new.price, 'CHF') }}{% if hd.new.ship is not none %} + Versand {{ '' if hd.new.ship_known else '≈' }}{{ hd.new.ship }}{% endif %}{% if hd.new.fees %} + Gebühr {{ hd.new.fees }}{% endif %} · {{ hd.new.shop }}</span>
+    <span class="sub">{{ price(hd.new.price, 'CHF') }}{% if hd.new.ship is not none %} + Versand {{ '' if hd.new.ship_known else '≈' }}{{ hd.new.ship }}{% endif %}{% if hd.new.fees %} + Gebühr {{ hd.new.fees }}{% endif %} · {{ hd.new.shop }}{% if hd.new.approx %} · <b title="Die Shopseite nennt keine Grösse – der Preis gilt oft für die kleinste">Grösse prüfen</b>{% endif %}</span>
+    {% elif hd.successor %}
+    <span class="val small-val">nicht mehr neu</span>
+    <span class="sub">Nachfolger ab <b>{{ price(hd.successor.total, 'CHF') }}</b> · {{ hd.successor.shop }}</span>
     {% else %}
     <span class="val">{{ 'nur ausverkauft' if hd.soldout_count else 'kein Shop gefunden' }}</span>
     {% endif %}
+    {% if hd.local %}<span class="sub">Schweiz ab <b>{{ price(hd.local.total, 'CHF') }}</b> · {{ hd.local.shop }}</span>{% endif %}
     {% if hd.refurb %}<span class="sub">erneuert ab <b>{{ price(hd.refurb.total, 'CHF') }}</b> · {{ hd.refurb.shop }}</span>{% endif %}
   </a>
-  {% if hd.saving_pct is not none %}
+  {% if hd.verdict %}
+  <p class="cmp verdict {{ hd.verdict.level }}" title="Verglichen: bestes Gebrauchtangebot ({{ price(hd.best.pay, 'CHF') }}, {{ hd.best.cond }}) – nicht das billigste – mit dem günstigsten lieferbaren Neuangebot, beide als Endpreis"><b>{{ hd.verdict.text }}</b>
+    {% if hd.verdict.note %}<br>{{ hd.verdict.note }}{% endif %}</p>
+  {% elif hd.saving_pct is not none %}
   <p class="cmp">{% if hd.saving > 0 %}Gebraucht <b>{{ hd.saving_pct }} % günstiger</b> als neu ({{ price(hd.saving, 'CHF') }} gespart){% else %}Neu ist gerade nicht teurer als gebraucht{% endif %} – Endpreise inkl. Versand.</p>
   {% endif %}
 </div>
 <div class="big-btns one">
   <a class="analytics" href="/search/{{ search.id }}/analytics"><span class="ico" aria-hidden="true">◔</span>
-    <span>Analytics<small>Marktlage, Lieferwege, Preis-Wert-Karte, Preisleiter</small></span></a>
+    <span>Analytics<small>Marktlage · Preis-Wert-Karte</small></span></a>
 </div>

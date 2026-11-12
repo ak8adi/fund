@@ -14,9 +14,12 @@ DEFAULTS: dict[str, Any] = {
     "data_dir": "./data",
     "web": {"host": "127.0.0.1", "port": 8100, "public_url": ""},
     "schedule": {"times": ["07:40", "18:20"], "jitter_minutes": 25, "timezone": "Europe/Zurich",
-                 "pause_after_manual_hours": 3},
+                 "pause_after_manual_hours": 3,
+                 "auction_alert_minutes": 60},     # so lange vor Ablauf einer Auktion nochmals prüfen und melden
     "request_delay": [4, 11],
     "ntfy": {
+        "enabled": True,                                 # false: ntfy stillgelegt, Meldungen nur über die Android-App
+        "auctions": False,                               # true: Auktions-Alarme trotzdem als Push über ntfy (zeitkritisch)
         "server": "https://ntfy.sh", "topic": "", "token": "", "max_per_search": 5,
         "on_new": True,                                  # Meldung bei neuen Angeboten
         "notify_min_score": 65,                          # mit KI: nur ab diesem Deal-Score (65 = A, 80 = S)

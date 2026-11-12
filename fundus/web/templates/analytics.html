@@ -20,7 +20,7 @@
         <div><b>{{ price(views.band[0], 'CHF') }}–{{ price(views.band[2], 'CHF') }}</b><span>mittlere Hälfte</span></div>{% endif %}
       </div>
       <svg id="vw-market" data-big="1" viewBox="0 0 900 220" role="img" aria-label="Neue und verschwundene Angebote pro Tag"></svg>
-      <div class="legend"><span><i style="background:var(--accent)"></i>neu dazugekommen (ohne Bestand beim ersten Abruf einer Plattform)</span><span><i style="background:var(--warn)"></i>verkauft / weg</span></div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>neu</span><span><i style="background:var(--warn)"></i>weg</span></div>
       <p class="muted small">
         {% if n_new > n_gone * 2 %}Es kommen deutlich mehr Angebote dazu als weggehen – Warten lohnt sich eher.
         {% elif n_gone > n_new %}Es gehen mehr Angebote weg als neu dazukommen – gute Angebote nicht lange liegen lassen.
@@ -30,21 +30,21 @@
   </section>
 
   <section class="view">
-    <h3>Nach Lieferweg <span class="muted">· abholen, Versand Schweiz, Import</span></h3>
+    <h3>Nach Lieferweg</h3>
     <div class="inner"><div class="lanes" id="vw-lanes"></div></div>
   </section>
 
   <section class="view">
-    <h3>Preis-Wert-Karte <span class="muted">· nach rechts teurer, nach oben mehr wert</span></h3>
+    <h3>Preis-Wert-Karte</h3>
     <div class="inner">
-      <p class="idea">Über der Diagonale bekommst du mehr, als du zahlst. Die goldene Linie verbindet die besten Angebote, das graue Band ist der mittlere Marktpreis.</p>
+      <p class="idea">Über der Diagonale: mehr Wert als Preis. Goldene Linie = beste Angebote.</p>
       <svg id="vw-map" viewBox="0 0 900 400" role="img" aria-label="Preis-Wert-Karte"></svg>
       <div class="legend"><span><i style="background:var(--tier-s)"></i>beste Angebote</span><span><i style="background:var(--tier-b)"></i>übrige</span><span><i style="background:var(--warn)"></i>aussortiert</span><span>grösser = neuer</span><span>◇ = Auktion</span></div>
     </div>
   </section>
 
   <section class="view">
-    <h3>Preisleiter nach Zustand <span class="muted">· nur Preise, ohne Formel</span></h3>
+    <h3>Preisleiter nach Zustand</h3>
     <div class="inner"><svg id="vw-ladder" viewBox="0 0 900 300" role="img" aria-label="Preisleiter"></svg></div>
   </section>
 

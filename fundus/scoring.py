@@ -18,7 +18,8 @@ import re
 from . import db, fx as fx_rates
 from .config import get_config
 from . import delivery as deliv
-from .trust import listing_price, price_in_chf
+from .matching import matches_query
+from .trust import bidding, listing_price, price_in_chf
 
 # Wert relativ zu neu; «gut» ist der typische Zustand im Gebrauchtmarkt
 CONDITION_VALUE = {"neu": 1.0, "neuwertig": 0.95, "sehr gut": 0.9, "gut": 0.8, "gebraucht": 0.7, "defekt": 0.3}
@@ -90,7 +91,7 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
         parts.append(f"Jahrgang {year}")
     if h.get("single_price"):
         parts.append("Einzelpreis aus Set geschätzt" if h.get("single_estimated") else "Einzelpreis aus Set")
-    if price / market < SCAM_RATIO and not h.get("auction"):  # Auktion: tiefes Gebot ist normal, kein Lockvogel
+    if total / market < SCAM_RATIO:  # gleiche Schwelle und gleicher Preis (Endpreis) wie der K.-o. in views.ko_reason
         score = min(score, 40)
         parts.append("auffällig billig – Betrugsmuster prüfen")
     penalty = TRUST_PENALTY.get(h.get("trust_level"), 0)
@@ -102,10 +103,36 @@ def score_hit(h: dict, market: float, fx: dict, typical_year: float | None = Non
 
 def market_price(hits: list[dict], fx: dict) -> float | None:
     """Median der Angebotspreise relevanter Treffer – auch verkaufter, die zeigen, was der Markt bezahlt.
-    Geschätzte Set-Anteile zählen nicht mit: sie sind selbst vom Markt abgeleitet."""
+    Geschätzte Set-Anteile zählen nicht mit: sie sind selbst vom Markt abgeleitet. Reine Auktionen auch nicht:
+    ihr Gebot ist ein Zwischenstand (meist weit unter dem Endpreis) und zöge den Marktpreis nach unten."""
     prices = [p for p in (effective_price_chf(h, fx) for h in hits
-                          if h.get("ai_relevant") == 1 and not h.get("_dup") and not h.get("single_estimated")) if p]
+                          if h.get("ai_relevant") == 1 and not h.get("_dup") and not h.get("single_estimated")
+                          and not bidding(h)) if p]
     return statistics.median(prices) if len(prices) >= MIN_PRICES else None
+
+
+def auction_limit(h: dict, plan: deliv.Plan, reference: float, fx: dict, typical_year: float | None = None,
+                  new_price: float | None = None) -> tuple[float, float]:
+    """Reine Auktion: (Wert für dich, höchstes lohnendes Gebot) in CHF. Bis zu diesem Gebot liegt der Endpreis
+    (Gebot + Versand, Gebühren, Fahrt) nicht über dem fairen Wert nach Zustand und Jahrgang."""
+    value = fair_value(h, reference, typical_year, new_price)
+    extras = plan.total - (effective_price_chf(h, fx) or 0)
+    return value, max(0.0, value - extras)
+
+
+def out_of_range(h: dict, search: dict, fx: dict) -> str | None:
+    """Liegt der Preis ausserhalb des Preisrahmens der Suche? Der Vorfilter prüft das nur beim ersten Fund –
+    ändert sich der Rahmen oder der Preis, gilt er hier weiter. Bei reinen Auktionen sagt das Gebot nichts
+    über den Mindestpreis (es steigt noch), nur die Obergrenze zählt."""
+    price = effective_price_chf(h, fx)
+    if price is None:
+        return None
+    lo, hi = search.get("min_price"), search.get("max_price")
+    if hi is not None and price > hi:
+        return f"Über deinem Höchstpreis ({_chf(hi)} CHF)"
+    if lo is not None and price < lo and not bidding(h):
+        return f"Unter deinem Mindestpreis ({_chf(lo)} CHF)"
+    return None
 
 
 def typical_year(hits: list[dict]) -> float | None:
@@ -130,10 +157,15 @@ def rescore_search(search_id: int) -> float | None:
     cfg = get_config()
     fx = fx_rates.rates(cfg)
     hits = db.hits_for_search(search_id, limit=5000)
+    search = db.get_search(search_id) or {}
+    for h in hits:  # Vorfilter gilt auch für Bestand: nach einer Regeländerung stünde sonst Altes weiter als passend da
+        if h.get("ai_relevant") == 1 and h.get("ai_reason") != "Manuell eingeblendet" \
+                and not matches_query(search.get("query") or "", h.get("title") or ""):
+            db.set_hit_relevant(search_id, h["key"], False, "Suchwörter fehlen im Titel")
+            h["ai_relevant"] = 0
     mark_duplicates(hits)
     market = market_price(hits, fx)
     year = typical_year(hits)
-    search = db.get_search(search_id) or {}
     new_price = search.get("new_price")
     reference = market or (new_price * USED_SHARE if new_price else None)
     dcfg = cfg.get("delivery", {})
@@ -144,10 +176,22 @@ def rescore_search(search_id: int) -> float | None:
             continue
         p = deliv.plan(h, fx, dcfg, search.get("product_size"), search.get("product_weight"))
         label = p.label if p else None
+        if p and p.import_vat:  # nicht im Endpreis – nur ausgewiesen, was eine Verzollung kosten würde
+            label += f" · Einfuhr-MWST {_chf(p.import_vat)} CHF separat"
         if h.get("_dup"):
             rows.append((None, None, "Doppelt inseriert – gleiches Angebot weiter oben", None, label, h["key"]))
         elif p is None:
             rows.append((None, None, "Preis offen", None, label, h["key"]))
+        elif why := out_of_range(h, search, fx):
+            rows.append((None, None, why, p.total, label, h["key"]))
+        elif bidding(h):  # kein Score: der Preis steht erst am Ende fest (Auktions-Bereich, auctions.py)
+            bid = f"aktuelles Gebot {_chf(effective_price_chf(h, fx))} CHF"
+            if reference is None:
+                rows.append((None, None, f"Auktion – {bid}, der Endpreis steht noch nicht fest", p.total, label, h["key"]))
+            else:
+                value, limit = auction_limit(h, p, reference, fx, year, new_price)
+                rows.append((None, None, f"Auktion – {bid}. Wert für dich ≈ {_chf(value)} CHF: lohnt sich bis "
+                                         f"{_chf(limit)} CHF Gebot", p.total, label, h["key"]))
         elif reference is None:
             rows.append((None, None, "Noch zu wenig Vergleichspreise für einen Marktpreis", p.total, label, h["key"]))
         else:

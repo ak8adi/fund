@@ -6,20 +6,21 @@
     <h2>Beste Angebote</h2>
     <span class="funnel" id="vw-funnel"></span>
   </div>
-  {% if watching %}<p class="muted small sl" id="vw-watch" style="margin-top:-4px">Prüft gerade, ob die Angebote noch zu haben sind …</p>{% endif %}
-  {% if ai_running %}<p class="muted small sl" style="margin-top:-4px">KI bewertet noch – die Auswahl wird nach dem Neuladen genauer.</p>{% endif %}
+  {% if watching %}<p class="muted small sl" id="vw-watch" style="margin-top:-4px">Prüft Verfügbarkeit …</p>{% endif %}
+  {% if ai_running %}<p class="muted small sl" style="margin-top:-4px">KI bewertet noch …</p>{% endif %}
   <div class="short sl" id="vw-cards"></div>
   <div class="rows sl" id="vw-rows"></div>
+  <div class="rows sl" id="vw-auctions"></div>
   <p class="muted small ko-line sl" id="vw-ko"></p>
 
   <details class="view" data-view="matrix">
-    <summary>Vergleich der Finalisten <span class="muted">· die besten Angebote nebeneinander</span></summary>
+    <summary>Vergleich der Finalisten</summary>
     <div class="inner"><div class="scroll"><table id="vw-matrix"></table></div></div>
   </details>
 
   <details class="view" data-view="list" hx-get="/search/{{ search.id }}/results" hx-trigger="toggle once"
            hx-target="#list-slot" hx-swap="innerHTML">
-    <summary>Alle Angebote als Liste <span class="muted">· mit Sortierung, Notizen und Ausblenden</span></summary>
+    <summary>Alle Angebote als Liste</summary>
     <div class="inner">{{ list_html }}</div>
   </details>
 </div>

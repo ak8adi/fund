@@ -15,11 +15,13 @@ schedule:
   times: ["07:40", "18:20"]
   jitter_minutes: 25     # Zufallsversatz, damit es nicht immer exakt gleich abfragt
   timezone: Europe/Zurich
+  auction_alert_minutes: 60   # so lange vor Ablauf einer Auktion das Gebot nochmals holen und melden, wenn es sich lohnt
 
 # Pause zwischen zwei Anfragen (Sekunden, zufällig im Bereich)
 request_delay: [4, 11]
 
 ntfy:
+  enabled: true          # false: ntfy stillgelegt, Meldungen nur über die Android-App
   server: https://ntfy.sh
   topic: ""              # z.B. fundus-fabio-8f3k2 – lang und zufällig wählen, Topics sind öffentlich
   token: ""              # nur nötig bei eigenem/geschütztem ntfy-Server

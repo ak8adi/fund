@@ -98,7 +98,7 @@ def test_kleinanzeigen_mobile_status():
 
 def test_shortlist_is_rechecked(monkeypatch):
     from fundus import scoring
-    sid = db.save_search({"query": "sensor bar"})
+    sid = db.save_search({"query": "bar"})   # Titel der Testinserate: «Bar 50» …
     for i, p in enumerate((300, 340, 365, 420)):
         l = _listing(f"5{i}")
         with db.connect() as c:

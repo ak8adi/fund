@@ -83,6 +83,8 @@ class Adapter(ABC):
     def __init__(self, cfg: dict):
         self.cfg = cfg
 
+    paged = False   # kann search(…, page=n) weitere Ergebnisseiten liefern? (runner: erster Abruf, volle Seiten)
+
     def sources(self) -> list[str]:
         """Einzeln abschaltbare Quellen dieses Adapters (z.B. eBay-Länder)."""
         return [self.name]

@@ -46,10 +46,12 @@ def test_drafts_page_renders():
 
 def test_auction_is_not_a_lure():
     """Ricardo-Auktion mit tiefem aktuellem Gebot (MacBook «mehr Power für dich», 257 CHF bei 17 Geboten)."""
-    from fundus.trust import listing_price
-    auction = {"auction": 1, "bid_price": 257, "price": 900, "bids": 17}
-    assert listing_price(auction) == 257
+    from fundus.trust import bidding, listing_price
+    auction = {"auction": 1, "bid_price": 257, "price": 257, "bids": 17}
+    assert bidding(auction) and listing_price(auction) == 257
     assert views.ko_reason(auction, 260, 988) is None
+    with_buy_now = {"auction": 1, "bid_price": 257, "price": 900, "bids": 17}   # sicher zu haben für 900
+    assert not bidding(with_buy_now) and listing_price(with_buy_now) == 900
     assert views.ko_reason({"price": 257}, 260, 988) == "unrealistisch billig"
 
 
@@ -65,3 +67,38 @@ def test_search_order_by_drag():
     assert page.index(f'data-id="{a}"') < page.index(f'data-id="{c}"') < page.index(f'data-id="{b}"')
     d = db.save_search({"query": "delta"})
     assert db.list_searches()[0]["id"] == d                           # neue Suche wieder ganz oben
+
+
+def test_groups_and_gemini_export():
+    """Entweder-oder-Gruppe: Mitglieder stehen beieinander, gemeinsame Bestenliste, ein Text für Gemini."""
+    from fundus import scoring
+    ids = []
+    for q, group in (("sensor bar drei", "Kitebar"), ("anderes", None), ("sensor bar vier", "kitebar")):
+        sid = db.save_search({"query": q, "group_name": group})
+        ids.append(sid)
+        for i, p in enumerate((200, 250, 300, 350)):
+            l = Listing(platform="tutti", external_id=f"{sid}-{i}", title=f"{q} {i}", url=f"https://x/{sid}/{i}", price=p)
+            db.upsert_listing(l, "ok", [])
+            db.add_hit(sid, l.key, False)
+            db.update_hit_ai(sid, l.key, True, "passt", "gut", "ja")
+        scoring.rescore_search(sid)
+    rows = [(s, views.build(s["id"])) for s in db.list_searches()]
+    blocks = views.grouped(rows)
+    group = next(b for b in blocks if b["name"])
+    assert sorted(group["ids"]) == sorted([ids[0], ids[2]]) and group["best"]       # Gross-/Kleinschreibung egal
+    assert {o["search"] for o in group["best"]} <= {"sensor bar drei", "sensor bar vier"}
+    assert len(blocks) == 2
+    text = views.gemini_prompt([ids[0], ids[2]])
+    assert "entweder–oder" in text and "=== sensor bar drei ===" in text and "https://x/" in text and "Endpreis" in text
+    with TestClient(__import__("fundus.web.app", fromlist=["app"]).app) as client:
+        page = client.get("/").text
+        assert "ov-group" in page and "Für Gemini kopieren" in page
+        assert client.get(f"/api/gemini?ids={ids[1]}").text.startswith("Analysiere diese Inserate")
+
+
+def test_overview_is_cached_until_data_changes():
+    sid = db.save_search({"query": "x"})
+    a = views.build(sid)
+    assert views.build(sid) is a                    # gleicher Datenstand: aus dem Zwischenspeicher
+    db.kv_set("irgendwas", "1")
+    assert views.build(sid) is not a                # nach einem Schreibvorgang neu gerechnet

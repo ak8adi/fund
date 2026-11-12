@@ -15,6 +15,7 @@ class WillhabenAdapter(ScrapedAdapter):
     name = "willhaben"
     label = "Willhaben"
     base_url = "https://www.willhaben.at"
+    page_param = "page"   # &page=2 liefert die nächste Seite (geprüft Nov. 2026; Tutti/Anibis beachten ihn nicht)
 
     def build_url(self, d: dict, ext_id: str) -> str | None:
         url = d.get("seoUrl") or d.get("url") or d.get("href") or d.get("link") or d.get("canonicalUrl")

@@ -13,7 +13,7 @@
           <form method="post" action="/search/{{ search.id }}/ai"><button>KI-Bewertung jetzt starten</button></form>
         {% endif %}
         <form method="post" action="/search/{{ search.id }}/newprice"><button>Neupreis neu suchen</button></form>
-        <button type="button" onclick="copyForGemini(this)">Treffer für Gemini kopieren</button>
+        <button type="button" onclick="fundusCopy(this, '{{ search.id }}')">Für Gemini kopieren</button>
         <form method="post" action="/search/{{ search.id }}/toggle"><button>{{ 'Suche pausieren' if search.active else 'Suche fortsetzen' }}</button></form>
         <form method="post" action="/search/{{ search.id }}/delete" onsubmit="return confirm('Suche samt Treffern löschen?')"><button class="danger">Suche löschen</button></form>
       </div>
@@ -29,16 +29,13 @@
 </p>
 <div class="search-top">{% include "_pricehead.html" %}</div>
 <div class="search-info">
-{% if search.new_price %}<p class="small newprice muted">Neupreis-Referenz für die Bewertung: <strong>{{ price(search.new_price, 'CHF') }}</strong>
-  {% if search.new_price_manual %}(von Hand){% endif %} · <a href="/search/{{ search.id }}/neu-kaufen">Shops ansehen</a></p>
-{% elif search.new_price_at %}<p class="small newprice muted">{{ search.new_price_note or 'Kein Neupreis online gefunden' }}</p>
-{% else %}<p class="small newprice muted">Neupreis wird beim nächsten Prüflauf online gesucht …</p>{% endif %}
+{% if search.new_price and search.new_price_manual %}<p class="small newprice muted">Neupreis von Hand: <strong>{{ price(search.new_price, 'CHF') }}</strong></p>
+{% elif not search.new_price_at %}<p class="small newprice muted">Neupreis wird gesucht …</p>{% endif %}
 {% set m = views.missed if views else none %}
 {% if m %}
 <details class="newprice small missed">
-  <summary>Schon weg <strong>{{ m.count }}</strong> passende
-    <span class="muted">· günstigstes für {{ price(m.cheapest.pay, 'CHF') }}, mittlerer Preis {{ price(m.median, 'CHF') }}
-    {% if m.now_cheapest %}– jetzt ab <strong>{{ price(m.now_cheapest.pay, 'CHF') }}</strong>{% endif %}</span></summary>
+  <summary>Schon weg: <strong>{{ m.count }}</strong>
+    <span class="muted">· ab {{ price(m.cheapest.pay, 'CHF') }} · Mittel <strong>{{ price(m.median, 'CHF') }}</strong></span></summary>
   <ul class="shops">
     {% for label, o in [('Günstigstes', m.cheapest), ('Bestes Preis-Wert', m.best)] if o %}
       {% if not (loop.index == 2 and o.key == m.cheapest.key) %}
@@ -52,7 +49,7 @@
       <span class="muted">{% if m.best and m.best.ratio and m.now_best.ratio %}{{ 'besser' if m.now_best.ratio >= m.best.ratio else 'schlechter' }} als das beste verpasste{% endif %}</span>
       <strong>{{ price(m.now_best.pay, 'CHF') }}</strong></li>{% endif %}
   </ul>
-  <p class="muted" style="margin:4px 0 0">«Weg» heisst meist verkauft – Preise sind Endpreise bis zu dir. Der mittlere Preis der verschwundenen Angebote ist der beste Hinweis darauf, wofür tatsächlich gekauft wird.</p>
+  <p class="muted" style="margin:4px 0 0">Das Mittel der verschwundenen Angebote zeigt am besten, wofür tatsächlich gekauft wird.</p>
 </details>
 {% endif %}
 {% if search.requirements %}<p class="small req-line">Muss erfüllen: {{ search.requirements }}</p>{% endif %}
@@ -64,8 +61,7 @@
   </summary>
   <form method="post" action="/search/{{ search.id }}/images" class="stack">
     <textarea name="image_prompt" rows="2" required placeholder="z.B. Bestimme anhand der Bilder den Jahrgang der Duotone Trust Bar">{{ search.image_prompt or '' }}</textarea>
-    <p class="muted small">Die KI schaut sich die Fotos der passenden Angebote dieser Suche an und passt Fazit, Jahrgang, Zustand und Score an.
-      Danach werden auch neue Angebote automatisch so geprüft. Ein geänderter Auftrag prüft alle Fotos neu.</p>
+    <p class="muted small">Die KI prüft die Fotos der passenden Angebote – auch künftiger – und passt Zustand, Jahrgang und Score an.</p>
     <div class="row">
       <button class="btn small">Bilder auswerten</button>
     </div>
@@ -74,7 +70,7 @@
   <form method="post" action="/search/{{ search.id }}/images/off" class="inline">
     <button class="btn small ghost">Für neue Angebote ausschalten</button>
   </form>
-  {% elif search.image_prompt %}<p class="muted small">Für neue Angebote ausgeschaltet – «Bilder auswerten» schaltet es wieder ein.</p>{% endif %}
+  {% elif search.image_prompt %}<p class="muted small">Für neue Angebote ausgeschaltet.</p>{% endif %}
 </details>
 {% endif %}
 <details class="card" id="bearbeiten">
@@ -94,46 +90,4 @@
 {% include "_views.html" %}
 </div>
 
-<script>
-async function copyForGemini(btn) {
-  if (!window.currentRelevantHits) {  // Liste wird erst beim Aufklappen geladen – Daten hier direkt holen
-    const html = await fetch('/search/{{ search.id }}/results').then(r => r.text());
-    const m = html.match(/window\.currentRelevantHits = (.*);/);
-    window.currentRelevantHits = m ? JSON.parse(m[1]) : [];
-  }
-  const hits = window.currentRelevantHits;
-  const query = {{ search.query | tojson }};
-
-  const newPrice = {{ search.new_price | tojson }};
-  const offers = {{ (search.new_price_offers or []) | tojson }};
-  const requirements = {{ (search.requirements or '') | tojson }};
-
-  let prompt = `Analysiere diese Inserate für meine Suche nach '${query}' und erstelle eine Tier-List mit Fokus auf die besten 30 %:\n\n`;
-  if (requirements) prompt += `Muss erfüllen: ${requirements}\n`;
-  if (newPrice) {
-    prompt += `Neupreis: ${Math.round(newPrice)} CHF{{ ' (von Hand eingetragen)' if search.new_price_manual else '' }}\n`;
-    for (const o of offers) prompt += `  - ${o.shop}: ${o.price} ${o.currency} (${o.name}) ${o.url}\n`;
-  }
-  if (requirements || newPrice) prompt += `\n---\n\n`;
-
-  for (const h of hits) {
-    prompt += `Titel: ${h.title}\n`;
-    prompt += `Preis: ${h.price || ''} ${h.currency || ''}\n`;
-    prompt += `Plattform: ${h.platform}\n`;
-    prompt += `Ort: ${h.location || ''}\n`;
-    prompt += `Datum: ${h.posted_at || ''}\n`;
-    prompt += `Link: ${h.url}\n`;
-    if (h.description_full) {
-      prompt += `Beschreibung: ${h.description_full}\n`;
-    }
-    prompt += `\n---\n\n`;
-  }
-
-  navigator.clipboard.writeText(prompt).then(() => {
-    const orig = btn.innerText;
-    btn.innerText = "Kopiert!";
-    setTimeout(() => { btn.innerText = orig; }, 2000);
-  });
-}
-</script>
 {% endblock %}

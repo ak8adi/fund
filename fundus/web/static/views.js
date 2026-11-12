@@ -24,13 +24,25 @@ window.FundusViews = (function () {
 
   function render(D, opts = {}) {
     const O = D.offers, S = D.search, SID = S.id;
-    const front = O.filter(o => o.front), rest = O.filter(o => !o.front && !o.ko), ko = O.filter(o => o.ko);
+    // Laufende Auktionen ohne Sofortkauf (o.bidding): das Gebot ist kein Preis – eigener Bereich, aber im Vergleich sichtbar
+    const front = O.filter(o => o.front), rest = O.filter(o => !o.front && !o.ko && !o.bidding), ko = O.filter(o => o.ko);
+    const bids = O.filter(o => o.bid_pay != null && !o.ko).sort((a, b) => (a.ends_at || '9').localeCompare(b.ends_at || '9'));
+    const left = iso => {
+      if (!iso) return '';
+      const s = (new Date(iso) - Date.now()) / 1000;
+      if (s <= 0) return 'abgelaufen';
+      if (s < 3600) return 'noch ' + Math.max(1, Math.floor(s / 60)) + ' min';
+      if (s < 86400) return 'noch ' + Math.floor(s / 3600) + ' h';
+      return 'noch ' + Math.floor(s / 86400) + ' T. ' + Math.floor(s % 86400 / 3600) + ' h';
+    };
+    const ends = iso => iso ? new Date(iso).toLocaleString('de-CH', {weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
+    const payText = o => o.bidding ? 'Gebot ' + chf(o.bid_chf) : chf(o.pay);
     let tip = $('vw-tip');
     if (!tip) { tip = document.createElement('div'); tip.id = 'vw-tip'; document.body.appendChild(tip); }
 
     function hover(node, o) {
       node.addEventListener('mousemove', ev => {
-        tip.innerHTML = `<b>${chf(o.pay)}</b> · ${esc(o.cond)}${o.year ? ' · ' + o.year : ''}<br>${esc(o.title)}<br>` +
+        tip.innerHTML = `<b>${payText(o)}</b>${o.bidding && o.limit != null ? ' (lohnt sich bis ' + chf(o.limit) + ')' : ''} · ${esc(o.cond)}${o.year ? ' · ' + o.year : ''}<br>${esc(o.title)}<br>` +
           `<span style="opacity:.75">${esc(o.delivery)}${o.ko ? ' · aussortiert: ' + esc(o.ko) : ''}</span>`;
         tip.style.left = Math.min(ev.clientX + 14, innerWidth - 300) + 'px'; tip.style.top = ev.clientY + 14 + 'px'; tip.style.opacity = 1;
       });
@@ -47,14 +59,15 @@ window.FundusViews = (function () {
       if (o.cond === 'unbekannt') c.push('Zustand unbekannt');
       if (o.pickup) c.push('nur Abholung');
       if (o.route === 'import') c.push('Import');
-      if (o.auction) c.push('Auktion' + (o.bids != null ? ` (${o.bids} Gebote)` : '') + ' – Preis kann steigen');
+      if (o.bidding) c.push('Auktion' + (o.bids != null ? ` (${o.bids} Gebote)` : '') + ' – Preis steht noch nicht fest');
+      else if (o.auction) c.push('Sofortkauf-Preis – läuft auch als Auktion' + (o.bid ? `, Gebot ${Math.round(o.bid)} ${o.currency || ''}` : ''));
       if (o.trust === 'check') c.push('Verkäufer prüfen');
       return c;
     }
 
     // Shortlist
     if ($('vw-funnel')) $('vw-funnel').innerHTML = D.counts.open
-      ? `<b>${D.counts.front}</b> von ${D.counts.open} verfügbaren Angeboten – kein anderes ist zugleich günstiger und besser` : '';
+      ? `<span title="Bei diesen ist kein anderes Angebot zugleich günstiger und besser"><b>${D.counts.front}</b> von ${D.counts.open}</span>` : '';
     if ($('vw-cards')) {
       $('vw-cards').innerHTML = front.map(o => `
         <div class="card2">
@@ -67,7 +80,7 @@ window.FundusViews = (function () {
             </div></a>
           ${o.new ? '<span class="newtag">neu</span>' : ''}
           <button class="x" title="Ausblenden" aria-label="Ausblenden" data-key="${esc(o.key)}">×</button>
-        </div>`).join('') || '<p class="muted">Noch keine Auswahl – es braucht mindestens 3 bewertete Angebote mit Preis.</p>';
+        </div>`).join('') || '<p class="muted">Noch keine Auswahl – braucht 3 bewertete Angebote.</p>';
       $('vw-cards').querySelectorAll('.x').forEach(b => b.addEventListener('click', async () => {
         b.closest('.card2').style.opacity = .3;
         await fetch(`/search/${SID}/hide`, {method: 'POST', body: new URLSearchParams({key: b.dataset.key})});
@@ -77,6 +90,18 @@ window.FundusViews = (function () {
     if ($('vw-rows')) $('vw-rows').innerHTML = rest.length ? '<h2 style="margin:18px 0 4px">Knapp dahinter</h2>' + rest.slice(0, 6).map(o => `
       <a class="row" href="${go(o)}" target="_blank" rel="noopener">${img(o)}<b>${chf(o.pay)}</b><span>${esc(o.title)}</span>` +
       `<span class="muted c4">${esc(o.cond)}${o.year ? ' · ' + o.year : ''}</span><span class="muted c5">${age(o.age_h)}</span></a>`).join('') : '';
+    if ($('vw-auctions')) {
+      const cheapest = O.filter(o => !o.ko && !o.bidding).sort((a, b) => a.pay - b.pay)[0];
+      const best = front.slice().sort((a, b) => (b.ratio || 0) - (a.ratio || 0))[0];
+      const context = [cheapest && `günstigster Festpreis ${chf(cheapest.pay)}`, best && best !== cheapest && `bestes Angebot ${chf(best.pay)}`].filter(Boolean).join(' · ');
+      $('vw-auctions').innerHTML = bids.length ? `<h2 style="margin:18px 0 2px" title="Das Gebot ist ein Zwischenstand, kein Preis. Eine Stunde vor Ablauf prüft fundus nochmals und meldet sich, wenn es sich noch lohnt.">Auktionen <span class="muted small">· ${bids.length}${context ? ' · ' + esc(context) : ''}</span></h2>` +
+        bids.map(o => `
+        <a class="row auc${o.under ? ' under' : ''}" href="${go(o)}" target="_blank" rel="noopener">${img(o)}<b title="aktuelles Gebot">${chf(o.bid_chf)}</b>` +
+        `<span>${esc(o.title)}<br><span class="muted">🔨 <b>${esc(left(o.ends_at))}</b> · beim Gebot ${chf(o.bid_pay)} bis zu dir · ${o.bidding ? '' : 'Sofortkauf ' + chf(o.pay) + ' · '}${o.bids != null ? o.bids + (o.bids === 1 ? ' Gebot' : ' Gebote') + ' · ' : ''}${esc(o.cond)}${o.year ? ' · ' + o.year : ''} · ${esc(o.platform)}` +
+        `</span></span>` +
+        `<span class="c4 lim">${o.limit == null ? '<span class="muted">Wert noch offen</span>' : o.under ? 'lohnt sich bis<br><b>' + chf(o.limit) + '</b> Gebot' : '<span class="muted">Gebot schon über<br>dem Wert (' + chf(o.limit) + ')</span>'}</span>` +
+        `<span class="c5 end" title="${esc(ends(o.ends_at))}">${esc(left(o.ends_at))}<br><span class="muted">${esc(ends(o.ends_at))}</span></span></a>`).join('') : '';
+    }
     if ($('vw-ko')) {
       const kos = {}; ko.forEach(o => kos[o.ko] = (kos[o.ko] || 0) + 1);
       $('vw-ko').textContent = Object.keys(kos).length ? 'Aussortiert: ' + Object.entries(kos).map(([k, n]) => `${n}× ${k}`).join(' · ') : '';
@@ -84,24 +109,25 @@ window.FundusViews = (function () {
 
     // Vergleich der Finalisten
     if ($('vw-matrix')) {
-      const cols = front.concat(rest.slice(0, Math.max(0, 4 - front.length)));
+      // dazu die zwei Auktionen, die als Nächstes enden und noch unter dem Wert liegen – im selben Vergleich
+      const cols = front.concat(rest.slice(0, Math.max(0, 4 - front.length)), bids.filter(o => o.under && o.bidding).slice(0, 2));
       if (!cols.length) $('vw-matrix').innerHTML = '<tr><td class="muted">Noch keine Finalisten.</td></tr>';
       else {
         const rows = [
-          ['Endpreis', o => chf(o.pay), o => -o.pay],
+          ['Endpreis', o => o.bidding ? `${chf(o.pay)} beim Gebot ${chf(o.bid_chf)}` + (o.limit != null ? ` · lohnt sich bis ${chf(o.limit)} Gebot` : '') : chf(o.pay), o => o.bidding ? -Infinity : -o.pay],
           ['Aufschlüsselung', o => o.breakdown || '–', null],
           ['Fairer Wert', o => chf(o.value), o => o.value || 0],
-          ['Wert ÷ Preis', o => o.ratio ? '×' + o.ratio.toFixed(2) : '–', o => o.ratio || 0],
+          ['Wert ÷ Preis', o => o.ratio ? '×' + o.ratio.toFixed(2) : o.bidding ? 'offen' : '–', o => o.ratio || 0],
           ['Zustand', o => o.cond, o => -COND.indexOf(o.cond)],
           ['Jahrgang', o => o.year || '–', o => o.year || 0],
           ['Anforderung', o => o.req === 'ja' ? '✓ ' + (o.req_note || '') : o.req === 'unklar' ? '? ' + (o.req_note || 'unklar') : '–', o => o.req === 'ja' ? 1 : 0],
           ['Lieferweg', o => o.delivery || '–', o => o.route === 'ch' ? 2 : o.route === 'pickup' ? 1 : 0],
           ['Ort', o => o.location || '–', null],
           ['Inseriert', o => age(o.age_h) || '–', o => -(o.age_h ?? 1e9)],
-          ['Art', o => o.auction ? 'Auktion' + (o.bids != null ? ` (${o.bids} Gebote)` : '') : 'Festpreis', null],
+          ['Art', o => o.bidding ? 'Auktion' + (o.bids != null ? ` (${o.bids} Gebote)` : '') + ', ' + left(o.ends_at) : o.auction ? 'Sofortkauf (auch Auktion)' : 'Festpreis', null],
           ['Haken', o => catches(o).join(', ') || '–', o => -catches(o).length],
         ];
-        let h = '<tr><th></th>' + cols.map(o => `<th><a href="${go(o)}" target="_blank" rel="noopener">${img(o, true)}${o.front ? '★ ' : ''}` +
+        let h = '<tr><th></th>' + cols.map(o => `<th><a href="${go(o)}" target="_blank" rel="noopener">${img(o, true)}${o.front ? '★ ' : o.bidding ? '🔨 ' : ''}` +
           `${esc(o.title.slice(0, 48))}</a><br><span class="muted">${esc(o.platform)}</span></th>`).join('') + '</tr>';
         for (const [name, show, rank] of rows) {
           const best = rank ? Math.max(...cols.map(rank)) : null, tie = rank && cols.every(c => rank(c) === best);
@@ -113,7 +139,7 @@ window.FundusViews = (function () {
 
     // Lieferwege
     if ($('vw-lanes')) $('vw-lanes').innerHTML = [['pickup', 'Abholen'], ['ch', 'Versand Schweiz'], ['import', 'Import (Grenzadresse)']].map(([k, name]) => {
-      const list = O.filter(o => o.route === k && !o.ko).sort((a, b) => (b.front - a.front) || ((b.ratio || 0) - (a.ratio || 0)));
+      const list = O.filter(o => o.route === k && !o.ko && !o.bidding).sort((a, b) => (b.front - a.front) || ((b.ratio || 0) - (a.ratio || 0)));
       const n = opts.laneItems || 5;
       return `<div class="lane"><h4>${name} <span class="muted">· ${list.length}${list.length ? ', ab ' + chf(Math.min(...list.map(o => o.pay))) : ''}</span></h4>` +
         list.slice(0, n).map(o => `<a class="${o.front ? 'front' : ''}" href="${go(o)}" target="_blank" rel="noopener">${img(o)}<span>${esc(o.title.slice(0, 60))}` +
@@ -151,21 +177,22 @@ window.FundusViews = (function () {
         pts.sort((a, b) => (a.front - b.front) || (!!b.ko - !!a.ko)).forEach(o => {
           const r = o.age_h == null ? 5 : o.age_h < 24 ? 8 : o.age_h < 24 * 7 ? 6 : 4;
           const color = o.front ? css('--tier-s') : o.ko ? css('--warn') : css('--tier-b'), op = o.front ? 1 : .55;
-          hover(o.auction
+          hover(o.bidding   // laufende Auktion: hohle Raute beim aktuellen Gebot – wandert bis zum Ende nach rechts
             ? el('rect', {x: X(o.pay) - r, y: Y(o.value) - r, width: 2 * r, height: 2 * r, transform: `rotate(45 ${X(o.pay)} ${Y(o.value)})`,
-                          fill: color, 'fill-opacity': op, class: 'dot'}, svg)
+                          fill: 'none', stroke: css('--accent'), 'stroke-width': 2, class: 'dot'}, svg)
             : el('circle', {cx: X(o.pay), cy: Y(o.value), r, fill: color, 'fill-opacity': op, class: 'dot'}, svg), o);
         });
       },
       ladder() {
-        const svg = $('vw-ladder'), rows = COND.filter(c => O.some(o => o.cond === c && !o.ko));
+        const P = O.filter(o => !o.bidding);   // Preisleiter: nur feste Preise
+        const svg = $('vw-ladder'), rows = COND.filter(c => P.some(o => o.cond === c && !o.ko));
         const W = 900, L = 90, R = 20, rowH = 36, T = 14;
         svg.setAttribute('viewBox', `0 0 ${W} ${T + rows.length * rowH + 28}`);
-        const xs = O.filter(o => !o.ko).map(o => o.pay); if (!xs.length) return;
+        const xs = P.filter(o => !o.ko).map(o => o.pay); if (!xs.length) return;
         const xmax = Math.min(Math.max(...xs), D.band ? D.band[2] * 2.2 : Infinity) * 1.05;
         const X = v => L + Math.min(v, xmax) / xmax * (W - L - R);
         rows.forEach((c, i) => {
-          const y = T + i * rowH + rowH / 2, list = O.filter(o => o.cond === c && !o.ko), ps = list.map(o => o.pay).sort((a, b) => a - b);
+          const y = T + i * rowH + rowH / 2, list = P.filter(o => o.cond === c && !o.ko), ps = list.map(o => o.pay).sort((a, b) => a - b);
           el('text', {x: L - 10, y: y + 4, 'text-anchor': 'end'}, svg, c);
           el('line', {x1: L, x2: W - R, y1: y, y2: y, class: 'grid'}, svg);
           if (ps.length >= 4) {
@@ -213,7 +240,8 @@ window.FundusViews = (function () {
     // Ausklapp-Zustand pro Bereich merken
     document.querySelectorAll('.vw details.view').forEach(d => {
       const k = 'fundus-view-' + d.dataset.view;
-      try { if (localStorage.getItem(k) === '1') d.open = true; } catch (e) { /* privates Fenster */ }
+      // die lange Liste nie von selbst öffnen: sie wiegt bei grossen Suchen über 1 MB
+      try { if (d.dataset.view !== 'list' && localStorage.getItem(k) === '1') d.open = true; } catch (e) { /* privates Fenster */ }
       d.addEventListener('toggle', () => { try { localStorage.setItem(k, d.open ? '1' : '0'); } catch (e) { /* egal */ } draw(); });
     });
     draw();

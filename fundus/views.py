@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from . import area, db, delivery as deliv, fx as fx_rates, scoring
 from .config import get_config
 from .notify import image_url
-from .trust import listing_price
+from .trust import as_bid, bidding, buy_now, listing_price
 
 
 def _when(h: dict) -> datetime | None:
@@ -45,7 +45,10 @@ def breakdown(h: dict, fx: dict, dcfg: dict, search: dict) -> str:
     if cur != "CHF":
         head += f" ≈ {p.parts[0][1]:,.0f} CHF".replace(",", "'")
     extras = [f"{name} {value:,.0f}".replace(",", "'") for name, value in p.parts[1:] if round(value)]
-    return " + ".join([head] + extras) if extras or cur != "CHF" else ""
+    text = " + ".join([head] + extras) if extras or cur != "CHF" else ""
+    if p.import_vat:  # nicht eingerechnet, nur zur Kenntnis
+        text += (" · " if text else "") + f"Einfuhr-MWST {p.import_vat:,.0f} separat".replace(",", "'")
+    return text
 
 
 UNSEEN_HOURS = 20   # Ricardo: so lange nicht mehr in den Suchergebnissen → vermutlich verkauft
@@ -66,7 +69,7 @@ def ko_reason(h: dict, pay: float | None = None, reference: float | None = None,
         return where
     if _unseen(h, last_run):
         return "nicht mehr in den Suchergebnissen"
-    if pay and reference and pay < scoring.SCAM_RATIO * reference and not h.get("auction"):
+    if pay and reference and pay < scoring.SCAM_RATIO * reference and not bidding(h):  # tiefes Gebot ist normal
         return "unrealistisch billig"
     if h.get("ai_req") == "nein":
         return "Anforderung nicht erfüllt"
@@ -77,9 +80,15 @@ def ko_reason(h: dict, pay: float | None = None, reference: float | None = None,
     return None
 
 
+FRONT_MIN_RATIO = 0.8   # deutlich überteuert (Wert unter 80 % des Preises) ist nie ein «bestes Angebot»
+
+
 def pareto(offers: list[dict]) -> None:
-    """Markiert front=True bei allen nicht dominierten Angeboten (ohne K.-o.)."""
-    pool = [o for o in offers if not o["ko"] and o["value"] is not None]
+    """Markiert front=True bei allen nicht dominierten Angeboten (ohne K.-o., ohne laufende Auktionen – deren
+    Preis steht nicht fest). Überteuertes bleibt draussen, auch wenn es das «wertvollste» ist: sonst stünde der
+    teuerste neuwertige Sessel als bestes Angebot da, nur weil kein anderer neuwertiger billiger ist."""
+    pool = [o for o in offers if not o["ko"] and o["value"] is not None and not o.get("bidding")]
+    pool = [o for o in pool if o["value"] / o["pay"] >= FRONT_MIN_RATIO] or pool
     for o in pool:
         o["front"] = not any(p is not o and p["pay"] <= o["pay"] and p["value"] >= o["value"]
                              and (p["pay"] < o["pay"] or p["value"] > o["value"]) for p in pool)
@@ -91,8 +100,8 @@ def _missed(hits: list[dict], fx: dict, reference: float | None, year: float | N
     zum Vergleich mit den besten aktuellen. «Weg» heisst meist verkauft, bei Auktionen auch ohne Gebot abgelaufen."""
     gone = []
     for h in hits:
-        if h.get("ai_relevant") != 1 or not h.get("gone_at") or h.get("_dup"):
-            continue
+        if h.get("ai_relevant") != 1 or not h.get("gone_at") or h.get("_dup") or bidding(h):
+            continue  # reine Auktionen: das letzte gesehene Gebot ist nicht der Verkaufspreis
         pay = scoring.pay_price_chf(h, fx)
         if not pay or ko_reason(h, pay, reference) in ("unrealistisch billig", "Anforderung nicht erfüllt"):
             continue
@@ -105,7 +114,7 @@ def _missed(hits: list[dict], fx: dict, reference: float | None, year: float | N
     if not gone:
         return None
     best_now = max((o for o in offers if o["front"]), key=lambda o: o["ratio"] or 0, default=None)
-    cheapest_now = min((o for o in offers if not o["ko"]), key=lambda o: o["pay"], default=None)
+    cheapest_now = min((o for o in offers if not o["ko"] and not o.get("bidding")), key=lambda o: o["pay"], default=None)
     return {
         "count": len(gone),
         "median": round(statistics.median(o["pay"] for o in gone)),
@@ -149,24 +158,69 @@ def _timeline(search: dict, hits: list[dict], now: datetime) -> tuple[list[dict]
     return buckets, {"new": sum(new_at[k] for k in recent), "gone": sum(gone_at[k] for k in recent)}
 
 
+WORTH_CLEAR, WORTH, WORTH_TIGHT = 35, 20, 10   # % unter neu: klar lohnend / lohnend / knapp; darunter: lieber neu
+
+
+def verdict(best: dict | None, new: dict | None, refurb: dict | None, successor: dict | None) -> dict | None:
+    """Lohnt sich gebraucht? Vergleicht das beste Gebrauchtangebot (bestes Preis-Wert-Verhältnis, nicht das billigste –
+    das ist oft das schlechteste) mit dem günstigsten lieferbaren Neuangebot, beide als Endpreis bis zu dir.
+    Unter 10 % Abstand spricht alles für neu (Garantie, Rückgabe, kein Risiko), unter 20 % ist es knapp.
+    Gibt es das Produkt nicht mehr neu, ist der Nachfolger der Massstab – dann nur als Einordnung, ohne Urteil."""
+    if not best:
+        return None
+    pay = best["pay"]
+    note = None
+    if refurb and refurb["total"] <= pay * 1.15:
+        note = (f"Erneuert mit Garantie: {refurb['total']} CHF bei {refurb['shop']} – "
+                + ("günstiger (Ausstattung prüfen)." if refurb["total"] <= pay else "kaum teurer."))
+    if new and new.get("total"):
+        pct = round((new["total"] - pay) / new["total"] * 100)
+        diff = round(new["total"] - pay)
+        if pct >= WORTH_CLEAR:
+            level, text = "klar", f"Gebraucht lohnt sich klar: {pct} % unter neu (−{diff} CHF)."
+        elif pct >= WORTH:
+            level, text = "ja", f"Gebraucht lohnt sich: {pct} % unter neu (−{diff} CHF)."
+        elif pct >= WORTH_TIGHT:
+            level, text = "knapp", f"Knapp: nur {pct} % unter neu (−{diff} CHF) – neu hat Garantie."
+        elif pct > 0:
+            level, text = "nein", f"Gebraucht lohnt sich kaum: neu kostet nur {diff} CHF mehr ({pct} %)."
+        else:
+            level, text = "nein", "Gebraucht lohnt sich nicht: neu kostet gleich viel oder weniger."
+        return {"level": level, "text": text, "pct": pct, "note": note, "best": pay, "against": "neu"}
+    if successor and successor.get("total"):
+        pct = round((successor["total"] - pay) / successor["total"] * 100)
+        return {"level": "info", "pct": pct, "note": note, "best": pay, "against": "nachfolger",
+                "text": f"Nicht mehr neu. Nachfolger {successor['total']} CHF – gebraucht {pct} % darunter."}
+    if note:
+        return {"level": "info", "text": "Kein Neupreis zum Vergleich.", "pct": None, "note": note, "best": pay, "against": None}
+    return None
+
+
 def price_head(search: dict, offers: list[dict]) -> dict:
     """Ganz oben in der Suche: günstigstes passendes Gebrauchtangebot und günstigstes lieferbares Neuangebot –
     beide als Endpreis bis zu dir, mit Aufschlüsselung (Preis, Versand, Import)."""
     from . import newprice
-    usable = [o for o in offers if not o["ko"]]
+    usable = [o for o in offers if not o["ko"] and not o.get("bidding")]  # ein Gebot ist kein «ab»-Preis
     used = min(usable, key=lambda o: o["pay"]) if usable else None
     options = newprice.buy_options(search) if search.get("new_price_offers") else []
     new = newprice.best_new(options, "neu")
     refurb = newprice.best_new(options, "erneuert")
+    home = get_config().get("delivery", {}).get("home_country", "CH")
+    local = newprice.best_new(options, "neu", home)   # günstigstes aus der Schweiz, wenn das günstigste importiert ist
+    successor = newprice.best_new(options, "nachfolger") if not new else None
+    best = max((o for o in offers if o["front"]), key=lambda o: o["ratio"] or 0, default=None)
     new_offers = [o for o in options if o.get("kind", "neu") == "neu"]
 
     def tile(o: dict | None) -> dict | None:
         return o and {"shop": o["shop"], "name": o["name"], "url": o["url"], "price": round(o["price_chf"]),
                       "ship": round(o["ship"]) if o.get("ship") is not None else None, "ship_known": o["ship_known"],
-                      "fees": o["fees"], "total": o["total"], "available": o.get("available")}
+                      "fees": o["fees"], "total": o["total"], "available": o.get("available"), "approx": bool(o.get("approx"))}
     return {
         "used": used and {k: used[k] for k in ("key", "title", "pay", "breakdown", "img", "thumb", "platform", "cond")},
-        "new": tile(new), "refurb": tile(refurb),
+        "new": tile(new), "refurb": tile(refurb), "successor": tile(successor),
+        "local": tile(local) if local and new and local is not new and new.get("country") != home else None,
+        "best": best and {k: best[k] for k in ("key", "title", "pay", "cond")},
+        "verdict": verdict(best, tile(new), tile(refurb), tile(successor)),
         "new_count": sum(o.get("available") is not False for o in new_offers),
         "soldout_count": sum(o.get("available") is False for o in new_offers),
         "saving": round(new["total"] - used["pay"]) if new and used else None,
@@ -174,7 +228,30 @@ def price_head(search: dict, offers: list[dict]) -> dict:
     }
 
 
+def top_keys(offers: list[dict], rest: int = 6) -> list[str]:
+    """Was oben auf der Suchseite steht: beste Angebote und die nächsten dahinter (ohne laufende Auktionen)."""
+    return [o["key"] for o in offers if o["front"]] + \
+           [o["key"] for o in offers if not o["front"] and not o["ko"] and not o.get("bidding")][:rest]
+
+
+BUILD_MAX_AGE = 90   # Sekunden: Alter und Restzeiten in der Auswertung dürfen so lange stehen bleiben
+_built: dict = {}
+
+
 def build(search_id: int) -> dict:
+    """Auswertung einer Suche – zwischengespeichert, solange sich an den Daten nichts geändert hat (db.version).
+    Die Übersicht braucht alle Suchen auf einmal; ohne das dauert jeder Wechsel auf die Übersicht Sekunden."""
+    import time
+    stamp = db.version()
+    hit = _built.get(search_id)
+    if hit and hit[0] == stamp and time.monotonic() - hit[1] < BUILD_MAX_AGE:
+        return hit[2]
+    result = _build(search_id)
+    _built[search_id] = (db.version(), time.monotonic(), result)
+    return result
+
+
+def _build(search_id: int) -> dict:
     search = db.get_search(search_id) or {}
     fx = fx_rates.rates(get_config())
     hits = db.hits_for_search(search_id, limit=5000)
@@ -192,16 +269,33 @@ def build(search_id: int) -> dict:
         if h.get("ai_relevant") != 1 or h.get("gone_at") or h.get("_dup") or h.get("hidden"):
             continue
         pay = scoring.pay_price_chf(h, fx)
-        if not pay:
+        if not pay or scoring.out_of_range(h, search, fx):
             continue
         value = scoring.fair_value(h, reference, year, new_price) if reference else None
         when = _when(h)
+        open_bid = bidding(h)
+        limit = bid_pay = None
+        # Stand beim aktuellen Gebot – auch neben einem Sofortkauf. Sets nicht: das Gebot gilt dem ganzen Set,
+        # der Vergleichswert nur dem gesuchten Teil.
+        if h.get("auction") and h.get("bid_price") and not h.get("single_price"):
+            hb = as_bid(h)
+            if p := deliv.plan(hb, fx, dcfg, search.get("product_size"), search.get("product_weight")):
+                bid_pay = round(p.total)
+                if reference:
+                    limit = round(scoring.auction_limit(hb, p, reference, fx, year, new_price)[1])
         label = h.get("delivery") or ""
         offers.append({
             "key": h["key"], "title": h["title"], "platform": h["platform"],
             "img": image_url(h.get("image"), large=True), "thumb": image_url(h.get("image"), large=False),
             "location": h.get("location"), "pay": round(pay), "price": h.get("price"), "currency": h.get("currency"),
-            "value": round(value) if value else None, "ratio": round(value / pay, 2) if value else None,
+            "value": round(value) if value else None,
+            "ratio": round(value / pay, 2) if value and not open_bid else None,
+            # Auktion: bid_pay = Endpreis beim aktuellen Gebot, limit = höchstes lohnendes Gebot (CHF), under = Gebot
+            # noch unter dem Wert. bidding = reine Auktion: dann ist auch pay nur dieser Zwischenstand. Mit Sofortkauf
+            # ist pay der Sofortpreis, das Inserat steht in der normalen Rangliste UND im Auktions-Bereich.
+            "bidding": open_bid, "bid_pay": bid_pay, "limit": limit, "under": bool(bid_pay and value and bid_pay < value),
+            "buy_now": bool(buy_now(h)), "bid": h.get("bid_price"),
+            "bid_chf": round(scoring.price_in_chf(h.get("bid_price"), h.get("currency") or "CHF", fx) or 0) if bid_pay else None,
             "score": h.get("ai_score"), "tier": h.get("ai_tier"), "cond": h.get("ai_condition") or "unbekannt",
             "year": h.get("ai_year"), "req": h.get("ai_req"), "req_note": h.get("ai_req_note"),
             "delivery": label, "pickup": label.startswith("Abholung"),
@@ -212,6 +306,7 @@ def build(search_id: int) -> dict:
             "drop": bool(h.get("first_price") and h.get("price") and h["price"] < h["first_price"]),
             "reason": h.get("score_reason"), "ko": ko_reason(h, pay, reference, search.get("last_run_at"), search, region), "front": False,
             "breakdown": breakdown(h, fx, dcfg, search), "new": bool(h.get("is_new")),
+            "vat": round(p.import_vat) if (p := deliv.plan(h, fx, dcfg, search.get("product_size"), search.get("product_weight"))) and p.import_vat else None,
         })
     if deliv.pending():  # neue Orte (Gebiet, Fahrzeit) im Hintergrund nachschlagen
         deliv.resolve_pending(dcfg)
@@ -222,12 +317,14 @@ def build(search_id: int) -> dict:
 
     timeline, week = _timeline(search, hits, now)
 
-    pays = [o["pay"] for o in offers]
+    pays = [o["pay"] for o in offers if not o["bidding"]]
+    auctions = sorted((o for o in offers if o["bid_pay"] and not o["ko"]), key=lambda o: o["ends_at"] or "9")
     return {
         "search": {"id": search_id, "query": search.get("query"), "market": market, "new_price": new_price,
                    "reference": round(reference) if reference else None, "typical_year": year,
                    "requirements": search.get("requirements")},
         "offers": offers,
+        "auctions": [o["key"] for o in auctions],
         "missed": missed,
         "head": head,
         "band": _quartiles(pays),
@@ -235,5 +332,82 @@ def build(search_id: int) -> dict:
         "week": week,
         "area": region.label if region else None,
         "counts": {"all": len([h for h in hits if h.get("ai_relevant") == 1]), "open": len(offers),
-                   "front": sum(o["front"] for o in offers), "ko": sum(bool(o["ko"]) for o in offers)},
+                   "front": sum(o["front"] for o in offers), "ko": sum(bool(o["ko"]) for o in offers),
+                   "auctions": len(auctions)},
     }
+
+
+# ---------- Gruppen («entweder das eine oder das andere») und Export für Gemini ----------
+
+def grouped(rows: list[tuple[dict, dict]]) -> list[dict]:
+    """Übersicht in Blöcken: Suchen derselben Gruppe stehen beieinander (an der Stelle des ersten Mitglieds), mit einer
+    gemeinsamen Bestenliste. rows: [(search, build(search))] in der Reihenfolge der Übersicht.
+    Rückgabe: [{"name": Gruppe oder None, "rows": [...], "ids": [...], "best": [Angebote mit .search]}]."""
+    blocks: list[dict] = []
+    by_name: dict[str, dict] = {}
+    for s, v in rows:
+        name = (s.get("group_name") or "").strip() or None
+        block = by_name.get(name.lower()) if name else None
+        if block is None:
+            block = {"name": name, "rows": [], "ids": [], "best": []}
+            blocks.append(block)
+            if name:
+                by_name[name.lower()] = block
+        block["rows"].append((s, v))
+        block["ids"].append(s["id"])
+    for b in blocks:
+        if b["name"] and len(b["rows"]) > 1:
+            # bester Deal über alle Suchen der Gruppe: Wert ÷ Preis ist über Produkte hinweg vergleichbar
+            pool = [{**o, "search": s["query"], "search_id": s["id"]} for s, v in b["rows"] for o in v["offers"] if o["front"]]
+            b["best"] = sorted(pool, key=lambda o: -(o["ratio"] or 0))[:6]
+    return blocks
+
+
+def gemini_prompt(search_ids: list[int], per_search: int = 40) -> str:
+    """Text zum Einfügen in Gemini: alle passenden, verfügbaren Angebote der Suchen mit Endpreis, Zustand, Lieferweg,
+    Link und Beschreibung – plus Neupreis und Anforderungen. Mehrere Suchen = Entweder-oder-Entscheid."""
+    searches = [s for s in (db.get_search(i) for i in search_ids) if s]
+    if not searches:
+        return ""
+    if len(searches) > 1:
+        names = ", ".join(f"«{s['query']}»" for s in searches)
+        text = (f"Ich will EINES dieser Produkte gebraucht kaufen (entweder–oder): {names}.\n"
+                "Welches Angebot ist insgesamt der beste Deal? Vergleiche über die Produkte hinweg, nenne die Top 5 mit "
+                "Begründung (Endpreis, Zustand, Jahrgang, Risiko, Abstand zum Neupreis) und sag, ob sich gebraucht lohnt.\n\n")
+    else:
+        text = (f"Analysiere diese Inserate für meine Suche nach «{searches[0]['query']}». Welche sind die besten Angebote? "
+                "Erstelle eine Rangliste der besten 30 % mit Begründung (Endpreis, Zustand, Jahrgang, Risiko, Abstand zum "
+                "Neupreis) und sag, ob sich gebraucht lohnt.\n\n")
+    for s in searches:
+        v = build(s["id"])
+        text += f"=== {s['query']} ===\n"
+        if (s.get("requirements") or "").strip():
+            text += f"Muss erfüllen: {s['requirements'].strip()}\n"
+        head = v["head"]
+        if head.get("new"):
+            text += f"Neu ab {head['new']['total']} CHF bis zu mir ({head['new']['shop']}: {head['new']['name']})\n"
+        elif head.get("successor"):
+            text += f"Nicht mehr neu erhältlich; Nachfolger neu ab {head['successor']['total']} CHF ({head['successor']['name']})\n"
+        if head.get("refurb"):
+            text += f"Vom Händler erneuert ab {head['refurb']['total']} CHF ({head['refurb']['shop']})\n"
+        if v["search"].get("market"):
+            text += f"Marktpreis gebraucht (Median der Angebote): {round(v['search']['market'])} CHF\n"
+        offers = [o for o in v["offers"] if not o["ko"]][:per_search]
+        text += f"{len(offers)} Angebote (Endpreis = inkl. Versand und Gebühren bis zu mir):\n\n"
+        full = {h["key"]: h for h in db.hits_for_search(s["id"], limit=5000)}
+        for o in offers:
+            h = full.get(o["key"], {})
+            price = (f"Auktion, aktuelles Gebot {o['bid_chf']} CHF, endet {str(o['ends_at'])[:16]}" if o.get("bidding")
+                     else f"Endpreis {o['pay']} CHF")
+            facts = " · ".join(x for x in (o["cond"] if o["cond"] != "unbekannt" else "", str(o["year"] or ""),
+                                           o.get("req_note") or "", o["platform"], o.get("location") or "") if x)
+            text += f"- {o['title']}\n  {price}" + (f" ({o['breakdown']})" if o.get("breakdown") else "") + f"\n  {facts}\n"
+            if o.get("delivery"):
+                text += f"  Lieferung: {o['delivery']}\n"
+            if h.get("ai_reason"):
+                text += f"  Einschätzung: {h['ai_reason']}\n"
+            text += f"  Link: {h.get('url') or ''}\n"
+            if h.get("description_full"):
+                text += "  Beschreibung: " + " ".join(h["description_full"].split())[:700] + "\n"
+            text += "\n"
+    return text

@@ -1,12 +1,21 @@
-"""Neupreis einer Suche: was kostet das Produkt heute neu – mit Shop und Link?
+"""Neupreis einer Suche: was kostet das Produkt heute neu – und lohnt sich gebraucht überhaupt?
 
-1. Online suchen (DuckDuckGo, Region Schweiz): «<Suche> kaufen», Marktplätze ausgenommen; dazu die Produkt- bzw.
-   Serienseite bei toppreise.ch (Preisvergleich Schweiz – führt auch Auslaufmodelle, solange ein Shop sie hat).
-2. Jede Shopseite öffnen und Produktname, Preis, Währung aus den strukturierten Produktdaten lesen
-   (JSON-LD/schema.org bzw. Meta-Tags – dieselben Angaben, die Shops für Google bereitstellen).
-3. Die KI prüft nur, welche Seiten genau das gesuchte Produkt neu anbieten (kein Zubehör, anderes Modell,
-   Gebrauchtware) – sie schätzt keinen Preis. Neupreis = günstigster passender Shop in CHF.
-Neupreis = günstigster passender Shop, ausser er liegt weit unter allen anderen (Fehlpreis, falsche Variante).
+Der Neupreis ist die zweite Hälfte der Antwort: ein Gebrauchtangebot ist nur so gut wie sein Abstand zu neu.
+Darum muss er so sorgfältig ermittelt sein wie die Gebrauchtpreise.
+
+1. Preisvergleiche direkt abfragen: toppreise.ch (Schweiz: Produkt, Anzahl Angebote, Preis mit und ohne Versand)
+   und geizhals.de (Deutschland, Import über die Grenzadresse). Das sind die verlässlichsten Quellen: viele Shops,
+   tagesaktuell, lieferbar. Die Anzahl Angebote zeigt, ob ein Produkt noch regulär im Handel ist.
+2. Dazu die Websuche (DuckDuckGo, Region Schweiz) «<Suche> kaufen» für Fachgeschäfte, die kein Preisvergleich führt
+   (Kite-Shops usw.): jede Shopseite öffnen und Name, Preis, Währung, Lieferbarkeit, Versand aus den strukturierten
+   Produktdaten lesen (JSON-LD/schema.org bzw. Meta-Tags). Ebenso erneuerte Geräte von Händlern.
+3. Die KI ordnet jede Zeile ein – sie schätzt keinen Preis:
+   match = genau das gesuchte Produkt neu, in üblicher Ausstattung; successor = neuere Generation derselben Reihe;
+   refurb = vom Händler erneuert; alles andere (Zubehör, Sonderausstattung, anderes Modell) fällt weg.
+   Dazu: wird das Produkt überhaupt noch regulär neu verkauft (discontinued)?
+4. Neupreis = günstigstes lieferbares passendes Angebot, ausser es liegt weit unter allen anderen (Fehlpreis).
+   Gibt es das Produkt nicht mehr neu, bleibt der Neupreis leer – der Nachfolger steht als Vergleich daneben
+   («neu nur noch als Nachfolger ab …»), statt dass sein Preis als Neupreis des alten Modells gilt.
 Nichts gefunden → kein Neupreis (dann von Hand eintragen). Von Hand eingetragene Preise haben Vorrang.
 Nebenbei schätzt die KI die typische Versandgrösse des Produkts (delivery.SIZES).
 """
@@ -29,7 +38,7 @@ from .config import get_config
 
 log = logging.getLogger(__name__)
 SEARCH_URL = "https://html.duckduckgo.com/html/?kl=ch-de&q={q}"
-MAX_AGE_DAYS = 30
+MAX_AGE_DAYS = 7     # Neupreise schwanken (Aktionen, Black Friday): wöchentlich auffrischen
 MAX_SHOPS = 10
 COMPARE_RE = re.compile(r"https://www\.toppreise\.ch/(?:preisvergleich|produktserie)/")
 OUTLIER = 0.75   # günstigster Shop unter 75 % des zweitgünstigsten: nicht als Neupreis nehmen
@@ -39,14 +48,32 @@ SKIP_DOMAINS = ("ricardo.", "tutti.", "anibis.", "kleinanzeigen.", "ebay.", "wil
                 "youtube.", "facebook.", "instagram.", "reddit.", "pinterest.", "wikipedia.", "idealo.", "toppreise.",
                 "google.", "amazon.", "aliexpress.", "temu.")
 
-PROMPT = """Ich suche gebraucht: «{query}». Unten Produktseiten aus Online-Shops (Nr | Shop | Produktname | Preis | Zustand).
-Welche Seiten zeigen GENAU dieses Produkt als Neuware (auch wenn «ausverkauft» – das zählt trotzdem)? Passend, wenn Marke, Modellname und Modellnummer übereinstimmen
+SPECIAL_VERSIONS = ("foil", "foilbar", "kids", "kinder", "junior", "youth", "mini", "lite", "double", "doppel")
+TOPPREISE_SEARCH = "https://www.toppreise.ch/produktsuche?q={q}"
+GEIZHALS_SEARCH = "https://geizhals.de/?fs={q}"
+MAX_COMPARE = 24     # Zeilen pro Preisvergleich an die KI
+
+PROMPT = """Ich suche gebraucht: «{query}». Unten Produktseiten aus Online-Shops und Zeilen aus Preisvergleichen
+(Nr | Shop | Produktname | Preis | Zustand | bei Preisvergleichen: Anzahl Angebote).
+match: Welche Zeilen zeigen GENAU dieses Produkt als Neuware (auch wenn «ausverkauft» – das zählt trotzdem)? Passend, wenn Marke, Modellname und Modellnummer übereinstimmen
 (Wortreihenfolge und Zusätze wie «Control Bar», Grössenangaben oder Jahrgang egal). Nicht passend: Zubehör, Ersatzteile, anderes Modell oder andere
 Produktart, Sets mit weiteren Produkten, Privat-Gebrauchtware, Miete, Spezialversionen, die nicht gesucht sind
 (z.B. Foil-, Kinder-, Lite-Version). NENNT die Suche eine Generation, muss sie passen: «Pro 3» ≠ «Pro 4», Chip M1 ≠ M2 ≠ M4,
 iPhone 13 ≠ 14. Nennt die Suche KEINE Generation, passt jede Generation des Produkts. Nennt die Suche eine Ausstattung
 (z.B. 16GB), muss sie passen; fehlt die Angabe im Produktnamen, passt das Angebot trotzdem. Verschiedene Grössen,
-Farben oder Modelljahre passen. Zeilen von toppreise.ch sind Preisvergleiche (Preis = günstigster Shop).
+Farben oder Modelljahre passen. Zeilen von toppreise.ch und geizhals.de sind Preisvergleiche (Preis = günstigster Shop).
+Bei Geräten mit vielen Ausstattungen zählt nur die übliche Serienausstattung bzw. die in der Suche genannte – KEINE
+Sonderkonfiguration (CTO, z.B. 8 TB SSD oder 64 GB RAM), auch wenn das Modell stimmt: solche Restposten zum
+Höchstpreis sind kein Neupreis des gesuchten Geräts.
+exact_size: Nennt die Suche eine Grösse (z.B. «8» bei einem Kite, eine Schuh- oder Rahmengrösse), dann hier
+zusätzlich die Nummern der match-Zeilen, die genau diese Grösse im Namen tragen – der Preis hängt von der Grösse ab.
+Zeilen ohne Grössenangabe bleiben in match (ihr Preis ist dann oft ein «ab»-Preis der kleinsten Grösse).
+successor: NUR wenn die Suche ausdrücklich eine Generation oder ein Modelljahr nennt, das es nicht mehr regulär neu
+gibt (nennt sie keines, ist das aktuelle Modell ein match, kein successor). Dann die Zeilen
+der AKTUELLEN Generation derselben Reihe in vergleichbarer (kleinster üblicher) Ausstattung – als Vergleich
+«neu nur noch als Nachfolger». Sonst leer.
+discontinued = true, wenn das gesuchte Produkt nicht mehr regulär neu im Handel ist (höchstens einzelne Restposten).
+Auch dann gehören Zeilen, die das gesuchte Produkt selbst neu anbieten (Restposten in üblicher Ausstattung), in match.
 generic = true, wenn die Suche kein bestimmtes Produkt meint (z.B. «sessel», «tisch biedermeier», Antiquitäten) –
 dann gibt es keinen sinnvollen Neupreis.
 
@@ -55,7 +82,8 @@ dann gibt es keinen sinnvollen Neupreis.
 Vom Händler erneuerte Geräte (Refurbished, «erneuert», generalüberholt, Vorführgerät mit Garantie) des gesuchten
 Produkts sind interessant als Vergleich: deren Nummern in «refurb» statt in «match».
 
-Antworte NUR mit JSON: {{"match": [Nr, ...], "refurb": [Nr, ...], "product": "Modell, kurz", "generic": bool,
+Antworte NUR mit JSON: {{"match": [Nr, ...], "exact_size": [Nr, ...], "refurb": [Nr, ...], "successor": [Nr, ...], "discontinued": bool,
+"successor_name": "Nachfolger, kurz" oder null, "product": "Modell, kurz", "generic": bool,
 "size": "S"|"M"|"L"|"XL"|"fracht", "weight_kg": number}}
 size = Versandgrösse verpackt: S Päckchen bis 35×25×10 cm, M bis 60×30×15 cm, L bis 120×60×60 cm und 31 kg,
 XL sperrig bis 200 cm lang, fracht = Möbel o.ä., nicht als Paket versendbar."""
@@ -195,11 +223,92 @@ def extract_offer(html: str, url: str | None = None) -> dict | None:
     return None
 
 
-def find_offers(query: str, skip: list[str] | None = None, compare: bool = False) -> list[dict]:
-    """Shopangebote mit Preis in CHF (noch ungeprüft)."""
+def _text(fragment: str) -> str:
+    return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
+
+
+def _num(raw: str) -> float:
+    """«4'017.95» (CH) bzw. «1.692,00» (DE) → Zahl."""
+    raw = raw.replace("'", "").replace("’", "")
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    return float(raw)
+
+
+def parse_toppreise(page: str) -> list[dict]:
+    """Suchergebnis von toppreise.ch: je Produkt Name, Anzahl Angebote, günstigster Preis ohne und mit Versand."""
+    out = []
+    for block in re.split(r'(?=<div id="Plugin_Product_\d+")', page)[1:]:
+        block = re.sub(r"(?s)<template.*?</template>", "", block)
+        link = re.search(r'data-link="(/preisvergleich/[^"]+)"', block)
+        name = re.search(r'(?s)<a href="/preisvergleich/[^"]+" class="bold">(.*?)</a>', block)
+        m = re.search(r"(\d+) Angebote? ab CHF ([\d'’.]+) inkl\. Versandkosten CHF ([\d'’.]+)", _text(block))
+        if not (link and name and m):
+            continue  # ohne Angebot: steht im Katalog, wird aber von keinem Shop mehr geführt
+        with_ship, price = _num(m.group(2)), _num(m.group(3))
+        out.append({"name": _text(name.group(1))[:140], "price": price, "currency": "CHF", "condition": "",
+                    "available": True, "shipping": max(0.0, round(with_ship - price, 2)), "shipping_currency": "CHF",
+                    "count": int(m.group(1)), "url": "https://www.toppreise.ch" + link.group(1), "shop": "toppreise.ch"})
+    return out
+
+
+def parse_geizhals(page: str) -> list[dict]:
+    """Suchergebnis von geizhals.de: je Produkt Name, Anzahl Angebote, günstigster Preis (ohne Versand)."""
+    out = []
+    for art in re.findall(r'(?s)<article class="galleryview__item.*?</article>', page):
+        name = re.search(r'galleryview__name-link"\s+title="([^"]+)"', art)
+        link = re.search(r'href="(https://geizhals\.de/[^"#]+)"', art)
+        price = re.search(r'class="price">\s*€\s*([\d.]+,\d{2})', art)
+        count = re.search(r"(\d+)\s*Angebot", _text(art))
+        if not (name and link and price):
+            continue
+        out.append({"name": html.unescape(name.group(1))[:140], "price": _num(price.group(1)), "currency": "EUR",
+                    "condition": "", "available": "availability--available" in art or None,
+                    "count": int(count.group(1)) if count else None, "url": link.group(1), "shop": "geizhals.de"})
+    return out
+
+
+def roughly_matches(query: str, name: str) -> bool:
+    """Grober Vorfilter für Preisvergleich-Zeilen: die Wörter der Suche ohne Ziffern müssen im Produktnamen stehen
+    (bei drei und mehr darf eines fehlen). Zahlen bleiben offen, damit auch der Nachfolger durchkommt
+    («Sensor 4» bei gesuchtem «Sensor 3», M5 bei M1) – das ordnet die KI ein. Die Volltextsuche der Preisvergleiche
+    liefert bei Nischenprodukten sonst fast nur Fremdes (Mainboards zu «core sensor pro 3»)."""
+    from .matching import tokens, words
+    have = tokens(name) | set(words(name))
+    plain = [w for w in words(query) if not any(ch.isdigit() for ch in w) and len(w) > 1]
+    joined = {w for a, b in zip(plain, plain[1:]) if a + b in have for w in (a, b)}
+    missing = [w for w in plain if w not in have and w not in joined]
+    return len(missing) <= (1 if len(plain) >= 3 else 0)
+
+
+def compare_offers(query: str) -> list[dict]:
+    """Zeilen aus den Preisvergleichen (toppreise.ch, geizhals.de) im selben Format wie find_offers."""
+    rates = fx_rates.rates(get_config())
+    out = []
+    for url, parse in ((TOPPREISE_SEARCH, parse_toppreise), (GEIZHALS_SEARCH, parse_geizhals)):
+        try:
+            rows = [o for o in parse(fetch_html(url.format(q=quote_plus(query)), "http"))
+                    if roughly_matches(query, o["name"])][:MAX_COMPARE]
+        except Exception as exc:
+            log.info("Preisvergleich %s für «%s» nicht lesbar: %s", urlparse(url).netloc, query, exc)
+            continue
+        finally:
+            time.sleep(0.5)
+        for o in rows:
+            if o["price"] < 5 or o["currency"] not in rates:
+                continue
+            rate = rates[o["currency"]]
+            out.append({**o, "price_chf": round(o["price"] * rate, 2),
+                        "shipping_chf": round(o["shipping"] * rate, 2) if o.get("shipping") is not None else None})
+    return out
+
+
+def find_offers(query: str, skip: list[str] | None = None, compare: bool = False,
+                urls: list[str] | None = None) -> list[dict]:
+    """Shopangebote mit Preis in CHF (noch ungeprüft). urls: diese Seiten direkt lesen statt zu suchen."""
     rates = fx_rates.rates(get_config())
     offers = []
-    for url in search_links(query, skip, compare):
+    for url in urls if urls is not None else search_links(query, skip, compare):
         try:
             offer = extract_offer(fetch_html(url, "http"), url)
         except Exception as exc:
@@ -221,27 +330,61 @@ def find_offers(query: str, skip: list[str] | None = None, compare: bool = False
     return offers
 
 
-def lookup(query: str) -> dict | None:
+def extra_shops(search_id: int) -> list[str]:
+    """Von Hand ergänzte Shopseiten einer Suche (z.B. ein Shop aus einer Google-Anzeige, den die Suche nicht findet)."""
+    try:
+        return [u for u in json.loads(db.kv_get(f"shops:{search_id}") or "[]") if isinstance(u, str)]
+    except ValueError:
+        return []
+
+
+def add_shop(search_id: int, url: str) -> bool:
+    url = url.strip()
+    if not re.match(r"https?://[^\s/]+\.[^\s/]+", url):
+        return False
+    urls = [u for u in extra_shops(search_id) if u != url] + [url]
+    db.kv_set(f"shops:{search_id}", json.dumps(urls[-10:]))
+    return True
+
+
+def lookup(query: str, exclude: list[str] | None = None, known_urls: list[str] | None = None) -> dict | None:
+    """exclude: Ausschlusswörter der Suche – gelten auch für Shopangebote («double» beim Kinderwagen).
+    known_urls: Shopseiten, die beim letzten Mal passten – sie werden direkt wieder gelesen. Die Websuche liefert
+    nicht jedes Mal dieselben Shops; ohne das springt der Neupreis von Lauf zu Lauf (389 → 455 CHF), obwohl der
+    günstige Shop noch da ist."""
     from .ai import _gemini_json
+    from .matching import excluded
     api_key = get_config().get("ai", {}).get("gemini_api_key")
     if not api_key:
         return None
-    offers = find_offers(f"{query} kaufen")
-    if len(offers) < 6:  # wenig Shopseiten: weitere Suchen mit anderem Wortlaut
-        offers += find_offers(f"{query} preis neu", [o["url"] for o in offers])
-    if len(offers) < 8:
-        offers += find_offers(f"{query} online shop", [o["url"] for o in offers])
+    offers = compare_offers(query)  # Preisvergleiche zuerst: viele Shops, tagesaktuell, mit Lieferbarkeit
+    sticky = [u for u in dict.fromkeys(known_urls or []) if not any(d in u for d in ("toppreise.ch", "geizhals."))][:12]
+    if sticky:
+        offers += find_offers(query, urls=sticky)
+    try:
+        offers += find_offers(f"{query} kaufen", [o["url"] for o in offers])  # Fachgeschäfte ausserhalb der Preisvergleiche
+        # zweiter Wortlaut immer: jede Suche zeigt andere Shops, und ein übersehener günstiger Shop verfälscht das Urteil
+        offers += find_offers(f"{query} preis schweiz", [o["url"] for o in offers])
+        if len(offers) < 8:
+            offers += find_offers(f"{query} online shop", [o["url"] for o in offers])
+    except Exception as exc:
+        if not offers:
+            raise
+        log.info("Websuche nach Shops für «%s» fehlgeschlagen, weiter mit den Preisvergleichen: %s", query, exc)
+    # Sonderversionen, die nicht gesucht sind, fest ausschliessen – die KI liess «Sensor 3 Pro Foil Bar» als Neupreis
+    # der normalen Bar durch (553 statt 672 CHF)
+    special = [w for w in SPECIAL_VERSIONS if w not in query.lower()]
+    special_re = re.compile(r"(?<!\w)(?:" + "|".join(special) + r")(?!\w)", re.I) if special else None  # ganze Wörter
+    offers = [o for o in offers if not excluded(exclude or [], o["name"])
+              and not (special_re and special_re.search(o["name"]))]
     for wording in REFURB_QUERIES:  # erneuerte Geräte von Händlern als Vergleich (allgemeine Suchen liefern oft nur Listen)
         try:
             offers += find_offers(wording.format(query=query), [o["url"] for o in offers])
         except Exception as exc:
             log.info("Refurbished-Suche «%s» fehlgeschlagen: %s", wording.format(query=query), exc)
-    try:
-        offers += find_offers(f"{query} toppreise", [o["url"] for o in offers], compare=True)
-    except Exception as exc:
-        log.info("toppreise für «%s» nicht lesbar: %s", query, exc)
     rows = "\n".join(f"{i} | {o['shop']} | {o['name']} | {o['price']:g} {o['currency']} | {o['condition'] or '-'}"
                      f"{' | ausverkauft' if o.get('available') is False else ''}"
+                     f"{' | %d Angebote' % o['count'] if o.get('count') else ''}"
                      for i, o in enumerate(offers)) or "(keine Shopseiten gefunden)"
     r = _gemini_json(PROMPT.format(query=query, rows=rows),
                      "Du prüfst Produktseiten für einen Preisvergleich. Antworte nur mit JSON.", api_key,
@@ -255,7 +398,7 @@ def lookup(query: str) -> dict | None:
             if not (isinstance(i, int) and 0 <= i < len(offers)):
                 continue
             o = offers[i]
-            sig = (o["shop"], o["name"].lower(), round(o["price_chf"]))  # Farbvarianten / doppelt gefunden
+            sig = (o["shop"], o["name"].lower()[:60], round(o["price_chf"]))  # Farbvarianten / doppelt gefunden
             if sig not in seen:
                 seen.add(sig)
                 out.append(o)
@@ -275,28 +418,71 @@ def lookup(query: str) -> dict | None:
                 "offers": [], "size": size, "weight": weight}
     def kept(o: dict, kind: str) -> dict:
         return {**{k: o[k] for k in ("shop", "name", "price", "currency", "price_chf", "url")},
-                "available": o.get("available"), "shipping_chf": o.get("shipping_chf"), "kind": kind}
+                "available": o.get("available"), "shipping_chf": o.get("shipping_chf"), "kind": kind,
+                "approx": bool(o.get("approx")),
+                "count": o.get("count")}
+    # Nachfolger: aktuelle Generation als Vergleich, wenn es das Gesuchte nicht mehr (regulär) neu gibt
+    successor = [o for o in chosen("successor") if o not in picked and o not in refurb and o.get("available") is not False
+                 and not any(w in (o["condition"] + " " + o["name"]).lower() for w in refurb_words)]
+    successor = plausible(successor, successor)[:3]
+    successor_name = str(r.get("successor_name") or "")[:60] or (successor[0]["name"][:60] if successor else "")
+    extra = [kept(o, "erneuert") for o in refurb] + [kept(o, "nachfolger") for o in successor]
+    if r.get("discontinued") is True and picked and not any(o.get("available") is not False for o in picked):
+        picked = []  # nur noch ausverkaufte Restposten: kein Neupreis
     if not picked:
-        note = "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; bei Bedarf von Hand eintragen"
+        note = "Nicht mehr neu erhältlich" if r.get("discontinued") is True or successor else \
+            "Kein Neupreis online gefunden – vermutlich nicht mehr neu erhältlich; bei Bedarf von Hand eintragen"
+        if successor:
+            note += f" · Nachfolger {successor_name} neu ab {round(successor[0]['price_chf'])} CHF bei {successor[0]['shop']}"
         if refurb:
             note += f" · erneuert ab {round(refurb[0]['price_chf'])} CHF bei {refurb[0]['shop']}"
-        return {"price": None, "note": note, "offers": [kept(o, "erneuert") for o in refurb], "size": size, "weight": weight}
+        return {"price": None, "note": note, "offers": extra, "size": size, "weight": weight}
     picked = plausible(picked, picked)
+    # Grösse genannt: Zeilen mit genau dieser Grösse bestimmen den Neupreis. Die übrigen bleiben in der Liste, als
+    # «ab-Preis» markiert (oft die kleinste Grösse) – so sieht man alle Shops, ohne dass ein zu tiefer Preis gewinnt.
+    # Welche Zeilen tragen die gesuchte Grösse? Fest gerechnet statt von der KI (die ordnete es von Lauf zu Lauf anders
+    # zu): eine Zahl der Suche gilt als Grösse, wenn sie die passenden Zeilen unterscheidet – in manchen Namen steht sie
+    # («8qm», «8.0m»), in anderen nicht («Rebel SLS 2026»). Steht sie überall, ist es die Modellnummer («Sensor 3»).
+    from .matching import tokens
+    sized: list[dict] = []
+    for n in (w for w in tokens(query) if w.isdigit()):
+        have = [o for o in picked if n in tokens(o["name"])]
+        if have and len(have) < len(picked):
+            sized = have
+            break
+    else:
+        # Keine passende Zeile nennt die Grösse, andere gefundene Seiten aber schon («… DEMO 8.0m», «… 7.0m»): dann sind
+        # alle Preise «ab»-Preise unbekannter Grösse – so kennzeichnen, statt den tiefsten als genauen Neupreis auszugeben
+        for n in (w for w in tokens(query) if w.isdigit()):
+            if not any(n in tokens(o["name"]) for o in picked) and any(n in tokens(o["name"]) for o in offers if o not in picked):
+                for o in picked:
+                    o["approx"] = True
+                break
+    if any(o in sized for o in picked if o.get("available") is not False):
+        for o in picked:
+            o["approx"] = o not in sized
     in_stock = [o for o in picked if o.get("available") is not False]
     sold_out = [o for o in picked if o.get("available") is False]
-    best = choose_best(in_stock) if in_stock else sold_out[0]  # Neupreis = günstigstes lieferbares Angebot
+    exact = [o for o in in_stock if not o.get("approx")]
+    best = choose_best(exact or in_stock) if in_stock else sold_out[0]  # Neupreis = günstigstes lieferbares Angebot
     price = round(best["price_chf"])
     product = str(r.get("product") or query)[:60]
     shops = len({o["shop"] for o in in_stock})
     if in_stock:
         note = f"{product} · günstigster lieferbar bei {best['shop']}" + (f" (von {shops} Shops)" if shops > 1 else "")
+        if best.get("approx"):
+            note += " · ab-Preis, Grösse prüfen"
         if sold_out and sold_out[0]["price_chf"] < best["price_chf"]:
             note += f" · ausverkauft ab {round(sold_out[0]['price_chf'])} CHF bei {sold_out[0]['shop']}"
     else:
         note = f"{product} · nur ausverkauft gefunden, zuletzt {price} CHF bei {best['shop']}"
+    if r.get("discontinued") is True:
+        note += " · Auslaufmodell, nur noch Restbestände"
+    if successor:
+        note += f" · Nachfolger {successor_name} ab {round(successor[0]['price_chf'])} CHF"
     if refurb:
         note += f" · erneuert ab {round(refurb[0]['price_chf'])} CHF bei {refurb[0]['shop']}"
-    keep = [kept(o, "neu") for o in (in_stock + sold_out)[:12]] + [kept(o, "erneuert") for o in refurb]
+    keep = [kept(o, "neu") for o in (in_stock + sold_out)[:12]] + extra
     return {"price": price, "note": note, "offers": keep, "size": size, "weight": weight}
 
 
@@ -337,15 +523,19 @@ def buy_options(search: dict) -> list[dict]:
             continue
         parts = dict(p.parts)
         out.append({**o, "country": country, "total": round(p.total), "route": p.label,
+                    "vat": round(p.import_vat) if p.import_vat else None,
                     "ship": parts.get("Versand"), "fees": round(parts.get("Paket4you", 0)),
                     "ship_known": o.get("shipping_chf") is not None})
     out.sort(key=lambda o: (o.get("available") is False, o["total"]))
     return out
 
 
-def best_new(options: list[dict], kind: str = "neu") -> dict | None:
-    """Günstigstes lieferbares Angebot einer Art («neu» oder «erneuert») aus buy_options."""
-    return next((o for o in options if o.get("kind", "neu") == kind and o.get("available") is not False), None)
+def best_new(options: list[dict], kind: str = "neu", country: str | None = None) -> dict | None:
+    """Günstigstes lieferbares Angebot einer Art («neu», «erneuert», «nachfolger») aus buy_options – ohne «ab»-Preise
+    einer anderen Grösse, solange es genaue gibt. country: nur Shops aus diesem Land (z.B. das günstigste aus der Schweiz)."""
+    pool = [o for o in options if o.get("kind", "neu") == kind and o.get("available") is not False
+            and (country is None or o.get("country") == country)]
+    return next((o for o in pool if not o.get("approx")), None) or (pool[0] if pool else None)
 
 
 def choose_best(picked: list[dict]) -> dict:
@@ -362,7 +552,8 @@ def refresh(search_id: int) -> bool:
     if not s:
         return False
     try:
-        r = lookup(s["query"])
+        r = lookup(s["query"], [w for w in s.get("exclude_words") or [] if w not in ("defekt", "schaden")],
+                   extra_shops(search_id) + [o["url"] for o in s.get("new_price_offers") or [] if o.get("url")])
     except Exception as exc:
         log.warning("Neupreis für «%s» nicht bestimmt: %s", s["query"], exc)
         return False

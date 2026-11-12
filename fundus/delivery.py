@@ -4,7 +4,9 @@ Die KI schätzt pro Inserat die Versandgrösse (SIZES) und das Gewicht, dieses M
 
 - CH-Inserat: Postversand (PostPac Economy) oder Abholung mit Fahrzeit ab Wohnort.
 - DE-Inserat: DHL an die Paket4you-Adresse in Jestetten, dort abholen und selbst über die Grenze bringen.
-  Einfuhr mit dem Auto: fundus rechnet ohne MWST und Zoll (Industriezölle gibt es seit 1.1.2024 keine mehr).
+  Der Endpreis enthält bewusst weder die Fahrt nach Jestetten noch die Einfuhr-MWST. Die MWST (8,1 % ab 150 CHF
+  Warenwert) weist fundus separat aus (Plan.import_vat), damit sichtbar ist, was eine Verzollung kosten würde.
+  Zoll fällt keiner an (Industriezölle gibt es seit 1.1.2024 keine mehr).
   Direkt per Post in die Schweiz lohnt sich kaum: internationales Porto plus Verzollungsgebühr der Post
   (ab 13 CHF + 3 % des Warenwerts) – teurer als die Fahrt nach Jestetten.
 - Übriges Ausland: Versand an Paket4you (geschätzt) oder Abholung.
@@ -44,6 +46,9 @@ POST_SPERRGUT_CHF = 31.0
 P4Y_EUR = {"S": 2.5, "M": 3.5, "L": 6.0, "XL": 10.0}           # Gebühr bei Abholung in Jestetten
 INTL_FACTOR = {"S": 0.7, "M": 1.0, "L": 1.6, "XL": 3.0}        # auf shipping_estimate_chf des Landes
 
+IMPORT_VAT = 0.081        # Schweizer Einfuhr-MWST
+VAT_FREE_CHF = 150        # Wertfreigrenze pro Person und Tag (seit 1.1.2025); darüber fällt die MWST auf den ganzen Wert an
+
 PICKUP_PENALTY_PER_HOUR = 3   # Deal-Score-Abzug pro Stunde Fahrt (einfach), höchstens 15
 DRIVE_CHF_PER_MIN = 0.3       # Autokosten (Benzin, Abnützung) pro Fahrminute, hin und zurück gerechnet
 PICKUP_UNKNOWN_PENALTY = 10   # Abholung im Ausland ohne bekannte Fahrzeit
@@ -57,6 +62,7 @@ class Plan:
     penalty: int = 0
     notes: list[str] = field(default_factory=list)
     parts: list[tuple[str, float]] = field(default_factory=list)  # Aufschlüsselung des Endpreises in CHF
+    import_vat: float | None = None   # Einfuhr-MWST bei Verzollung, CHF – NICHT im Endpreis, nur separat ausgewiesen
 
 
 def listing_country(h: dict) -> str | None:
@@ -115,8 +121,9 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
         car = 2 * minutes * float(delivery.get("drive_chf_per_min", DRIVE_CHF_PER_MIN)) if minutes else 0.0
         label = where + (f" · {fmt_minutes(minutes)} Fahrt (Auto ≈ {_num(car)} CHF hin und zurück)"
                          if minutes is not None else "")
+        vat = round(price * IMPORT_VAT, 2) if country != home and price > float(delivery.get("vat_free_chf", VAT_FREE_CHF)) else None
         return Plan(round(price + car, 2), label, minutes, penalty,
-                    parts=[p for p in (("Preis", price), ("Auto", car)) if p[1]])
+                    parts=[p for p in (("Preis", price), ("Auto", car)) if p[1]], import_vat=vat)
 
     if country == home:
         ship = stated if stated is not None else post_chf(size, weight)
@@ -140,8 +147,10 @@ def plan(h: dict, fx: dict, delivery: dict, size: str | None = None, weight: flo
         how += " (Sperrgut)"
     if j_min is not None:
         how += f" · {fmt_minutes(j_min)} Fahrt nach Jestetten"
+    goods = price + ship  # Warenwert inkl. Versand bis zur Grenze
+    vat = round(goods * IMPORT_VAT, 2) if goods > float(delivery.get("vat_free_chf", VAT_FREE_CHF)) else None
     return Plan(round(price + ship + fee, 2), how,
-                parts=[p for p in (("Preis", price), ("Versand", ship), ("Paket4you", fee)) if p[1]])
+                parts=[p for p in (("Preis", price), ("Versand", ship), ("Paket4you", fee)) if p[1]], import_vat=vat)
 
 
 # ---------- Fahrzeit (OpenStreetMap: Nominatim zum Finden des Orts, OSRM für die Route) ----------

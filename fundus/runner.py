@@ -127,8 +127,7 @@ def shortlist_to_check(search_id: int, rest: int = 6, max_age: timedelta | None 
     """Beste Angebote und die nächsten Angebote der Suchseite, deren letzte Prüfung älter als max_age
     (Standard SHORTLIST_RECHECK_HOURS) ist."""
     from . import views
-    offers = views.build(search_id)["offers"]
-    keys = [o["key"] for o in offers if o["front"]] + [o["key"] for o in offers if not o["front"] and not o["ko"]][:rest]
+    keys = views.top_keys(views.build(search_id)["offers"], rest)
     limit = datetime.now(timezone.utc) - (max_age or timedelta(hours=SHORTLIST_RECHECK_HOURS))
     out = []
     for key in keys:
@@ -245,8 +244,9 @@ def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
             continue
         chf = price_in_chf(l.price, l.currency, fx)
         if chf is not None:
-            if search.get("min_price") is not None and chf < search["min_price"]:
-                continue
+            pure_auction = l.auction and not (l.bid_price and l.price and l.price > l.bid_price)
+            if search.get("min_price") is not None and chf < search["min_price"] and not pure_auction:
+                continue  # reine Auktion: das Gebot steigt noch, ein tiefer Stand sagt nichts über den Mindestpreis
             if search.get("max_price") is not None and chf > search["max_price"]:
                 continue
         out.append(l)
@@ -254,6 +254,41 @@ def _filter(listings: list[Listing], search: dict, fx: dict) -> list[Listing]:
 
 
 AUTO_TRIGGERS = ("zeitplan", "nachgeholt")
+DEEP_PAGES = 3    # Bestand beim ersten Abruf einer Quelle: so viele Seiten lesen (die besten Angebote sind oft nicht die neusten)
+MORE_PAGES = 3    # später: höchstens bis zu dieser Seite nachblättern, solange eine Seite nur Unbekanntes zeigt
+
+
+def _search_pages(adapter, search: dict, source: str, deep: bool, known: set[str], pause) -> tuple[list[Listing], set[str]]:
+    """Seite 1 – und weitere Seiten, wo die Plattform sie liefert (adapter.paged):
+    - deep (Bestand noch nie tief gelesen): bis DEEP_PAGES Seiten. Sonst kennt fundus nur die neusten ~25 Inserate
+      und beantwortet «was ist das beste Angebot?» aus einem Ausschnitt.
+    - sonst: nachblättern, solange eine volle Seite nur Unbekanntes zeigt – dann sind seit dem letzten Lauf mehr
+      Inserate dazugekommen, als auf eine Seite passen (Kleinanzeigen bei MacBook-Suchen).
+    Rückgabe: (Inserate, Keys aus tieferen Seiten des Bestands – zählen nicht als «neu»)."""
+    args = (search["query"], source, search.get("min_price"), search.get("max_price"))
+    found = adapter.search(*args)
+    stock: set[str] = set()
+    if not getattr(adapter, "paged", False):
+        return found, stock
+    last, seen = found, {l.key for l in found}
+    for page in range(2, (DEEP_PAGES if deep else MORE_PAGES) + 1):
+        if len(last) < 15 or not (deep or all(l.key not in known for l in last)):
+            break  # letzte Seite war nicht voll bzw. enthielt Bekanntes: nichts verpasst
+        pause()
+        try:
+            last = [l for l in adapter.search(*args, page=page) if l.key not in seen]
+        except BlockedError:
+            raise
+        except AdapterError as exc:
+            log.info("%s / %s Seite %d: %s", search["query"], source, page, exc)
+            break
+        if not last:
+            break
+        seen.update(l.key for l in last)
+        found += last
+        if deep:
+            stock.update(l.key for l in last)
+    return found, stock
 
 
 def recently_manual(search: dict, hours: float, now: datetime | None = None) -> bool:
@@ -308,6 +343,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
         complete_sources: set[str] = set()
         returned: set[str] = set()   # alles, was die Plattformen geliefert haben – vor jedem Filter
         scanned_before = db.first_scans(search["id"])
+        deep_before = db.deep_scans(search["id"])
+        known = db.hit_keys(search["id"])
         stock: set[str] = set()       # Bestand: Treffer aus dem ersten Abruf einer Quelle (zählen nicht als «neu»)
         mine = [s for s in sources if not search["platforms"] or s["adapter"] in search["platforms"]]
         _progress.update(index=_progress["index"] + 1, query=search["query"], sources=len(mine), source=0, step="sucht")
@@ -323,7 +360,12 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             first_request = False
             adapter = adapter_for_source(adapters, src["name"])
             try:
-                found = adapter.search(search["query"], src["name"], search.get("min_price"), search.get("max_price"))
+                deep = getattr(adapter, "paged", False) and src["name"] not in deep_before
+                found, deeper = _search_pages(adapter, search, src["name"], deep, known,
+                                              lambda: time.sleep(random.uniform(lo, hi)))
+                stock.update(deeper)  # Bestand aus tieferen Seiten: keine Meldungsflut, zählt nicht als «neu»
+                if deep:
+                    db.record_deep_scan(search["id"], src["name"])
                 for l in found:
                     l.source = l.source or src["name"]
                 collected.extend(found)
