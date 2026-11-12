@@ -22,13 +22,7 @@
   {% set is_active = false %}
 {% endif %}
 
-<div id="search-results-container"
-  {% if is_active %}
-    hx-get="/search/{{ search.id }}/results"
-    hx-trigger="every 3s"
-    hx-swap="outerHTML"
-  {% endif %}
->
+<div id="search-results-container">
   {% if top_hits %}
     <h2 class="section-title">Beste Angebote</h2>
     {% if search.market_price %}<p class="muted small" style="margin-top:-6px;">Marktpreis {{ price(search.market_price, 'CHF') }} – Median der passenden Treffer</p>{% endif %}

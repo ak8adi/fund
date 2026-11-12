@@ -62,11 +62,14 @@
 
   // Touch: erst nach dem Halten das Scrollen sperren (passive: false), vorher normal scrollen lassen
   list.addEventListener('touchstart', e => begin(e, e.touches[0].clientX, e.touches[0].clientY), {passive: true});
-  list.addEventListener('touchmove', e => {
+  // Nur auf den Infokarten blockierend – sonst müsste jedes Scrollen der Übersicht auf dieses Skript warten (ruckelt)
+  const onMove = e => {
     const t = e.touches[0];
     if (drag) { e.preventDefault(); move(t.clientY); return; }
     if (timer && Math.hypot(t.clientX - startX, t.clientY - startY) > SLOP) { clearTimeout(timer); timer = null; }
-  }, {passive: false});
+  };
+  list.querySelectorAll('.ov-info').forEach(n => n.addEventListener('touchmove', onMove, {passive: false}));
+  list.addEventListener('touchmove', e => { if (!e.target.closest('.ov-info')) onMove(e); }, {passive: true});
   list.addEventListener('touchend', drop);
   list.addEventListener('touchcancel', drop);
 
