@@ -663,6 +663,25 @@ async def order_searches(request: Request):
     return JSONResponse({"ok": True})
 
 
+@app.post("/groups")
+async def save_group(request: Request):
+    """Gruppe anlegen oder bearbeiten: {"old": bisheriger Name oder "", "name": neuer Name ("" = auflösen),
+    "ids": Suchen, die dazugehören}. Bisherige Mitglieder, die nicht mehr ausgewählt sind, verlassen die Gruppe."""
+    from fastapi.responses import JSONResponse
+    data = await request.json()
+    old = str(data.get("old") or "").strip().lower()
+    name = str(data.get("name") or "").strip()[:60]
+    ids = {int(i) for i in data.get("ids") or [] if str(i).isdigit()}
+    changes = {}
+    for s in db.list_searches():
+        if name and s["id"] in ids:
+            changes[s["id"]] = name
+        elif old and (s.get("group_name") or "").strip().lower() == old:
+            changes[s["id"]] = ""
+    db.set_search_groups(changes)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/neue-suche", response_class=HTMLResponse)
 def new_search_page(request: Request):
     return templates.TemplateResponse(request, "neue_suche.html", _ctx(request))

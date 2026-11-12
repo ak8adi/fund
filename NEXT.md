@@ -46,6 +46,10 @@ Kitebar-Suchen selbst eintragen (Suche bearbeiten › Mehr Optionen › Gruppe).
 - Ziehen (static/reorder.js): Suche über eine Gruppe ziehen = hinein, darüber hinaus = heraus; Gruppenkopf ziehen =
   ganze Gruppe verschieben; Name antippen = umbenennen (leer = auflösen); «Neue Gruppe» unten legt oben eine leere an
   (gespeichert erst, wenn eine Suche drin ist). Server: /searches/order mit {"groups": {id: name}}, db.set_search_groups
+- Nachtrag: «Ordnen» oben schaltet auf schmale Zeilen mit Griff ≡ (sofort ziehen, kein Langdruck nötig);
+  Gruppe anlegen/bearbeiten über ein Blatt (Name + Auswahl der Suchen, Auflösen) → POST /groups. Inline-Umbenennen entfernt.
+  Grund für «springt zurück»: Dienst war nach der Python-Änderung nicht neu gestartet. **Nach jeder Python-Änderung
+  den Dienst neu starten** (Vorlagen und static brauchen das nicht).
 
 ## Danach (vorgeschlagen, noch nicht bestätigt)
 

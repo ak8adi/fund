@@ -3,7 +3,7 @@
 <div class="vw">
 <div class="search-head">
   <h2>Übersicht</h2>
-  <div class="actions"><a class="btn small" href="/neue-suche">＋ Neue Suche</a></div>
+  <div class="actions">{% if rows | length > 1 %}<button type="button" class="btn small ghost" id="order-toggle">Ordnen</button>{% endif %}<a class="btn small" href="/neue-suche">＋ Neue Suche</a></div>
 </div>
 {% set bad = health | selectattr('state', 'in', ['bad', 'zero']) | list %}
 <a class="health-line" href="/settings">{{ health | length }} Plattformen{% if bad %} · <b>{{ bad | length }} mit Hinweis</b>{% else %} · alle liefern{% endif %} ›</a>
@@ -22,6 +22,7 @@
     <div class="ov-info">
       <a class="gear" href="/search/{{ s.id }}#bearbeiten" title="Sucheinstellungen" aria-label="Sucheinstellungen von {{ s.query }}">⚙︎</a>
       <button type="button" class="gear copy" title="Angebote für Gemini kopieren" aria-label="Angebote von {{ s.query }} für Gemini kopieren" onclick="fundusCopy(this, '{{ s.id }}')">⧉</button>
+      <span class="handle" aria-label="Ziehen zum Verschieben">≡</span>
       <a class="ov-info-link" href="/search/{{ s.id }}">
         <span class="name">{{ s.query }}</span>
         {% if s.unseen %}<span class="pill new">{{ s.unseen }} neu</span>{% elif not s.active %}<span class="pill">pausiert</span>{% endif %}
@@ -67,7 +68,9 @@
   {# Entweder-oder-Gruppe: dünne Linie links zeigt, wie weit sie reicht; Kopf gedrückt halten = ganze Gruppe ziehen #}
   <section class="ov-grp" data-group="{{ b.name }}">
     <div class="ov-grp-head">
-      <span class="g-name" title="Antippen = umbenennen, Namen leeren = Gruppe auflösen">{{ b.name }}</span>
+      <button type="button" class="g-name" title="Gruppe bearbeiten">{{ b.name }}</button>
+      <button type="button" class="g-edit">Bearbeiten</button>
+      <span class="handle" aria-label="Gruppe verschieben">≡</span>
       <button type="button" class="g-copy" title="Alle Angebote der Gruppe für Gemini kopieren" aria-label="Gruppe für Gemini kopieren" onclick="fundusCopy(this, '{{ b.ids | join(',') }}')">⧉</button>
     </div>
     {% if b.best %}
@@ -89,8 +92,26 @@
 {% if rows %}
 <div class="ov-foot">
   <button type="button" class="btn small ghost" id="new-group">＋ Neue Gruppe</button>
-  <p class="muted small">Gedrückt halten und ziehen: sortieren, in eine Gruppe oder heraus</p>
 </div>
+{# Gruppe anlegen / bearbeiten: Blatt von unten mit Name und Auswahl der Suchen #}
+<dialog id="grp-dlg" class="sheet">
+  <form id="grp-form">
+    <h3 id="grp-title">Neue Gruppe</h3>
+    <input id="grp-name" placeholder="Name, z.B. Kitebar" autocomplete="off" enterkeyhint="done" maxlength="60">
+    <p class="muted small">Welche Suchen gehören dazu? Du kaufst nur eines davon.</p>
+    <div class="grp-list">
+      {% for s, v in rows %}
+      <label><input type="checkbox" value="{{ s.id }}" data-group="{{ s.group_name or '' }}"><span>{{ s.query }}</span>{% if s.group_name %}<small>{{ s.group_name }}</small>{% endif %}</label>
+      {% endfor %}
+    </div>
+    <p class="warn small" id="grp-msg" hidden></p>
+    <div class="grp-btns">
+      <button type="button" class="btn ghost danger" id="grp-del">Auflösen</button>
+      <button type="button" class="btn ghost" id="grp-cancel">Abbrechen</button>
+      <button type="submit" class="btn">Speichern</button>
+    </div>
+  </form>
+</dialog>
 {% endif %}
-<script src="/static/reorder.js?v=4"></script>
+<script src="/static/reorder.js?v=5"></script>
 {% endblock %}

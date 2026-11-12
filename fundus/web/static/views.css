@@ -132,12 +132,13 @@
 .ov-grp .ov-strip { padding-left: 0; margin-left: 0; scroll-padding-left: 0; }
 .ov-grp-head { display: flex; align-items: center; gap: 8px; min-height: 26px; margin-bottom: -2px;
                -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.ov-grp-head .g-name { font-weight: 700; font-size: 15px; letter-spacing: -.01em; cursor: text; min-width: 0;
+.ov-grp-head .g-name { font: inherit; font-weight: 700; font-size: 15px; letter-spacing: -.01em; color: var(--ink); background: none;
+                       border: 0; padding: 0; min-height: 0 !important; cursor: pointer; min-width: 0; text-align: left;
                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-grp-head .g-edit { font: inherit; font-size: 12.5px; color: var(--accent); background: none; border: 0; padding: 4px 2px;
+                       min-height: 0 !important; cursor: pointer; flex: none; }
 .ov-grp-head .g-copy { margin-left: auto; width: 28px; height: 28px; min-height: 0 !important; padding: 0; border: 0; border-radius: 50%;
                        background: var(--surface-2); color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; flex: none; }
-.ov-grp-head .g-input { flex: 1; min-width: 0; font: inherit; font-weight: 700; font-size: 16px; color: var(--ink); background: transparent;
-                        border: 0; border-bottom: 1.5px solid var(--accent); border-radius: 0; padding: 2px 0; outline: none; }
 .ov-grp.is-empty::after { content: "Suchen hierher ziehen"; display: grid; place-items: center; min-height: 64px; border: 1px dashed var(--line);
                        border-radius: 16px; color: var(--muted); font-size: 13px; }
 .ov-grp .g-best { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
@@ -213,3 +214,38 @@ body.reordering .ov-strip:not(.lifted) { opacity: .85; }
   .ph { gap: 8px; }
   .ph .tile .val { font-size: 22px; }
 }
+
+/* Ordnen-Modus: jede Suche eine schmale Zeile mit Griff, sofort ziehbar (static/reorder.js) */
+.ov .handle { display: none; }
+body.ordering .ov { gap: 8px; }
+body.ordering .ov-grp { gap: 6px; }
+body.ordering .ov-strip { overflow: visible; padding: 0; margin: 0; scroll-snap-type: none; }
+body.ordering .ov-strip > :not(.ov-info), body.ordering .ov-grp .g-best,
+body.ordering .ov-info .gear, body.ordering .ov-info .pr, body.ordering .ov-info .save,
+body.ordering .ov-info .meta, body.ordering .ov-info .pill, body.ordering .ov-grp-head .g-copy { display: none; }
+body.ordering .ov-info { flex: 1 1 auto; border-radius: 14px; }
+body.ordering .ov-info-link { padding: 13px 56px 13px 14px; }
+body.ordering .ov-info .name { -webkit-line-clamp: 1; padding-right: 0; font-size: 15px; }
+body.ordering .ov .handle { display: grid; place-items: center; position: absolute; right: 0; top: 0; bottom: 0; width: 52px; z-index: 2;
+                             color: var(--muted); font-size: 22px; touch-action: none; cursor: grab; }
+body.ordering .ov-grp-head { position: relative; padding-right: 52px; min-height: 34px; }
+body.ordering .ov-strip.lifted .ov-info { transform: none; background: var(--bg); box-shadow: var(--shadow-hover); }
+
+/* Gruppe anlegen / bearbeiten: Blatt von unten */
+dialog.sheet { border: 0; padding: 0; width: 100%; max-width: 520px; margin: auto auto 0; border-radius: 22px 22px 0 0;
+               background: var(--bg); color: var(--ink); max-height: 88vh; }
+dialog.sheet::backdrop { background: rgba(0, 0, 0, .35); }
+@media (min-width: 600px) { dialog.sheet { margin: auto; border-radius: 22px; } }
+dialog.sheet form { display: grid; gap: 12px; padding: 20px 18px calc(16px + env(safe-area-inset-bottom)); }
+dialog.sheet h3 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+dialog.sheet p { margin: 0; }
+#grp-name { font: inherit; font-size: 16px; color: var(--ink); padding: 12px 14px; border-radius: 12px; border: 0; background: var(--surface-2); outline: none; }
+#grp-name:focus { box-shadow: 0 0 0 2px var(--accent); }
+.grp-list { display: grid; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; }
+.grp-list label { display: flex; align-items: center; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line); font-size: 15px; cursor: pointer; }
+.grp-list label:last-child { border-bottom: 0; }
+.grp-list input { width: 20px; height: 20px; flex: none; margin: 0; }
+.grp-list span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-list small { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.grp-btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.grp-btns #grp-del { margin-right: auto; }

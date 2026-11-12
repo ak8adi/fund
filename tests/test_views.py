@@ -80,8 +80,24 @@ def test_groups_by_drag():
         assert 'data-group="Wahl"' in page
         assert page.index('data-group="Wahl"') < page.index(f'data-id="{a}"')
         client.post("/searches/order", json={"ids": [b, a], "groups": {str(a): ""}})
-        assert 'data-group=' not in client.get("/").text
+        assert 'class="ov-grp"' not in client.get("/").text
     assert db.get_search(a)["group_name"] is None
+
+
+def test_group_sheet_create_edit_dissolve():
+    """Gruppen-Blatt: anlegen mit Auswahl, umbenennen und Mitglieder ändern in einem Schritt, auflösen."""
+    from fastapi.testclient import TestClient
+    from fundus.web import app as webapp
+    a, b, c = (db.save_search({"query": q}) for q in ("alpha", "beta", "gamma"))
+    g = lambda i: db.get_search(i)["group_name"]
+    with TestClient(webapp.app) as client:
+        client.post("/groups", json={"old": "", "name": "Kite", "ids": [a, b]})
+        assert (g(a), g(b), g(c)) == ("Kite", "Kite", None)
+        client.post("/groups", json={"old": "kite", "name": "Kitebar", "ids": [b, c]})   # a fällt heraus, c kommt dazu
+        assert (g(a), g(b), g(c)) == (None, "Kitebar", "Kitebar")
+        assert 'data-group="Kitebar"' in client.get("/").text
+        client.post("/groups", json={"old": "Kitebar", "name": "", "ids": []})
+        assert (g(a), g(b), g(c)) == (None, None, None)
 
 
 def test_groups_and_gemini_export():

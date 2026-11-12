@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='9' fill='none' stroke='%232f5d50' stroke-width='4'/%3E%3Cpath d='M21 21l7 7' stroke='%232f5d50' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css?v=18">
-  <link rel="stylesheet" href="/static/views.css?v=8">
+  <link rel="stylesheet" href="/static/views.css?v=9">
   <script src="/static/views.js?v=4"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
@@ -77,7 +77,7 @@
     // Herunterziehen zum Aktualisieren
     (() => {
       const ptr = document.getElementById('ptr'); let y0 = null, dy = 0;
-      addEventListener('touchstart', e => { y0 = scrollY <= 0 && !e.target.closest('.ov-info, .ov-grp-head') ? e.touches[0].clientY : null; dy = 0; }, {passive: true});
+      addEventListener('touchstart', e => { y0 = scrollY <= 0 && !e.target.closest('.ov-info, .ov-grp-head, dialog') && !document.body.classList.contains('ordering') && !document.querySelector('dialog[open]') ? e.touches[0].clientY : null; dy = 0; }, {passive: true});
       addEventListener('touchmove', e => {
         if (y0 === null || document.body.classList.contains('reordering')) return;
         dy = Math.max(0, e.touches[0].clientY - y0);
