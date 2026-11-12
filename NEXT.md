@@ -4,7 +4,7 @@
 mich wirklich kostet – und lohnt sich gebraucht gegenüber neu überhaupt? Melde mir nur das.
 
 Arbeitsweise: stufenweise, grösster Punkt zuerst; nichts verschlimmbessern (Wünsche nicht zu wörtlich nehmen);
-Texte in der App kurz und klar. Nichts committen ohne Auftrag. Dienst nach Änderungen neu starten:
+Texte in der App kurz und klar. Nach jeder fertigen Änderung (Tests grün) automatisch committen und pushen. Dienst nach Änderungen neu starten:
 `launchctl kickstart -k gui/$(id -u)/ch.fundus.serve` (vorher `sqlite3 data/fundus.db ".backup …"`).
 Tests: `.venv/bin/python -m pytest -q`.
 
