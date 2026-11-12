@@ -40,6 +40,13 @@ Kitebar-Suchen selbst eintragen (Suche bearbeiten › Mehr Optionen › Gruppe).
 - Look: flach, Tonflächen statt Schatten, Pillen-Knöpfe, Reiterleiste mit Symbolen und Material-Markierung,
   beste Angebote auf dem Handy als kompakte Liste, Schalter in den Einstellungen repariert
 
+## Erledigt (12.11.2026) – Gruppen in der Übersicht
+
+- Gruppen als Abschnitt mit feiner Linie links (auch mit nur einer Suche), Kopf: Name, Gemini-Kopie, beste Angebote
+- Ziehen (static/reorder.js): Suche über eine Gruppe ziehen = hinein, darüber hinaus = heraus; Gruppenkopf ziehen =
+  ganze Gruppe verschieben; Name antippen = umbenennen (leer = auflösen); «Neue Gruppe» unten legt oben eine leere an
+  (gespeichert erst, wenn eine Suche drin ist). Server: /searches/order mit {"groups": {id: name}}, db.set_search_groups
+
 ## Danach (vorgeschlagen, noch nicht bestätigt)
 
 - Suchprofil pro Suche (KI, einmalig): Produkt/Kategorie, Pflichtmerkmale, Varianten für den Marktpreis,

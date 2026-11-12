@@ -650,11 +650,16 @@ def buy_new(request: Request, sid: int):
 
 @app.post("/searches/order")
 async def order_searches(request: Request):
-    """Übersicht per Ziehen sortiert: {"ids": [oben … unten]}."""
+    """Übersicht per Ziehen sortiert: {"ids": [oben … unten], "groups": {id: Gruppenname oder ""}} – beides optional."""
     from fastapi.responses import JSONResponse
-    ids = [int(i) for i in (await request.json()).get("ids", []) if str(i).isdigit()]
+    data = await request.json()
     known = {s["id"] for s in db.list_searches()}
-    db.set_search_order([i for i in ids if i in known])
+    ids = [int(i) for i in data.get("ids") or [] if str(i).isdigit()]
+    if ids:
+        db.set_search_order([i for i in ids if i in known])
+    groups = data.get("groups") or {}
+    if isinstance(groups, dict):
+        db.set_search_groups({int(k): str(v or "") for k, v in groups.items() if str(k).isdigit() and int(k) in known})
     return JSONResponse({"ok": True})
 
 

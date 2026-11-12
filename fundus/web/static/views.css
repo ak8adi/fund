@@ -125,13 +125,29 @@
                  text-decoration: none; background: var(--surface); color: var(--muted); font-size: 14px; z-index: 1; }
 .ov-info .gear.copy { top: auto; bottom: 6px; border: 0; cursor: pointer; font: inherit; font-size: 13px; }
 .ov-info .meta { padding-right: 26px; }
-/* Entweder-oder-Gruppe: Kopfzeile über ihren Suchen, mit den besten Angeboten über alle hinweg */
-.ov-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 0 -4px; min-width: 0; }
-.ov-group .g-name { font-weight: 750; font-size: 15px; letter-spacing: -.02em; }
-.ov-group .g-best { flex-basis: 100%; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-.ov-group .g-best a { flex: 0 0 auto; max-width: 150px; padding: 5px 9px; border-radius: 9px; background: var(--surface-2);
-  text-decoration: none; font-size: 12.5px; line-height: 1.25; }
-.ov-group .g-best a .t { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Entweder-oder-Gruppe: nur eine feine Linie links zeigt, von wo bis wo sie reicht */
+.ov-grp { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding-left: 12px; }
+.ov-grp::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 3px;
+                  background: color-mix(in srgb, var(--accent) 32%, transparent); }
+.ov-grp .ov-strip { padding-left: 0; margin-left: 0; scroll-padding-left: 0; }
+.ov-grp-head { display: flex; align-items: center; gap: 8px; min-height: 26px; margin-bottom: -2px;
+               -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.ov-grp-head .g-name { font-weight: 700; font-size: 15px; letter-spacing: -.01em; cursor: text; min-width: 0;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-grp-head .g-copy { margin-left: auto; width: 28px; height: 28px; min-height: 0 !important; padding: 0; border: 0; border-radius: 50%;
+                       background: var(--surface-2); color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; flex: none; }
+.ov-grp-head .g-input { flex: 1; min-width: 0; font: inherit; font-weight: 700; font-size: 16px; color: var(--ink); background: transparent;
+                        border: 0; border-bottom: 1.5px solid var(--accent); border-radius: 0; padding: 2px 0; outline: none; }
+.ov-grp.is-empty::after { content: "Suchen hierher ziehen"; display: grid; place-items: center; min-height: 64px; border: 1px dashed var(--line);
+                       border-radius: 16px; color: var(--muted); font-size: 13px; }
+.ov-grp .g-best { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.ov-grp .g-best::-webkit-scrollbar { display: none; }
+.ov-grp .g-best a { flex: 0 0 auto; max-width: 150px; padding: 5px 10px; border-radius: 12px; background: var(--surface-2);
+                    text-decoration: none; font-size: 12.5px; line-height: 1.25; }
+.ov-grp .g-best a .t { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-grp.lifted { z-index: 5; background: var(--bg); box-shadow: var(--shadow-hover); border-radius: 16px; }
+.ov-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 22px; }
+.ov-foot p { margin: 0; text-align: center; }
 .ov-info-link { display: flex; flex-direction: column; gap: 3px; padding: 10px 10px 9px; height: 100%; text-decoration: none; }
 .ov-info .name { font-weight: 750; font-size: 14.5px; letter-spacing: -.02em; line-height: 1.2; padding-right: 26px;
                  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

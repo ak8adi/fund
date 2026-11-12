@@ -433,6 +433,13 @@ def set_search_order(ids: list[int]) -> None:
             c.execute("UPDATE searches SET position = ? WHERE id = ?", (pos, sid))
 
 
+def set_search_groups(groups: dict[int, str]) -> None:
+    """Gruppe pro Suche setzen (aus der Übersicht per Ziehen); leerer Name = keine Gruppe."""
+    with connect() as c:
+        for sid, name in groups.items():
+            c.execute("UPDATE searches SET group_name = ? WHERE id = ?", ((name or "").strip()[:60] or None, sid))
+
+
 def delete_search(search_id: int) -> None:
     with connect() as c:
         c.execute("DELETE FROM searches WHERE id = ?", (search_id,))

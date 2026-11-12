@@ -69,6 +69,21 @@ def test_search_order_by_drag():
     assert db.list_searches()[0]["id"] == d                           # neue Suche wieder ganz oben
 
 
+def test_groups_by_drag():
+    """Übersicht: Suche in eine Gruppe ziehen, herausziehen; eine Gruppe mit nur einer Suche ist trotzdem sichtbar."""
+    from fastapi.testclient import TestClient
+    from fundus.web import app as webapp
+    a, b = (db.save_search({"query": q}) for q in ("alpha", "beta"))
+    with TestClient(webapp.app) as client:
+        client.post("/searches/order", json={"groups": {str(a): "Wahl", str(b): ""}})
+        page = client.get("/").text
+        assert 'data-group="Wahl"' in page
+        assert page.index('data-group="Wahl"') < page.index(f'data-id="{a}"')
+        client.post("/searches/order", json={"ids": [b, a], "groups": {str(a): ""}})
+        assert 'data-group=' not in client.get("/").text
+    assert db.get_search(a)["group_name"] is None
+
+
 def test_groups_and_gemini_export():
     """Entweder-oder-Gruppe: Mitglieder stehen beieinander, gemeinsame Bestenliste, ein Text für Gemini."""
     from fundus import scoring
@@ -92,7 +107,7 @@ def test_groups_and_gemini_export():
     assert "entweder–oder" in text and "=== sensor bar drei ===" in text and "https://x/" in text and "Endpreis" in text
     with TestClient(__import__("fundus.web.app", fromlist=["app"]).app) as client:
         page = client.get("/").text
-        assert "ov-group" in page and "Für Gemini kopieren" in page
+        assert "ov-grp" in page and "für Gemini kopieren" in page
         assert client.get(f"/api/gemini?ids={ids[1]}").text.startswith("Analysiere diese Inserate")
 
 

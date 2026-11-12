@@ -63,10 +63,13 @@
 {% endmacro %}
 <div class="ov">
   {% for b in blocks %}
-  {% if b.name and b.rows | length > 1 %}
-  <div class="ov-group">
-    <span class="g-name" title="Entweder-oder-Gruppe: du kaufst nur eines davon">{{ b.name }}</span>
-    <button type="button" class="btn small ghost" onclick="fundusCopy(this, '{{ b.ids | join(',') }}')">Für Gemini kopieren</button>
+  {% if b.name %}
+  {# Entweder-oder-Gruppe: dünne Linie links zeigt, wie weit sie reicht; Kopf gedrückt halten = ganze Gruppe ziehen #}
+  <section class="ov-grp" data-group="{{ b.name }}">
+    <div class="ov-grp-head">
+      <span class="g-name" title="Antippen = umbenennen, Namen leeren = Gruppe auflösen">{{ b.name }}</span>
+      <button type="button" class="g-copy" title="Alle Angebote der Gruppe für Gemini kopieren" aria-label="Gruppe für Gemini kopieren" onclick="fundusCopy(this, '{{ b.ids | join(',') }}')">⧉</button>
+    </div>
     {% if b.best %}
     <div class="g-best">
       {% for o in b.best %}
@@ -75,12 +78,19 @@
       {% endfor %}
     </div>
     {% endif %}
-  </div>
-  {% endif %}
+    {% for s, v in b.rows %}{{ strip_row(s, v) }}{% endfor %}
+  </section>
+  {% else %}
   {% for s, v in b.rows %}{{ strip_row(s, v) }}{% endfor %}
+  {% endif %}
   {% endfor %}
 </div>
 </div>
-{% if rows | length > 1 %}<p class="muted small" style="margin-top:18px;text-align:center">Gedrückt halten und ziehen = Reihenfolge ändern</p>{% endif %}
-<script src="/static/reorder.js?v=2"></script>
+{% if rows %}
+<div class="ov-foot">
+  <button type="button" class="btn small ghost" id="new-group">＋ Neue Gruppe</button>
+  <p class="muted small">Gedrückt halten und ziehen: sortieren, in eine Gruppe oder heraus</p>
+</div>
+{% endif %}
+<script src="/static/reorder.js?v=4"></script>
 {% endblock %}
