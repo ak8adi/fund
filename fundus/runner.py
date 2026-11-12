@@ -59,6 +59,7 @@ def available_sources(cfg: dict) -> list[dict]:
                 "last_run": st.get("last_run"),
                 "last_count": st.get("last_count"),
                 "last_error": st.get("last_error"),
+                "last_partial": st.get("last_partial"),
             })
     return out
 
@@ -329,6 +330,8 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
     total_new, errors = 0, 0
     source_counts: dict[str, int] = {}
     source_errors: dict[str, str] = {}
+    source_tries: dict[str, int] = {}   # Abfragen je Quelle in diesem Lauf (für «1 von 13 fehlgeschlagen»)
+    source_fails: dict[str, int] = {}
     paused = _paused_sources([s["name"] for s in sources])
     blocked: set[str] = set(paused)
     for name, until in paused.items():
@@ -359,6 +362,7 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                 time.sleep(random.uniform(lo, hi))
             first_request = False
             adapter = adapter_for_source(adapters, src["name"])
+            source_tries[src["name"]] = source_tries.get(src["name"], 0) + 1
             try:
                 deep = getattr(adapter, "paged", False) and src["name"] not in deep_before
                 found, deeper = _search_pages(adapter, search, src["name"], deep, known,
@@ -382,10 +386,12 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
                     blocked.add(src["name"])
                     db.mark_platform_blocked(src["name"], exc.retry_after)
                 errors += 1
+                source_fails[src["name"]] = source_fails.get(src["name"], 0) + 1
                 source_errors[src["name"]] = str(exc)
                 log.warning("%s / %s: %s", search["query"], src["name"], exc)
             except Exception as exc:  # Netzwerk, unerwartete Antwort …
                 errors += 1
+                source_fails[src["name"]] = source_fails.get(src["name"], 0) + 1
                 source_errors[src["name"]] = f"{type(exc).__name__}: {exc}"
                 log.exception("%s / %s fehlgeschlagen", search["query"], src["name"])
 
@@ -545,7 +551,9 @@ def _run(trigger: str, search_ids: list[int] | None) -> dict:
             until = paused[src["name"]].astimezone().strftime("%d.%m. %H:%M")
             db.record_platform_result(src["name"], None, f"Pausiert nach Sperre bis {until}")
         elif any(not s["platforms"] or src["adapter"] in s["platforms"] for s in searches):
-            db.record_platform_result(src["name"], source_counts.get(src["name"], 0), source_errors.get(src["name"]))
+            db.record_platform_result(src["name"], source_counts.get(src["name"], 0), source_errors.get(src["name"]),
+                                      fails=source_tries.get(src["name"], 0) if src["name"] in blocked   # Sperre: nie «teilweise»
+                                      else source_fails.get(src["name"], 0), tries=source_tries.get(src["name"], 0))
     db.finish_run(run_id, total_new, errors)
     return {"searches": len(searches), "new": total_new, "errors": errors}
 

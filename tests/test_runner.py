@@ -177,3 +177,23 @@ def test_kleinanzeigen_url_with_price_and_page():
     assert a.search_url("macbook pro") == "https://www.kleinanzeigen.de/s-macbook-pro/k0"
     assert a.search_url("macbook pro", 2) == "https://www.kleinanzeigen.de/s-seite:2/macbook-pro/k0"
     assert a.search_url("sessel", 2, 50, 500) == "https://www.kleinanzeigen.de/s-preis:48:585/seite:2/sessel/k0"
+
+
+def test_one_failing_query_leaves_platform_delivering(monkeypatch):
+    """Lauf 12.11.: Tutti lieferte für 12 Suchen, bei «tisch» kam HTTP 502 → kein Plattformfehler, nur «1 von 3»."""
+    from fundus.adapters import AdapterError
+
+    class Flaky(FakeAdapter):
+        def search(self, query, source, min_price, max_price):
+            if query == "tisch":
+                raise AdapterError("HTTP 502 für https://x/tisch")
+            return [item(1, title=f"{query} 1")]
+
+    monkeypatch.setattr(runner, "all_adapters", lambda cfg: [Flaky(cfg)])
+    monkeypatch.setattr(runner.time, "sleep", lambda s: None)
+    monkeypatch.setattr(runner.random, "uniform", lambda a, b: 0)
+    for q in ("sofa", "tisch", "lampe"):
+        db.save_search({"query": q})
+    runner.run("test")
+    st = db.platform_states()["ricardo"]
+    assert st["last_error"] is None and st["last_partial"].startswith("1 von 3 Abfragen fehlgeschlagen")

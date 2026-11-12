@@ -114,28 +114,39 @@ def http_client() -> httpx.Client:
     )
 
 
+TRANSIENT = (500, 502, 504)
+RETRY_WAIT = 8.0   # Sekunden vor dem einen Neuversuch
+
+
+def _get(url: str, impersonate: str, headers: dict | None):
+    if CURL_AVAILABLE:
+        return curl_requests.get(url, impersonate=impersonate, timeout=25, headers=headers)
+    with http_client() as client:
+        if headers:
+            client.headers.update(headers)
+        return client.get(url)
+
+
 def fetch_html(url: str, fetcher: str = "http", headers: dict | None = None, impersonate: str = "chrome") -> str:
     """Eine einzige Seitenabfrage. fetcher='browser' nutzt Playwright (optional installiert).
     impersonate: Browser-Fingerabdruck von curl_cffi, z.B. «chrome_android» für die mobile Seite."""
     if fetcher == "browser":
         return _fetch_with_browser(url)
-    _wait_for_host(url)
-
-    if CURL_AVAILABLE:
+    # Vorübergehende Störung (502/500/504, Zeitüberschreitung, Verbindung): genau ein Neuversuch nach kurzer Pause.
+    # Sperren (403/429/503) nie wiederholen – dort hilft nur Abstand.
+    for attempt in (1, 2):
+        _wait_for_host(url)
         try:
-            resp = curl_requests.get(
-                url,
-                impersonate=impersonate,
-                timeout=25,
-                headers=headers
-            )
+            resp = _get(url, impersonate, headers)
         except Exception as e:
+            if attempt == 1:
+                time.sleep(RETRY_WAIT)
+                continue
             raise AdapterError(f"HTTP Fehler für {url}: {e}")
-    else:
-        with http_client() as client:
-            if headers:
-                client.headers.update(headers)
-            resp = client.get(url)
+        if resp.status_code in TRANSIENT and attempt == 1:
+            time.sleep(RETRY_WAIT)
+            continue
+        break
 
     if resp.status_code in (403, 429, 503):
         kind = "Bot-Schutz (Cloudflare-Challenge)" if resp.headers.get("cf-mitigated") else (

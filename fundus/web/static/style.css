@@ -73,6 +73,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 0 24px 60px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .warn { color: var(--warn); }
+.source .partial { color: var(--check); cursor: help; }
 .ok { color: var(--ok); }
 .inline { display: inline; margin: 0; }
 

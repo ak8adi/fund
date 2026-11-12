@@ -375,6 +375,8 @@ def _health(sources: list[dict]) -> list[dict]:
         else:
             st, short = ("ok", str(count)) if count else ("zero", "0")
             info = f"{count or 0} Treffer im letzten Lauf · {ago(s['last_run'])}"
+            if s.get("last_partial"):   # einzelne Abfrage gestört, Plattform liefert: kein Hinweis auf der Übersicht
+                info += f" · {s['last_partial']}"
         out.append({"label": s["label"], "state": st, "short": short, "info": info})
     return out
 

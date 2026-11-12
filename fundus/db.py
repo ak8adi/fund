@@ -293,6 +293,8 @@ def init_db() -> None:
         p_cols = {r["name"] for r in c.execute("PRAGMA table_info(platforms)")}
         if "blocked_at" not in p_cols:
             c.execute("ALTER TABLE platforms ADD COLUMN blocked_at TEXT")  # letzte Sperre (403/429/Captcha)
+        if "last_partial" not in p_cols:  # «1 von 13 Abfragen fehlgeschlagen: …», wenn die Plattform sonst geliefert hat
+            c.execute("ALTER TABLE platforms ADD COLUMN last_partial TEXT")
         if "blocked_until" not in p_cols:  # Pause nach Sperre; block_count: Sperren in Folge (für längere Pausen)
             c.execute("ALTER TABLE platforms ADD COLUMN blocked_until TEXT")
             c.execute("ALTER TABLE platforms ADD COLUMN block_count INTEGER NOT NULL DEFAULT 0")
@@ -922,11 +924,16 @@ def mark_platform_blocked(name: str, retry_after: int | None = None) -> datetime
         return until
 
 
-def record_platform_result(name: str, count: int | None, error: str | None) -> None:
+def record_platform_result(name: str, count: int | None, error: str | None, fails: int = 0, tries: int = 0) -> None:
+    """Ergebnis eines Laufs. Ist nur ein Teil der Abfragen fehlgeschlagen (fails < tries), gilt die Plattform als
+    liefernd: der Fehler steht dann als Hinweis in last_partial, nicht als Fehler der Plattform in last_error."""
+    partial = None
+    if error and 0 < fails < tries:
+        partial, error = f"{fails} von {tries} Abfragen fehlgeschlagen: {error}", None
     with connect() as c:
         c.execute(
-            "UPDATE platforms SET last_run = ?, last_count = ?, last_error = ? WHERE name = ?",
-            (now(), count, error, name),
+            "UPDATE platforms SET last_run = ?, last_count = ?, last_error = ?, last_partial = ? WHERE name = ?",
+            (now(), count, error, partial, name),
         )
         if count is not None and error is None:  # hat wieder geliefert: nächste Sperre beginnt mit kurzer Pause
             c.execute("UPDATE platforms SET block_count = 0 WHERE name = ?", (name,))

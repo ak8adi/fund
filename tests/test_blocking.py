@@ -44,3 +44,39 @@ def test_host_gap(monkeypatch):
     base._wait_for_host("https://www.ricardo.ch/de/s/b/")
     base._wait_for_host("https://www.tutti.ch/de/q/suche?query=a")  # andere Hosts: keine Wartezeit
     assert len(slept) == 1 and 59 < slept[0] <= 60
+
+
+class _Resp:
+    def __init__(self, status, text="<html>ok</html>"):
+        self.status_code, self.text, self.headers = status, text, {}
+
+
+def test_transient_error_is_retried_once(monkeypatch):
+    """Tutti 12.11.: einmal HTTP 502 – ein Neuversuch nach kurzer Pause; Sperren (429) werden nie wiederholt."""
+    import pytest
+    slept, answers = [], []
+    monkeypatch.setattr(base.time, "sleep", slept.append)
+    monkeypatch.setattr(base, "_get", lambda url, imp, h: answers.pop(0))
+    answers[:] = [_Resp(502), _Resp(200)]
+    assert base.fetch_html("https://www.tutti.ch/de/q/suche?query=tisch") == "<html>ok</html>"
+    assert slept == [base.RETRY_WAIT]
+    answers[:] = [_Resp(502), _Resp(502)]
+    with pytest.raises(base.AdapterError, match="HTTP 502"):
+        base.fetch_html("https://www.tutti.ch/de/q/suche?query=tisch")
+    answers[:] = [_Resp(429), _Resp(200)]
+    with pytest.raises(base.BlockedError):
+        base.fetch_html("https://www.tutti.ch/de/q/suche?query=tisch")
+    assert len(answers) == 1                                             # 429: kein zweiter Versuch
+
+
+def test_single_failed_query_is_not_a_platform_error():
+    """1 von 13 Abfragen gescheitert → Plattform liefert, Hinweis «teilweise»; alle gescheitert → Fehler."""
+    db.ensure_platforms(["tutti"])
+    db.record_platform_result("tutti", 231, "HTTP 502 für https://www.tutti.ch/…", fails=1, tries=13)
+    st = db.platform_states()["tutti"]
+    assert st["last_error"] is None and st["last_partial"].startswith("1 von 13 Abfragen fehlgeschlagen: HTTP 502")
+    db.record_platform_result("tutti", 0, "HTTP 502 für https://www.tutti.ch/…", fails=13, tries=13)
+    st = db.platform_states()["tutti"]
+    assert st["last_error"].startswith("HTTP 502") and st["last_partial"] is None
+    db.record_platform_result("tutti", 200, None, fails=0, tries=13)
+    assert db.platform_states()["tutti"]["last_error"] is None
