@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fundus",
+      "runtimeExecutable": ".venv/bin/fundus",
+      "runtimeArgs": [
+        "serve"
+      ],
+      "port": 8100
+    }
+  ]
+}
